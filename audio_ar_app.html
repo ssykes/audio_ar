@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio AR - Walkable Sound Experience</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        
+        #status {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1.1em;
+        }
+        
+        #status.ready {
+            background: rgba(0,255,0,0.2);
+            border: 2px solid #0f0;
+        }
+        
+        #status.error {
+            background: rgba(255,0,0,0.2);
+            border: 2px solid #f00;
+        }
+        
+        #status.warning {
+            background: rgba(255,255,0,0.2);
+            border: 2px solid #ff0;
+        }
+        
+        .locations {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .location {
+            background: rgba(255,255,255,0.05);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .location.active {
+            background: rgba(0,255,0,0.15);
+            border-color: #0f0;
+            transform: scale(1.05);
+        }
+        
+        .location-icon {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .location-name {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        .location-freq {
+            color: #888;
+            font-size: 0.9em;
+        }
+        
+        .location-distance {
+            margin-top: 10px;
+            font-size: 0.85em;
+            color: #aaa;
+        }
+        
+        #startBtn {
+            width: 100%;
+            padding: 20px;
+            font-size: 1.3em;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        #startBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102,126,234,0.4);
+        }
+        
+        #startBtn:active {
+            transform: translateY(0);
+        }
+        
+        #startBtn:disabled {
+            background: #444;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .info-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+        }
+        
+        .info-section h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        
+        .info-section ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .info-section li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .info-section li:last-child {
+            border-bottom: none;
+        }
+        
+        .gps-coords {
+            font-family: monospace;
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-size: 0.85em;
+            overflow-x: auto;
+        }
+        
+        .preload-progress {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            margin-top: 15px;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .preload-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .compass {
+            width: 80px;
+            height: 80px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            margin: 20px auto;
+            position: relative;
+            background: rgba(255,255,255,0.05);
+        }
+        
+        .compass-needle {
+            width: 4px;
+            height: 30px;
+            background: linear-gradient(to bottom, #f00 50%, #fff 50%);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -100%);
+            transform-origin: bottom center;
+            transition: transform 0.1s ease;
+        }
+        
+        .compass-n {
+            position: absolute;
+            top: 5px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8em;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎧 Audio AR Experience <span style="font-size:0.5em; color:#666;">v4.3 CONFIG + HIDDEN TESTS</span></h1>
+        <p class="subtitle">Walk between 4 spatial sound locations</p>
+        
+        <div id="status">Tap "Start Experience" to begin</div>
+        
+        <div class="preload-progress" id="preloadProgress">
+            <div class="preload-bar" id="preloadBar"></div>
+        </div>
+        
+        <div class="locations">
+            <div class="location" id="loc1">
+                <div class="location-icon">🔔</div>
+                <div class="location-name">Sine Wave</div>
+                <div class="location-freq">440 Hz (A4)</div>
+                <div class="location-distance" id="dist1">-- m</div>
+            </div>
+            
+            <div class="location" id="loc2">
+                <div class="location-icon">🔺</div>
+                <div class="location-name">Triangle</div>
+                <div class="location-freq">660 Hz (E5)</div>
+                <div class="location-distance" id="dist2">-- m</div>
+            </div>
+            
+            <div class="location" id="loc3">
+                <div class="location-icon">🔲</div>
+                <div class="location-name">Square Wave</div>
+                <div class="location-freq">523 Hz (C5)</div>
+                <div class="location-distance" id="dist3">-- m</div>
+            </div>
+            
+            <div class="location" id="loc4">
+                <div class="location-icon">🔶</div>
+                <div class="location-name">Sawtooth</div>
+                <div class="location-freq">784 Hz (G5)</div>
+                <div class="location-distance" id="dist4">-- m</div>
+            </div>
+        </div>
+        
+        <div class="compass">
+            <div class="compass-n">N</div>
+            <div class="compass-needle" id="compassNeedle"></div>
+        </div>
+        
+        <button id="startBtn">Start Experience</button>
+        
+        <!-- Config section -->
+        <div id="configSection" style="margin-top:15px; padding:15px; background:rgba(255,255,255,0.1); border-radius:12px; display:none;">
+            <h4 style="margin-bottom:10px;">⚙️ Configuration</h4>
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                <div>
+                    <label style="font-size:0.85em; color:#aaa;">Spacing (m)</label>
+                    <input type="number" id="spacingInput" value="15" step="1" 
+                           style="width:100%; padding:8px; border-radius:6px; border:1px solid #444; background:#222; color:#fff;">
+                </div>
+                <div>
+                    <label style="font-size:0.85em; color:#aaa;">Activation Radius (m)</label>
+                    <input type="number" id="radiusInput" value="20" step="1"
+                           style="width:100%; padding:8px; border-radius:6px; border:1px solid #444; background:#222; color:#fff;">
+                </div>
+            </div>
+            <button id="applyConfigBtn" style="margin-top:10px; width:100%; padding:10px; background:#667eea; color:#fff; border:none; border-radius:6px; cursor:pointer;">Apply & Restart</button>
+        </div>
+        
+        <!-- Hidden test buttons -->
+        <div id="testButtons" style="display:none;">
+            <button id="testSoundsBtn" style="margin-top:10px; padding:10px; background:#444; width:100%;">🔊 Test All Sounds</button>
+            <button id="simpleBeepBtn" style="margin-top:10px; padding:10px; background:#333; width:100%;">🔴 Simple Beep Test</button>
+            <button id="compassTestBtn" style="margin-top:10px; padding:10px; background:#224; width:100%;">🧭 Compass Panning Test</button>
+            <button id="autoRotateBtn" style="margin-top:10px; padding:10px; background:#252; width:100%;">🔄 Auto-Rotate Test</button>
+        </div>
+        
+        <!-- Config toggle button -->
+        <button id="configToggleBtn" style="margin-top:10px; padding:10px; background:#333; width:100%; display:none;">⚙️ Settings</button>
+        
+        <div class="info-section">
+
+        <!-- Debug: Real-time GPS location -->
+        <div class="info-section" style="margin-top: 20px; background: rgba(255,100,100,0.1); border: 1px solid rgba(255,100,100,0.3);">
+            <h3>🛰️ My Current Location</h3>
+            <div class="gps-coords" id="myLocation" style="background: rgba(0,0,0,0.5);">
+Waiting for GPS...
+            </div>
+            <div class="gps-coords" id="soundLocations" style="margin-top: 10px;">
+Waiting for sound positions...
+            </div>
+        </div>
+        
+        <!-- Debug Console (on-page) -->
+        <div class="info-section" style="margin-top: 20px; background: rgba(0,0,0,0.8); border: 1px solid #444; font-family: monospace; font-size: 0.75em; max-height: 200px; overflow-y: auto;">
+            <h3>📋 Debug Console</h3>
+            <div id="debugConsole" style="color: #0f0; white-space: pre-wrap;">Ready...</div>
+        </div>
+    </div>
+    
+    <script>
+        // ============================================
+        // CONFIGURATION (editable via UI)
+        // ============================================
+
+        let SPACING = 15;
+        let ACTIVATION_RADIUS = 20;
+
+        // ============================================
+        // DO NOT EDIT BELOW THIS LINE
+        // ============================================
+
+        let audioContext = null;
+        let masterGain = null;
+        let audioDestination = null;
+        let userLat = null;
+        let userLon = null;
+        let centerLat = null;
+        let centerLon = null;
+        let userHeading = 0;
+        let activeSources = {};
+        let preloadComplete = false;
+        let locations = [];
+        let testMode = false; // When true, sounds play at max volume regardless of location
+
+        // Calculate GPS positions for 4 tones (square pattern) based on current location
+        function calculateLocations(lat, lon) {
+            return [
+            {
+                id: 1,
+                name: 'Sine Wave',
+                freq: 440,
+                wave: 'sine',
+                lat: lat + (SPACING / 111000),
+                lon: lon - (SPACING / (111000 * Math.cos(lat * Math.PI / 180))),
+                icon: '🔔'
+            },
+            {
+                id: 2,
+                name: 'Triangle',
+                freq: 660,
+                wave: 'triangle',
+                lat: lat + (SPACING / 111000),
+                lon: lon + (SPACING / (111000 * Math.cos(lat * Math.PI / 180))),
+                icon: '🔺'
+            },
+            {
+                id: 3,
+                name: 'Square Wave',
+                freq: 523,
+                wave: 'square',
+                lat: lat - (SPACING / 111000),
+                lon: lon - (SPACING / (111000 * Math.cos(lat * Math.PI / 180))),
+                icon: '🔲'
+            },
+            {
+                id: 4,
+                name: 'Sawtooth',
+                freq: 784,
+                wave: 'sawtooth',
+                lat: lat - (SPACING / 111000),
+                lon: lon + (SPACING / (111000 * Math.cos(lat * Math.PI / 180))),
+                icon: '🔶'
+            }
+        ];
+        }
+
+        // Status element
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const testSoundsBtn = document.getElementById('testSoundsBtn');
+        const simpleBeepBtn = document.getElementById('simpleBeepBtn');
+        const compassTestBtn = document.getElementById('compassTestBtn');
+        const autoRotateBtn = document.getElementById('autoRotateBtn');
+        const preloadProgress = document.getElementById('preloadProgress');
+        const preloadBar = document.getElementById('preloadBar');
+        const compassNeedle = document.getElementById('compassNeedle');
+        const debugConsole = document.getElementById('debugConsole');
+        
+        // Debug logging function
+        function debugLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            console.log(logMessage);
+            if (debugConsole) {
+                debugConsole.textContent = logMessage + '\n' + debugConsole.textContent;
+                // Keep only last 20 lines
+                const lines = debugConsole.textContent.split('\n');
+                if (lines.length > 20) {
+                    debugConsole.textContent = lines.slice(0, 20).join('\n');
+                }
+            }
+        }
+        
+        // Start button handler
+        startBtn.addEventListener('click', async () => {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Requesting location permission...';
+
+            try {
+                // Request iOS location permission first (must be in user gesture)
+                await requestLocationPermission();
+
+                // Get current GPS location first
+                centerLat = await getCurrentGPS();
+                centerLon = userLon; // getCurrentGPS sets userLon
+
+                // Calculate sound positions based on current location
+                locations = calculateLocations(centerLat, centerLon);
+
+                // Create audio context (must be in user gesture)
+                audioContext = new AudioContext();
+
+                // Create master gain for volume
+                masterGain = audioContext.createGain();
+                masterGain.gain.value = 0.5; // 50% volume - reduce if too loud
+
+                // Connect masterGain directly to destination
+                masterGain.connect(audioContext.destination);
+
+                // Use masterGain as the destination for sounds
+                audioDestination = masterGain;
+
+                console.log('Audio context created with 50% master volume');
+                
+                // Reset test mode on fresh start
+                testMode = false;
+
+                // TEST: Play a short test tone to verify audio works
+                await playTestTone();
+
+                // Show preload progress
+                preloadProgress.style.display = 'block';
+
+                // Preload all sounds (generate them)
+                await preloadAllSounds();
+
+                // Request permissions
+                await requestPermissions();
+
+                // Start tracking
+                startTracking();
+
+                statusEl.textContent = '✅ Ready! Walk to the locations to hear sounds.';
+                statusEl.className = 'ready';
+                startBtn.textContent = 'Experience Running';
+                
+                // Show test sounds button
+                testSoundsBtn.style.display = 'block';
+                simpleBeepBtn.style.display = 'block';
+                compassTestBtn.style.display = 'block';
+                autoRotateBtn.style.display = 'block';
+                configToggleBtn.style.display = 'block';
+                
+                // Set config input values
+                document.getElementById('spacingInput').value = SPACING;
+                document.getElementById('radiusInput').value = ACTIVATION_RADIUS;
+                
+                debugLog('Experience started - audio context created');
+
+            } catch (err) {
+                statusEl.textContent = '❌ Error: ' + err.message;
+                statusEl.className = 'error';
+                startBtn.disabled = false;
+                startBtn.textContent = 'Try Again';
+            }
+        });
+
+        // Play a short test tone to verify audio is working
+        async function playTestTone() {
+            return new Promise((resolve) => {
+                console.log('🔊 Playing test tone...');
+                
+                const testOsc = audioContext.createOscillator();
+                const testGain = audioContext.createGain();
+                testGain.gain.value = 1.0;
+
+                testOsc.connect(testGain);
+                testGain.connect(masterGain); // Use master gain
+
+                testOsc.type = 'square';
+                testOsc.frequency.value = 880;
+
+                testOsc.start();
+                console.log('✅ MAX VOLUME test tone started');
+                statusEl.textContent = '🔊 MAX VOLUME test...';
+
+                setTimeout(() => {
+                    testOsc.stop();
+                    testOsc.disconnect();
+                    console.log('✅ Test tone complete');
+                    resolve();
+                }, 500);
+            });
+        }
+        
+        // Test button - play all sounds at full volume (ignores location)
+        testSoundsBtn.addEventListener('click', () => {
+            // Toggle test mode
+            testMode = !testMode;
+
+            if (testMode) {
+                console.log('🔊 TEST MODE ON - MAX VOLUME regardless of location');
+
+                // Resume if suspended
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+
+                // Set all sounds to MAX volume, bypass panner positioning
+                locations.forEach(loc => {
+                    if (activeSources[loc.id]) {
+                        const source = activeSources[loc.id];
+                        console.log(`🔊 ${loc.name}: MAX VOLUME (bypassing GPS and panner)`);
+                        
+                        // Reset panner position to center (no 3D attenuation)
+                        source.panner.positionX.value = 0;
+                        source.panner.positionY.value = 0;
+                        source.panner.positionZ.value = 0;
+                        
+                        // Set gain to MAX
+                        source.gainNode.gain.cancelScheduledValues(audioContext.currentTime);
+                        source.gainNode.gain.setValueAtTime(1.0, audioContext.currentTime);
+                    }
+                });
+                statusEl.textContent = '🔊 TEST MODE: MAX VOLUME (tap again to exit)';
+                testSoundsBtn.textContent = '⏹️ Stop Test';
+            } else {
+                console.log('🔊 TEST MODE OFF - back to GPS-controlled volume');
+                statusEl.textContent = '✅ Ready! Walk to the locations to hear sounds.';
+                testSoundsBtn.textContent = '🔊 Test All Sounds';
+            }
+        });
+        
+        // Direct test - create fresh sounds that go straight to output (no panner)
+        let testBeepOscillators = []; // Track for cleanup
+        
+        simpleBeepBtn.addEventListener('click', () => {
+            console.log('🔴 DIRECT BEEP Test - bypassing ALL spatial audio');
+
+            if (!audioContext) {
+                console.error('❌ No audio context!');
+                statusEl.textContent = '❌ No audio context available';
+                return;
+            }
+
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+
+            // Stop any previous test beeps
+            testBeepOscillators.forEach(({osc, gain}) => {
+                osc.stop();
+                osc.disconnect();
+                gain.disconnect();
+            });
+            testBeepOscillators = [];
+
+            // Create 4 oscillators directly connected to master gain (no panner!)
+            [440, 660, 523, 784].forEach((freq, i) => {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                gain.gain.value = 0.75; // Each gets 75%
+                
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                
+                osc.connect(gain);
+                gain.connect(masterGain); // Direct to master, no panner
+                
+                osc.start();
+                testBeepOscillators.push({osc, gain});
+                console.log(`🔊 Direct test: ${freq}Hz`);
+            });
+
+            statusEl.textContent = '🔴 Playing 4 tones directly...';
+
+            // Stop after 1 second
+            setTimeout(() => {
+                testBeepOscillators.forEach(({osc, gain}) => {
+                    osc.stop();
+                    osc.disconnect();
+                    gain.disconnect();
+                });
+                testBeepOscillators = [];
+                console.log('✅ Direct test complete');
+                statusEl.textContent = '✅ Ready! Walk to the locations to hear sounds.';
+            }, 1000);
+        });
+        
+        // Compass panning test - fixed position tone with panner (no GPS drift)
+        let compassTestOsc = null;
+        let compassTestPanner = null;
+        let compassTestActive = false;
+        let gpsAudioPaused = false; // Mute GPS audio during compass test
+        
+        compassTestBtn.addEventListener('click', () => {
+            if (compassTestActive) {
+                // Stop test
+                if (compassTestOsc) {
+                    compassTestOsc.stop();
+                    compassTestOsc.disconnect();
+                }
+                compassTestOsc = null;
+                compassTestPanner = null;
+                compassTestActive = false;
+                gpsAudioPaused = false; // Resume GPS audio
+                compassTestBtn.textContent = '🧭 Compass Panning Test';
+                compassTestBtn.style.background = '#224';
+                statusEl.textContent = '✅ Ready! Walk to the locations to hear sounds.';
+                console.log('🧭 Compass test stopped - GPS audio resumed');
+            } else {
+                // Start test - create a fixed tone at a specific bearing
+                if (!audioContext) {
+                    statusEl.textContent = '❌ Start experience first';
+                    return;
+                }
+                
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                
+                console.log('🧭 Starting compass panning test...');
+                
+                // Mute GPS-based audio during test
+                gpsAudioPaused = true;
+                // Set all GPS sound gains to 0
+                locations.forEach(loc => {
+                    if (activeSources[loc.id]) {
+                        activeSources[loc.id].gainNode.gain.value = 0;
+                    }
+                });
+                
+                // Create oscillator with panner
+                compassTestOsc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                compassTestPanner = audioContext.createPanner();
+                
+                // Configure panner for 3D audio
+                compassTestPanner.panningModel = 'HRTF';
+                compassTestPanner.distanceModel = 'linear';
+                compassTestPanner.rolloffFactor = 0;
+                compassTestPanner.refDistance = 1;
+                compassTestPanner.maxDistance = 1000;
+                
+                // Place sound 5 meters to the NORTH (fixed position)
+                compassTestPanner.positionX.value = 0;
+                compassTestPanner.positionY.value = 0;
+                compassTestPanner.positionZ.value = -5; // 5m in front (north)
+                
+                gain.gain.value = 0.5;
+                compassTestOsc.type = 'square';
+                compassTestOsc.frequency.value = 600; // 600Hz test tone
+                
+                compassTestOsc.connect(gain);
+                gain.connect(compassTestPanner);
+                compassTestPanner.connect(masterGain);
+                
+                compassTestOsc.start();
+                compassTestActive = true;
+                
+                console.log('🧭 Panner config:', {
+                    panningModel: compassTestPanner.panningModel,
+                    soundPosition: `(${compassTestPanner.positionX.value}, ${compassTestPanner.positionY.value}, ${compassTestPanner.positionZ.value})`,
+                    listenerForward: `(${listener.forwardX.value}, ${listener.forwardY.value}, ${listener.forwardZ.value})`
+                });
+                
+                compassTestBtn.textContent = '⏹️ Stop Compass Test';
+                compassTestBtn.style.background = '#446';
+                statusEl.textContent = '🧭 Turn in a circle - tone should rotate around your head';
+                
+                console.log('🧭 Compass test started - sound is fixed 5m NORTH, GPS audio muted');
+                debugLog('Compass test: sound at (0,0,-5), rotate phone to test panning');
+            }
+        });
+        
+        // Auto-rotate compass test - slowly rotates listener every 5 seconds
+        let autoRotateOsc = null;
+        let autoRotatePanner = null;
+        let autoRotateActive = false;
+        let autoRotateInterval = null;
+        let autoRotateAngle = 0;
+        
+        autoRotateBtn.addEventListener('click', () => {
+            if (autoRotateActive) {
+                // Stop auto-rotate
+                if (autoRotateInterval) {
+                    clearInterval(autoRotateInterval);
+                    autoRotateInterval = null;
+                }
+                if (autoRotateOsc) {
+                    autoRotateOsc.stop();
+                    autoRotateOsc.disconnect();
+                }
+                autoRotateOsc = null;
+                autoRotatePanner = null;
+                autoRotateActive = false;
+                gpsAudioPaused = false;
+                
+                // Resume GPS audio
+                locations.forEach(loc => {
+                    if (activeSources[loc.id]) {
+                        activeSources[loc.id].gainNode.gain.value = 0;
+                    }
+                });
+                
+                autoRotateBtn.textContent = '🔄 Auto-Rotate Test';
+                autoRotateBtn.style.background = '#252';
+                statusEl.textContent = '✅ Ready! Walk to the locations to hear sounds.';
+                debugLog('Auto-rotate stopped');
+            } else {
+                // Start auto-rotate
+                if (!audioContext) {
+                    statusEl.textContent = '❌ Start experience first';
+                    return;
+                }
+                
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                
+                debugLog('Starting auto-rotate test...');
+                
+                // Mute GPS audio
+                gpsAudioPaused = true;
+                locations.forEach(loc => {
+                    if (activeSources[loc.id]) {
+                        activeSources[loc.id].gainNode.gain.value = 0;
+                    }
+                });
+                
+                // Create oscillator with panner
+                autoRotateOsc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                autoRotatePanner = audioContext.createPanner();
+                
+                autoRotatePanner.panningModel = 'HRTF';
+                autoRotatePanner.distanceModel = 'linear';
+                autoRotatePanner.rolloffFactor = 0;
+                
+                // Sound 5m NORTH (fixed)
+                autoRotatePanner.positionX.value = 0;
+                autoRotatePanner.positionY.value = 0;
+                autoRotatePanner.positionZ.value = -5;
+                
+                gain.gain.value = 0.5;
+                autoRotateOsc.type = 'square';
+                autoRotateOsc.frequency.value = 800;
+                
+                autoRotateOsc.connect(gain);
+                gain.connect(autoRotatePanner);
+                autoRotatePanner.connect(masterGain);
+                autoRotateOsc.start();
+                
+                autoRotateActive = true;
+                autoRotateAngle = 0;
+                
+                // Rotate listener 360° every 5 seconds (72°/second)
+                autoRotateInterval = setInterval(() => {
+                    autoRotateAngle = (autoRotateAngle + 2) % 360; // 2° per frame ≈ 5 sec/full rotation
+                    const rad = autoRotateAngle * Math.PI / 180;
+                    
+                    if (listener.forwardX) {
+                        listener.forwardX.value = Math.sin(rad);
+                        listener.forwardZ.value = -Math.cos(rad);
+                    }
+                    
+                    debugLog(`Auto-rotate: ${autoRotateAngle.toFixed(0)}° | forward: (${Math.sin(rad).toFixed(2)}, ${(-Math.cos(rad)).toFixed(2)})`);
+                }, 16); // ~60fps
+                
+                autoRotateBtn.textContent = '⏹️ Stop Auto-Rotate';
+                autoRotateBtn.style.background = '#373';
+                statusEl.textContent = '🔄 Auto-rotating listener 360° every 5 seconds...';
+                debugLog('Auto-rotate started: 360° per 5 seconds');
+            }
+        });
+
+        // Config toggle button
+        configToggleBtn.addEventListener('click', () => {
+            const configSection = document.getElementById('configSection');
+            configSection.style.display = configSection.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Apply config button
+        document.getElementById('applyConfigBtn').addEventListener('click', () => {
+            const newSpacing = parseInt(document.getElementById('spacingInput').value);
+            const newRadius = parseInt(document.getElementById('radiusInput').value);
+            
+            if (newSpacing > 0 && newRadius > 0) {
+                SPACING = newSpacing;
+                ACTIVATION_RADIUS = newRadius;
+                debugLog(`Config updated: Spacing=${SPACING}m, Radius=${ACTIVATION_RADIUS}m`);
+                
+                // Recalculate locations if we have a center point
+                if (centerLat !== null) {
+                    locations = calculateLocations(centerLat, centerLon);
+                    debugLog('Sound positions recalculated');
+                }
+                
+                // Hide config section
+                document.getElementById('configSection').style.display = 'none';
+            } else {
+                debugLog('⚠️ Invalid config values');
+            }
+        });
+        
+        async function requestLocationPermission() {
+            // iOS 13+ requires permission request for location
+            if (typeof navigator.permissions !== 'undefined') {
+                try {
+                    const result = await navigator.permissions.query({ name: 'geolocation' });
+                    if (result.state === 'denied') {
+                        throw new Error('Location permission denied. Please enable in Settings > Safari > Location Services.');
+                    }
+                } catch (err) {
+                    // Permission query failed, but we can still try to get location
+                    console.log('Permission query not available, will try direct request');
+                }
+            }
+        }
+
+        // Get current GPS location
+        function getCurrentGPS() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error('Geolocation not supported by your browser. Please use Safari or Chrome on iOS.'));
+                    return;
+                }
+
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        userLat = position.coords.latitude;
+                        userLon = position.coords.longitude;
+                        resolve(userLat);
+                    },
+                    (err) => {
+                        let errorMsg = 'GPS Error: ' + err.message;
+                        if (err.code === 1) {
+                            errorMsg = 'Location permission denied. Please tap "Allow" when prompted, or enable in Settings > Safari > Location Services.';
+                        } else if (err.code === 2) {
+                            errorMsg = 'Location unavailable. Make sure Location Services is enabled for Safari.';
+                        } else if (err.code === 3) {
+                            errorMsg = 'Location timeout. Please try again in an open area.';
+                        }
+                        reject(new Error(errorMsg));
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 15000,
+                        maximumAge: 0
+                    }
+                );
+            });
+        }
+        
+        // Preload all sounds (generate oscillators in memory)
+        async function preloadAllSounds() {
+            statusEl.textContent = 'Generating sounds...';
+            
+            for (let i = 0; i < locations.length; i++) {
+                const loc = locations[i];
+                
+                // Update progress bar
+                const progress = ((i + 1) / locations.length) * 100;
+                preloadBar.style.width = progress + '%';
+                
+                statusEl.textContent = `Generating ${loc.name}...`;
+                
+                // Create the sound source (but don't start yet)
+                await createSoundSource(loc);
+                
+                // Small delay to show progress
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            preloadProgress.style.display = 'none';
+        }
+        
+        // Create sound source for a location
+        function createSoundSource(loc) {
+            return new Promise((resolve) => {
+                console.log(`Creating sound source: ${loc.name} (${loc.freq}Hz, ${loc.wave})`);
+
+                // Use gain node only (no panner - it was attenuating signal)
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = 0;
+
+                const oscillator = audioContext.createOscillator();
+                oscillator.type = loc.wave;
+                oscillator.frequency.value = loc.freq;
+
+                // Direct connection: oscillator -> gain -> master (no panner!)
+                oscillator.connect(gainNode);
+                gainNode.connect(masterGain);
+
+                oscillator.start();
+                console.log(`✅ Oscillator started: ${loc.name}`);
+
+                activeSources[loc.id] = {
+                    oscillator,
+                    gainNode,
+                    panner: null, // No panner
+                    location: loc
+                };
+
+                resolve();
+            });
+        }
+        
+        // Request GPS and compass permissions
+        async function requestPermissions() {
+            // Request compass permission (iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        statusEl.textContent = '⚠️ Compass permission denied. Direction won\'t update.';
+                        statusEl.className = 'warning';
+                    }
+                } catch (err) {
+                    statusEl.textContent = '⚠️ Compass error: ' + err.message;
+                    statusEl.className = 'warning';
+                }
+            }
+        }
+        
+        // Start GPS and compass tracking
+        function startTracking() {
+            // Set up audio listener for 3D panning
+            const listener = audioContext.listener;
+            if (listener.positionX) {
+                listener.positionX.value = 0;
+                listener.positionY.value = 0;
+                listener.positionZ.value = 0;
+            }
+            // Initialize forward vector (will be updated by compass)
+            if (listener.forwardX) {
+                listener.forwardX.value = 0;
+                listener.forwardY.value = 0;
+                listener.forwardZ.value = -1;
+            }
+            if (listener.upX) {
+                listener.upX.value = 0;
+                listener.upY.value = 1;
+                listener.upZ.value = 0;
+            }
+
+            // Update location display elements
+            const myLocationEl = document.getElementById('myLocation');
+            const soundLocationsEl = document.getElementById('soundLocations');
+
+            // GPS tracking
+            navigator.geolocation.watchPosition(
+                (position) => {
+                    userLat = position.coords.latitude;
+                    userLon = position.coords.longitude;
+                    const accuracy = position.coords.accuracy;
+                    const altitude = position.coords.altitude;
+                    const heading = position.coords.heading;
+
+                    // Update my location display
+                    myLocationEl.innerHTML = `
+                        <strong>Latitude:</strong> ${userLat.toFixed(8)}<br>
+                        <strong>Longitude:</strong> ${userLon.toFixed(8)}<br>
+                        <strong>Accuracy:</strong> ±${accuracy.toFixed(1)}m<br>
+                        ${altitude !== null ? `<strong>Altitude:</strong> ${altitude.toFixed(1)}m<br>` : ''}
+                        ${heading !== null ? `<strong>Heading:</strong> ${heading.toFixed(0)}°` : ''}
+                    `;
+
+                    console.log('GPS update:', userLat.toFixed(6), userLon.toFixed(6), 'accuracy:', accuracy + 'm');
+                    updateAudio();
+                },
+                (err) => {
+                    console.error('GPS error:', err.code, err.message);
+                    myLocationEl.textContent = 'GPS Error: ' + err.message;
+                    statusEl.textContent = '⚠️ GPS Error: ' + err.message;
+                    statusEl.className = 'warning';
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 1000,
+                    timeout: 10000
+                }
+            );
+
+            // Compass tracking - rotates audio listener for 3D panning
+            if (typeof window.DeviceOrientationEvent !== 'undefined') {
+                window.addEventListener('deviceorientation', (event) => {
+                    // iOS uses webkitCompassHeading
+                    if (event.webkitCompassHeading) {
+                        userHeading = event.webkitCompassHeading;
+                    } else if (event.alpha) {
+                        userHeading = 360 - event.alpha;
+                    }
+
+                    // Update audio listener orientation (for compass panning test)
+                    const headingRad = userHeading * Math.PI / 180;
+                    if (listener.forwardX) {
+                        // Forward vector points where you're facing
+                        const fx = Math.sin(headingRad);
+                        const fz = -Math.cos(headingRad);
+                        listener.forwardX.value = fx;
+                        listener.forwardY.value = 0;
+                        listener.forwardZ.value = fz;
+                        debugLog(`Compass: ${userHeading.toFixed(0)}° → forward(${fx.toFixed(2)}, 0, ${fz.toFixed(2)})`);
+                    }
+
+                    updateCompass();
+                });
+            } else {
+                debugLog('⚠️ DeviceOrientationEvent not supported!');
+            }
+        }
+
+        // Update compass display
+        function updateCompass() {
+            compassNeedle.style.transform = `translate(-50%, -100%) rotate(${userHeading}deg)`;
+        }
+        
+        // Update audio positions and volumes
+        function updateAudio() {
+            if (!userLat || !audioContext || !audioContext.destination) {
+                console.log('updateAudio skipped: userLat=', userLat, 'audioContext=', audioContext);
+                return;
+            }
+
+            console.log('Updating audio - user pos:', userLat.toFixed(6), userLon.toFixed(6));
+            
+            // Get the sound locations display element
+            const soundLocationsEl = document.getElementById('soundLocations');
+            let soundLocationsHtml = '<strong>Sound Positions (relative to you):</strong><br>';
+            
+            let anySoundActive = false;
+
+            locations.forEach(loc => {
+                const distance = getDistance(userLat, userLon, loc.lat, loc.lon);
+                const bearing = getBearing(userLat, userLon, loc.lat, loc.lon);
+                const bearingDeg = (bearing * 180 / Math.PI + 360) % 360;
+
+                // Update distance display
+                const distEl = document.getElementById('dist' + loc.id);
+                distEl.textContent = distance.toFixed(1) + ' m';
+
+                // Update visual active state
+                const locEl = document.getElementById('loc' + loc.id);
+                if (distance < ACTIVATION_RADIUS) {
+                    locEl.classList.add('active');
+                } else {
+                    locEl.classList.remove('active');
+                }
+
+                // Update audio (unless compass test is active)
+                if (activeSources[loc.id] && !gpsAudioPaused) {
+                    const source = activeSources[loc.id];
+
+                    // Update volume based on distance (unless test mode is active)
+                    let targetGain = 0;
+                    if (testMode) {
+                        // Test mode: MAX volume regardless of location
+                        targetGain = 1.0;
+                        anySoundActive = true;
+                    } else if (distance < ACTIVATION_RADIUS) {
+                        // Normal mode: smooth volume curve based on distance
+                        const volume = 1 - Math.pow(distance / ACTIVATION_RADIUS, 2);
+                        targetGain = volume * 1.0;
+                        anySoundActive = true;
+                    }
+
+                    // Apply gain SMOOTHLY over 0.3 seconds
+                    source.gainNode.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.3);
+
+                    // Log when sound should be audible
+                    if (targetGain > 0.01) {
+                        console.log(`🔊 ${loc.name}: ${distance.toFixed(1)}m, gain=${targetGain.toFixed(3)}`);
+                    }
+                }
+
+                // Build sound locations display
+                const compassDir = getCompassDirection(bearingDeg);
+                const activeMarker = distance < ACTIVATION_RADIUS ? '🔊' : '🔇';
+                soundLocationsHtml += `${activeMarker} <strong>${loc.name}</strong>: ${loc.lat.toFixed(8)}, ${loc.lon.toFixed(8)}<br>`;
+                soundLocationsHtml += `&nbsp;&nbsp;&nbsp;${distance.toFixed(1)}m | ${compassDir} (${bearingDeg.toFixed(0)}°)<br>`;
+            });
+
+            soundLocationsEl.innerHTML = soundLocationsHtml;
+            
+            // Debug: show if any sound is active
+            if (anySoundActive) {
+                console.log('✅ At least one sound is ACTIVE');
+            }
+        }
+
+        // Get compass direction from bearing
+        function getCompassDirection(bearing) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(bearing / 45) % 8;
+            return directions[index];
+        }
+        
+        // Calculate distance between two GPS points (in meters)
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000; // Earth radius in meters
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) ** 2 + 
+                      Math.cos(lat1 * Math.PI / 180) * 
+                      Math.cos(lat2 * Math.PI / 180) * 
+                      Math.sin(dLon/2) ** 2;
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        // Calculate bearing between two GPS points (in radians)
+        function getBearing(lat1, lon1, lat2, lon2) {
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+            return Math.atan2(y, x);
+        }
+    </script>
+</body>
+</html>

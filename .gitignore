@@ -1,0 +1,28 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Certificates (don't commit SSL keys!)
+*.pem
+*.key
+localhost.pem
+localhost-key.pem
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Node
+node_modules/
