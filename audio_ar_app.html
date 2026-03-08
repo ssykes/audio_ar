@@ -68,7 +68,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v6.2</span></h1>
+        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v6.3</span></h1>
         <p class="subtitle">Walk between 4 spatial sound locations</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -192,11 +192,25 @@
                 startBtn.disabled = true;
                 startBtn.textContent = 'Getting GPS...';
 
+                // Check if geolocation is available
+                if (!navigator.geolocation) {
+                    debugLog('❌ Geolocation not supported!');
+                    statusEl.textContent = '❌ Geolocation not supported in this browser';
+                    statusEl.className = 'error';
+                    startBtn.disabled = false;
+                    startBtn.textContent = 'Start Over';
+                    return;
+                }
+
+                debugLog('🌍 Geolocation available, requesting permission...');
+
                 try {
                     // Get GPS
                     const pos = await new Promise((resolve, reject) => {
                         navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+                            enableHighAccuracy: true, 
+                            timeout: 20000, 
+                            maximumAge: 0
                         });
                     });
 
@@ -252,8 +266,29 @@
                     debugLog('✅ Started!');
 
                 } catch (err) {
-                    debugLog('❌ ' + err.message);
-                    statusEl.textContent = '❌ ' + err.message;
+                    debugLog('❌ GPS Error: ' + err.message);
+                    debugLog('❌ Error code: ' + err.code);
+                    
+                    let errorMsg = '';
+                    switch(err.code) {
+                        case 0:
+                            errorMsg = '❌ Unknown error. Try refreshing the page.';
+                            break;
+                        case 1:
+                            errorMsg = '❌ Location permission denied!\n\nGo to Settings → Safari → Location Services and allow for ssykes.net';
+                            break;
+                        case 2:
+                            errorMsg = '❌ Location unavailable.\n\nMake sure Location Services is enabled in Settings.';
+                            break;
+                        case 3:
+                            errorMsg = '❌ Location request timed out.\n\nTry again with a clear sky view.';
+                            break;
+                        default:
+                            errorMsg = '❌ ' + err.message;
+                    }
+                    
+                    statusEl.textContent = errorMsg;
+                    statusEl.className = 'error';
                     startBtn.disabled = false;
                     startBtn.textContent = 'Try Again';
                 }
