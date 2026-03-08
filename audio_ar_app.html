@@ -68,7 +68,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v6.3</span></h1>
+        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v6.4</span></h1>
         <p class="subtitle">Walk between 4 spatial sound locations</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -135,6 +135,7 @@
             let centerLat = null, centerLon = null, userHeading = 0;
             let activeSources = {}, locations = [], testMode = false;
             let gpsAudioPaused = false, wakeLock = null, keepAliveInterval = null;
+            let panners = {}; // Store panner nodes for spatial audio
 
             // === ELEMENTS ===
             const statusEl = document.getElementById('status');
@@ -177,13 +178,23 @@
             function createSound(loc) {
                 const osc = audioContext.createOscillator();
                 const gain = audioContext.createGain();
+                const panner = audioContext.createStereoPanner();
+                
                 osc.type = loc.wave;
                 osc.frequency.value = loc.freq;
                 gain.gain.value = 0;
+                
+                // Set initial pan based on location (1=left, 2=right, 3=left, 4=right for testing)
+                const panValue = (loc.id === 1 || loc.id === 3) ? -0.8 : 0.8;
+                panner.pan.value = panValue;
+                
                 osc.connect(gain);
-                gain.connect(masterGain);
+                gain.connect(panner);
+                panner.connect(masterGain);
                 osc.start();
-                return { oscillator: osc, gainNode: gain };
+                
+                panners[loc.id] = panner;
+                return { oscillator: osc, gainNode: gain, pannerNode: panner };
             }
 
             // === START BUTTON ===
@@ -338,19 +349,34 @@
                     return;
                 }
                 await audioContext.resume();
-                // Play sequence through locations
+                // Play sequence through locations with panning
                 let seq = 0;
                 const interval = setInterval(() => {
-                    if (seq >= 4) { clearInterval(interval); debugLog('🧭 Test complete'); return; }
+                    if (seq >= 4) {
+                        clearInterval(interval);
+                        // Reset all gains to 0
+                        locations.forEach((loc, i) => {
+                            const src = activeSources[i + 1];
+                            if (src) src.gainNode.gain.value = 0;
+                        });
+                        debugLog('🧭 Test complete');
+                        return;
+                    }
                     locations.forEach((loc, i) => {
                         const src = activeSources[i + 1];
-                        if (src) {
-                            src.gainNode.gain.value = (i === seq) ? 0.5 : 0;
+                        if (src && panners[i + 1]) {
+                            if (i === seq) {
+                                src.gainNode.gain.value = 0.4;
+                                // Hard pan each location for clear testing
+                                panners[i + 1].pan.value = (i % 2 === 0) ? -0.8 : 0.8;
+                            } else {
+                                src.gainNode.gain.value = 0;
+                            }
                         }
                     });
-                    debugLog(`🧭 Testing location ${seq + 1}: ${locations[seq]?.name}`);
+                    debugLog(`🧭 Testing location ${seq + 1}: ${locations[seq]?.name} (pan: ${(seq % 2 === 0) ? 'L' : 'R'})`);
                     seq++;
-                }, 500);
+                }, 600);
             };
             
             document.getElementById('autoRotateBtn').onclick = async () => {
@@ -360,11 +386,45 @@
                 }
                 await audioContext.resume();
                 debugLog('🔄 Auto-rotate started (simulated)');
+                
+                // Play all sounds during rotation
+                locations.forEach((loc, i) => {
+                    const src = activeSources[i + 1];
+                    if (src) {
+                        src.gainNode.gain.value = 0.3;
+                    }
+                });
+                
                 let angle = 0;
                 const rotateInterval = setInterval(() => {
                     angle += 15;
-                    if (angle >= 360) { clearInterval(rotateInterval); debugLog('🔄 Rotate complete'); angle = 0; }
+                    if (angle >= 360) {
+                        clearInterval(rotateInterval);
+                        debugLog('🔄 Rotate complete');
+                        // Fade out sounds
+                        locations.forEach((loc, i) => {
+                            const src = activeSources[i + 1];
+                            if (src) src.gainNode.gain.value = 0;
+                        });
+                        return;
+                    }
                     userHeading = angle;
+                    
+                    // Update pan based on simulated heading
+                    locations.forEach((loc, i) => {
+                        const src = activeSources[i + 1];
+                        if (src && panners[i + 1]) {
+                            // Calculate relative angle for panning
+                            const locAngle = (i * 90); // 0, 90, 180, 270
+                            let relAngle = locAngle - angle;
+                            while (relAngle < -180) relAngle += 360;
+                            while (relAngle > 180) relAngle -= 360;
+                            // Pan: -1 (left) to 1 (right) based on relative angle
+                            const panValue = Math.max(-1, Math.min(1, relAngle / 90));
+                            panners[i + 1].pan.value = panValue;
+                        }
+                    });
+                    
                     debugLog(`🧭 Heading: ${angle}°`);
                 }, 200);
             };
