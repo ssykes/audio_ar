@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Auto Rotate Test v3.0</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <link rel="apple-touch-icon" href="icon-192.svg">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            text-align: center;
+            color: #00d9ff;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin: 30px 0;
+        }
+        #toggleBtn, #fixedBtn {
+            padding: 15px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #4a4a6a;
+            color: #fff;
+            transition: all 0.3s;
+        }
+        #toggleBtn.active, #fixedBtn.active {
+            background: #e94560;
+        }
+        #toggleBtn:hover, #fixedBtn:hover {
+            opacity: 0.8;
+        }
+        .compass {
+            width: 200px;
+            height: 200px;
+            margin: 30px auto;
+            position: relative;
+            border: 2px solid #00d9ff;
+            border-radius: 50%;
+        }
+        .compass::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: #00d9ff;
+            transform: translateY(-50%);
+        }
+        .compass::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            width: 1px;
+            height: 100%;
+            background: #00d9ff;
+            transform: translateX(-50%);
+        }
+        .compass-point {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            background: #4a4a6a;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.1s;
+            z-index: 10;
+        }
+        .compass-point.active {
+            background: #00d9ff;
+            box-shadow: 0 0 15px #00d9ff;
+            width: 20px;
+            height: 20px;
+        }
+        .compass-point span {
+            position: absolute;
+            font-size: 10px;
+            color: #888;
+            white-space: nowrap;
+        }
+        .point-n span { top: -20px; left: 50%; transform: translateX(-50%); }
+        .point-ne span { top: 15px; right: -25px; }
+        .point-e span { top: 50%; right: -25px; transform: translateY(-50%); }
+        .point-se span { bottom: 15px; right: -25px; }
+        .point-s span { bottom: -20px; left: 50%; transform: translateX(-50%); }
+        .point-sw span { bottom: 15px; left: -25px; }
+        .point-w span { top: 50%; left: -25px; transform: translateY(-50%); }
+        .point-nw span { top: 15px; left: -25px; }
+        .heading-indicator {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 20px solid #e94560;
+            left: 50%;
+            top: -10px;
+            transform: translateX(-50%);
+            z-index: 20;
+        }
+        #debugConsole {
+            background: #0d0d1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 30px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 3px 0;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .log-info { color: #00d9ff; }
+        .log-success { color: #00ff88; }
+        .log-error { color: #e94560; }
+        .info-panel {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: rgba(0,217,255,0.1);
+            border-radius: 8px;
+        }
+        .info-panel h3 {
+            margin-bottom: 10px;
+            color: #00d9ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔄 Auto Rotate Test <span style="font-size:0.5em; color:#666;">v3.1</span></h1>
+    
+    <div class="info-panel">
+        <h3>Two Modes</h3>
+        <p><strong>🔄 Rotate:</strong> Three sounds circle around you (10s per circle)</p>
+        <p style="color:#00ff88;">🔊 Bass: Low drone 110Hz + 220Hz (sine waves)</p>
+        <p style="color:#ff6b6b;">🔔 Alarm: High beep 880Hz + 1760Hz (square waves)</p>
+        <p style="color:#ffd93d;">🎵 Chord: Mid harmony 330Hz + 440Hz + 660Hz (triangle)</p>
+        <hr style="border-color:#333;margin:15px 0;">
+        <p><strong>🧭 Fixed:</strong> Sounds stay fixed, turn your device</p>
+        <p style="color:#00ff88;">🔊 North: Ocean waves (low sine 100-200Hz)</p>
+        <p style="color:#ff6b6b;">🔔 SE: Alarm bell (high square 1200Hz + 1800Hz)</p>
+        <p style="color:#ffd93d;">🎵 SW: Musical chord (triangle 330Hz + 440Hz + 660Hz)</p>
+    </div>
+
+    <div class="controls">
+        <button id="toggleBtn">▶️ Start Rotate</button>
+        <button id="fixedBtn">🧭 Fixed Sounds</button>
+    </div>
+    
+    <div class="compass" id="compass">
+        <div class="heading-indicator"></div>
+        <div class="compass-point point-n" style="top: 0%; left: 50%;"><span>N</span></div>
+        <div class="compass-point point-ne" style="top: 15%; left: 85%;"><span>NE</span></div>
+        <div class="compass-point point-e" style="top: 50%; left: 100%;"><span>E</span></div>
+        <div class="compass-point point-se" style="top: 85%; left: 85%;"><span>SE</span></div>
+        <div class="compass-point point-s" style="top: 100%; left: 50%;"><span>S</span></div>
+        <div class="compass-point point-sw" style="top: 85%; left: 15%;"><span>SW</span></div>
+        <div class="compass-point point-w" style="top: 50%; left: 0%;"><span>W</span></div>
+        <div class="compass-point point-nw" style="top: 15%; left: 15%;"><span>NW</span></div>
+    </div>
+    
+    <div id="debugConsole"></div>
+
+    <script src="spatial_audio.js?v=4"></script>
+    <script>
+        // Register Service Worker for offline support
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then((registration) => {
+                        console.log('✅ Service Worker registered:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.error('❌ Service Worker registration failed:', error);
+                    });
+            });
+        }
+
+        let engine = null;
+        let currentMode = null;
+        let rotationInterval = null;
+        let currentAngle = 0;
+        let deviceHeading = 0;
+
+        // Rotate mode: Three sound groups at 120° apart
+        const rotateGroups = [
+            {
+                id: 'groupA',
+                oscillators: [
+                    { freq: 110, wave: 'sine' },
+                    { freq: 220, wave: 'sine' }
+                ],
+                baseAngle: 0,
+                sourceIds: [],
+                name: 'Bass'
+            },
+            {
+                id: 'groupB',
+                oscillators: [
+                    { freq: 880, wave: 'square' },
+                    { freq: 1760, wave: 'square' }
+                ],
+                baseAngle: 120,
+                sourceIds: [],
+                name: 'Alarm'
+            },
+            {
+                id: 'groupC',
+                oscillators: [
+                    { freq: 330, wave: 'triangle' },
+                    { freq: 440, wave: 'triangle' },
+                    { freq: 660, wave: 'triangle' }
+                ],
+                baseAngle: 240,
+                sourceIds: [],
+                name: 'Chord'
+            }
+        ];
+
+        // Fixed mode: Three sounds at N, SE, SW
+        const fixedSounds = [
+            {
+                id: 'north',
+                oscillators: [
+                    { freq: 100, wave: 'sine' },
+                    { freq: 150, wave: 'sine' },
+                    { freq: 200, wave: 'sine' }
+                ],
+                angle: 0,
+                sourceIds: [],
+                name: 'Ocean'
+            },
+            {
+                id: 'southeast',
+                oscillators: [
+                    { freq: 1200, wave: 'square' },
+                    { freq: 1800, wave: 'square' }
+                ],
+                angle: 135,
+                sourceIds: [],
+                name: 'Alarm'
+            },
+            {
+                id: 'southwest',
+                oscillators: [
+                    { freq: 330, wave: 'triangle' },
+                    { freq: 440, wave: 'triangle' },
+                    { freq: 660, wave: 'triangle' }
+                ],
+                angle: 225,
+                sourceIds: [],
+                name: 'Chord'
+            }
+        ];
+
+        const compassPoints = [
+            { name: 'N',  angle: 0,     element: 'point-n' },
+            { name: 'NE', angle: 45,    element: 'point-ne' },
+            { name: 'E',  angle: 90,    element: 'point-e' },
+            { name: 'SE', angle: 135,   element: 'point-se' },
+            { name: 'S',  angle: 180,   element: 'point-s' },
+            { name: 'SW', angle: 225,   element: 'point-sw' },
+            { name: 'W',  angle: 270,   element: 'point-w' },
+            { name: 'NW', angle: 315,   element: 'point-nw' }
+        ];
+
+        function log(message, type = 'info') {
+            const console = document.getElementById('debugConsole');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            console.appendChild(entry);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        async function initEngine() {
+            if (!engine) {
+                engine = new SpatialAudioEngine({
+                    keepAlive: true,
+                    keepAliveInterval: 3000
+                });
+                await engine.init();
+                engine.enableKeepAlive(3000);
+                engine.monitorAudioState(5000);
+                log('🔊 Spatial audio engine initialized (v3.0)', 'success');
+            }
+            await engine.resume();
+            log(`📊 Audio state: ${engine.getState()}`, 'info');
+            return true;
+        }
+
+        function stopAll() {
+            currentMode = null;
+            
+            if (rotationInterval) {
+                clearInterval(rotationInterval);
+                rotationInterval = null;
+            }
+
+            [...rotateGroups, ...fixedSounds].forEach(group => {
+                group.sourceIds.forEach(sourceId => {
+                    engine.removeSource(sourceId);
+                });
+                group.sourceIds = [];
+            });
+
+            document.getElementById('toggleBtn').classList.remove('active');
+            document.getElementById('fixedBtn').classList.remove('active');
+            document.getElementById('toggleBtn').textContent = '▶️ Start Rotate';
+            document.getElementById('fixedBtn').textContent = '🧭 Fixed Sounds';
+
+            document.querySelectorAll('.compass-point').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            log('⏹ Stopped', 'info');
+        }
+
+        // === ROTATE MODE ===
+        function createRotateGroup(group) {
+            const sourceIds = [];
+            const radius = 3;
+            const angleRad = group.baseAngle * Math.PI / 180;
+            const x = Math.sin(angleRad) * radius;
+            const z = -Math.cos(angleRad) * radius;
+
+            group.oscillators.forEach((osc, idx) => {
+                const sourceId = `${group.id}_osc${idx}`;
+                engine.createOscillator(sourceId, {
+                    wave: osc.wave,
+                    freq: osc.freq,
+                    gain: 0.25,
+                    x: x,
+                    z: z
+                });
+                const source = engine.getSource(sourceId);
+                if (source) {
+                    source.start();
+                    sourceIds.push(sourceId);
+                }
+            });
+
+            log(`🔊 ${group.name}: ${group.oscillators.map(o => o.freq + 'Hz').join(' + ')}`, 'success');
+            return sourceIds;
+        }
+
+        function updateRotatePositions(angleDeg) {
+            const radius = 3;
+            const angleRad = angleDeg * Math.PI / 180;
+
+            rotateGroups.forEach(group => {
+                const groupAngleRad = (group.baseAngle + angleDeg) * Math.PI / 180;
+                const x = Math.sin(groupAngleRad) * radius;
+                const z = -Math.cos(groupAngleRad) * radius;
+
+                group.sourceIds.forEach(sourceId => {
+                    engine.updateSourcePosition(sourceId, x, z);
+                });
+            });
+        }
+
+        function startRotateMode() {
+            currentMode = 'rotate';
+            currentAngle = 0;
+            document.getElementById('toggleBtn').textContent = '⏹ Stop Rotate';
+            document.getElementById('toggleBtn').classList.add('active');
+            log('🔄 Starting rotation mode (10s per circle)...', 'success');
+
+            rotateGroups.forEach(group => {
+                group.sourceIds = createRotateGroup(group);
+            });
+
+            const rotationSpeed = 36;
+            const updateInterval = 50;
+            
+            rotationInterval = setInterval(() => {
+                if (currentMode !== 'rotate') return;
+
+                currentAngle = (currentAngle + rotationSpeed * (updateInterval / 1000)) % 360;
+                
+                updateRotatePositions(currentAngle);
+                updateCompass(currentAngle);
+
+                if (Math.floor(currentAngle / 45) !== Math.floor((currentAngle - rotationSpeed * (updateInterval / 1000)) / 45)) {
+                    log(`🧭 Heading: ${Math.round(currentAngle)}°`, 'info');
+                }
+            }, updateInterval);
+        }
+
+        // === FIXED MODE ===
+        function createFixedSound(sound) {
+            const sourceIds = [];
+            const radius = 3;
+            const angleRad = sound.angle * Math.PI / 180;
+            const x = Math.sin(angleRad) * radius;
+            const z = -Math.cos(angleRad) * radius;
+
+            sound.oscillators.forEach((osc, idx) => {
+                const sourceId = `${sound.id}_osc${idx}`;
+                engine.createOscillator(sourceId, {
+                    wave: osc.wave,
+                    freq: osc.freq,
+                    gain: 0.25,
+                    x: x,
+                    z: z
+                });
+                const source = engine.getSource(sourceId);
+                if (source) {
+                    source.start();
+                    sourceIds.push(sourceId);
+                }
+            });
+
+            log(`🔊 ${sound.name} at ${sound.angle}°: ${sound.oscillators.map(o => o.freq + 'Hz').join(' + ')}`, 'success');
+            return sourceIds;
+        }
+
+        function updateFixedPositions(headingDeg) {
+            const radius = 3;
+
+            fixedSounds.forEach(sound => {
+                const effectiveAngle = (sound.angle - headingDeg) * Math.PI / 180;
+                const x = Math.sin(effectiveAngle) * radius;
+                const z = -Math.cos(effectiveAngle) * radius;
+
+                sound.sourceIds.forEach(sourceId => {
+                    engine.updateSourcePosition(sourceId, x, z);
+                });
+            });
+        }
+
+        function startFixedMode() {
+            currentMode = 'fixed';
+            deviceHeading = 0;
+            document.getElementById('fixedBtn').textContent = '⏹ Stop Fixed';
+            document.getElementById('fixedBtn').classList.add('active');
+            log('🧭 Starting fixed mode - turn your device!', 'success');
+
+            fixedSounds.forEach(sound => {
+                sound.sourceIds = createFixedSound(sound);
+            });
+
+            // Use DeviceOrientationHelper from spatial_audio.js v3.0
+            DeviceOrientationHelper.start((heading) => {
+                deviceHeading = heading;
+                if (currentMode === 'fixed') {
+                    updateFixedPositions(heading);
+                    updateCompass(heading);
+                }
+            });
+
+            updateFixedPositions(0);
+            updateCompass(0);
+        }
+
+        function updateCompass(angleDeg) {
+            angleDeg = angleDeg % 360;
+            if (angleDeg < 0) angleDeg += 360;
+
+            let closest = null;
+            let minDiff = 90;
+
+            compassPoints.forEach((point, index) => {
+                let diff = Math.abs(angleDeg - point.angle);
+                if (diff > 180) diff = 360 - diff;
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = index;
+                }
+            });
+
+            document.querySelectorAll('.compass-point').forEach(el => {
+                el.classList.remove('active');
+            });
+            if (closest !== null) {
+                const el = document.getElementById(compassPoints[closest].element);
+                if (el) el.classList.add('active');
+            }
+
+            const indicator = document.querySelector('.heading-indicator');
+            if (indicator) {
+                indicator.style.transform = `translateX(-50%) rotate(${angleDeg}deg)`;
+            }
+        }
+
+        // Button handlers
+        document.getElementById('toggleBtn').addEventListener('click', async () => {
+            if (currentMode === 'rotate') {
+                stopAll();
+            } else {
+                stopAll();
+                const ok = await initEngine();
+                if (ok) {
+                    startRotateMode();
+                }
+            }
+        });
+
+        document.getElementById('fixedBtn').addEventListener('click', async () => {
+            if (currentMode === 'fixed') {
+                stopAll();
+            } else {
+                stopAll();
+                const ok = await initEngine();
+                if (ok) {
+                    startFixedMode();
+                }
+            }
+        });
+
+        log('🔄 Auto Rotate Test v3.0 ready. Choose a mode.', 'info');
+    </script>
+</body>
+</html>
