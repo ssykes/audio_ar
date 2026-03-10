@@ -139,8 +139,9 @@
     </div>
 
     <!-- Load spatial_audio.js library first, then spatial_audio_app -->
-    <script src="spatial_audio_fresh.js"></script>
-    <script src="spatial_audio_app_v3.js"></script>
+    <!-- Version numbers will be auto-updated by deploy.ps1 for cache-busting -->
+    <script src="spatial_audio.js?v=0"></script>
+    <script src="spatial_audio_app.js?v=0"></script>
     <script>
         // Service Worker temporarily disabled for testing
         // if ('serviceWorker' in navigator) {

@@ -11,9 +11,68 @@ Write-Host ""
 $SERVER_USER = "ssykes"
 $SERVER_HOST = "macminiwebsever"
 $SERVER_PATH = "/var/www/html"
-$LOCAL_PATH = "e:\vsCode\workspaces\wifi_midi_player"
+$LOCAL_PATH = "e:\vsCode\workspaces\audio_ar"
 
-# Files to deploy
+# Generate version number (YYYYMMDDHHMMSS format for cache-busting)
+$VERSION = Get-Date -Format "yyyyMMddHHmmss"
+Write-Host "Version: $VERSION" -ForegroundColor Cyan
+Write-Host ""
+
+# Update HTML files with new version numbers (cache-busting)
+Write-Host "Updating version numbers in HTML files..." -ForegroundColor Yellow
+
+$HTML_FILES = @(
+    "audio_ar_app.html",
+    "single_sound_v2.html",
+    "single_sound.html",
+    "index.html",
+    "auto_rotate.html"
+)
+
+# Patterns to match existing versioned script tags
+$JS_VERSION_PATTERN = "spatial_audio\.js\?v=[\d]+"
+$JS_FRESH_PATTERN = "spatial_audio_fresh\.js"
+$APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
+$APP_V3_PATTERN = "spatial_audio_app_v[\d]+\.js"
+
+foreach ($htmlFile in $HTML_FILES) {
+    $filePath = Join-Path $LOCAL_PATH $htmlFile
+    if (Test-Path $filePath) {
+        $content = Get-Content $filePath -Raw
+        
+        # Update spatial_audio.js version
+        if ($content -match $JS_VERSION_PATTERN) {
+            $content = $content -replace $JS_VERSION_PATTERN, "spatial_audio.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (spatial_audio.js)" -ForegroundColor Green
+        }
+        
+        # Update spatial_audio_fresh.js → spatial_audio.js with version
+        if ($content -match $JS_FRESH_PATTERN) {
+            $content = $content -replace $JS_FRESH_PATTERN, "spatial_audio.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (spatial_audio_fresh.js → spatial_audio.js)" -ForegroundColor Yellow
+        }
+        
+        # Update spatial_audio_app.js version (if present with query string)
+        if ($content -match $APP_VERSION_PATTERN) {
+            $content = $content -replace $APP_VERSION_PATTERN, "spatial_audio_app.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (spatial_audio_app.js)" -ForegroundColor Green
+        }
+        
+        # Update spatial_audio_app_v3.js (if present - filename versioning)
+        if ($content -match $APP_V3_PATTERN) {
+            $content = $content -replace $APP_V3_PATTERN, "spatial_audio_app.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (spatial_audio_app_v3.js → spatial_audio_app.js)" -ForegroundColor Yellow
+        }
+    }
+}
+
+Write-Host ""
+
+# Files to deploy (core files without version - HTML files get updated inline)
 $ALL_FILES = @(
     ".htaccess",
     "audio_ar_app.html",
@@ -110,14 +169,22 @@ if ($failedCount -eq 0) {
 }
 
 Write-Host ""
-Write-Host "Test URLs:" -ForegroundColor Cyan
-Write-Host "   Main App:    http://ssykes.net/audio_ar_app.html"
-Write-Host "   Test Page:   http://ssykes.net/index.html"
-Write-Host "   Rotate Test: http://ssykes.net/auto_rotate.html"
+Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
+Write-Host "  (HTML files updated with new version numbers)" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
+Write-Host "   Main App:    http://ssykes.net/audio_ar_app.html" -ForegroundColor White
+Write-Host "   Test Page:   http://ssykes.net/index.html" -ForegroundColor White
+Write-Host "   Rotate Test: http://ssykes.net/auto_rotate.html" -ForegroundColor White
+Write-Host "   Single Sound: http://ssykes.net/single_sound_v2.html" -ForegroundColor White
 Write-Host ""
 Write-Host "Sound Files:" -ForegroundColor Cyan
 Write-Host "   Upload MP3/WAV/M4A files to /sounds/ folder"
 Write-Host "   Set USE_SAMPLES = true in audio_ar_app.html"
+Write-Host ""
+Write-Host "Git Status:" -ForegroundColor Cyan
+Write-Host "  Version numbers in HTML files are NOT committed to Git" -ForegroundColor Gray
+Write-Host "  (They're updated locally before each deploy)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press Enter to close..." -NoNewline
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
