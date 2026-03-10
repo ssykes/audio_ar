@@ -1,0 +1,11 @@
+# Disable caching for HTML and JavaScript files
+<FilesMatch "\.(html|htm|js)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+</FilesMatch>
+
+# Enable CORS for local testing
+<IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "*"
+</IfModule>

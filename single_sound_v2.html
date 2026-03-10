@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Single GPS sound source test">
+    <title>Single Sound Test</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 2em; margin-bottom: 10px; text-align: center; }
+        .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+        #status {
+            background: rgba(255,255,255,0.1);
+            padding: 20px; border-radius: 12px;
+            margin-bottom: 20px; text-align: center; font-size: 1.1em;
+        }
+        #status.ready { background: rgba(0,255,0,0.2); border: 2px solid #0f0; }
+        #status.error { background: rgba(255,0,0,0.2); border: 2px solid #f00; }
+        .sound-info {
+            background: rgba(255,255,255,0.05); padding: 20px;
+            border-radius: 12px; text-align: center; border: 2px solid transparent;
+            margin-bottom: 20px;
+        }
+        .sound-info.active {
+            background: rgba(0,255,0,0.15); border-color: #0f0;
+        }
+        .sound-icon { font-size: 3em; margin-bottom: 10px; }
+        .sound-distance { font-size: 1.5em; color: #00d9ff; margin: 10px 0; }
+        .sound-bearing { font-size: 1.2em; color: #aaa; }
+        #startBtn {
+            width: 100%; padding: 20px; font-size: 1.3em; font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff; border: none; border-radius: 12px; cursor: pointer;
+        }
+        #startBtn:disabled { background: #444; cursor: not-allowed; }
+        .controls { display: flex; gap: 10px; margin-top: 20px; }
+        .controls button {
+            flex: 1; padding: 12px; background: rgba(255,255,255,0.1);
+            color: #fff; border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px; cursor: pointer;
+        }
+        .controls button:hover { background: rgba(255,255,255,0.2); }
+        .config-section {
+            display: none; margin-top: 15px; padding: 15px;
+            background: rgba(255,255,255,0.1); border-radius: 12px;
+        }
+        .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .config-grid label { font-size: 0.85em; color: #aaa; display: block; margin-bottom: 5px; }
+        .config-grid input, .config-grid select {
+            width: 100%; padding: 8px; border-radius: 6px;
+            border: 1px solid #444; background: #222; color: #fff;
+        }
+        .config-section h4 { margin-bottom: 10px; }
+        .apply-btn {
+            margin-top: 10px; width: 100%; padding: 10px;
+            background: #667eea; color: #fff; border: none;
+            border-radius: 6px; cursor: pointer;
+        }
+        #debugConsole {
+            margin-top: 20px; padding: 15px;
+            background: rgba(0,0,0,0.8); border: 1px solid #444;
+            font-family: monospace; font-size: 0.75em; color: #0f0;
+            white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.1</span></h1>
+        <p class="subtitle">Clean architecture with SpatialAudioApp</p>
+
+        <div id="status">Tap "Start" to begin</div>
+
+        <div class="sound-info" id="sound1">
+            <div class="sound-icon">🔔</div>
+            <div class="sound-distance" id="dist1">-- m</div>
+            <div class="sound-bearing" id="bearing1">--°</div>
+            <div style="margin-top: 10px; font-size: 0.85em; color: #aaa;" id="gpsStatus">⏳ Waiting for GPS...</div>
+        </div>
+
+        <button id="startBtn">Start</button>
+
+        <div class="controls">
+            <button id="settingsBtn">⚙️ Settings</button>
+            <button id="volumeBtn">🔊 Volume</button>
+            <button id="testBtn">🔍 Test Sound</button>
+        </div>
+
+        <div id="settingsSection" class="config-section">
+            <h4>⚙️ Sound Configuration</h4>
+            <div class="config-grid">
+                <div>
+                    <label>Distance (m)</label>
+                    <input type="number" id="distanceInput" value="15" min="1" max="100">
+                </div>
+                <div>
+                    <label>Direction</label>
+                    <select id="directionInput">
+                        <option value="0">North (0°)</option>
+                        <option value="90">East (90°)</option>
+                        <option value="180">South (180°)</option>
+                        <option value="270">West (270°)</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Activation Radius (m)</label>
+                    <input type="number" id="radiusInput" value="30" min="5" max="100">
+                </div>
+                <div>
+                    <label>Sound File</label>
+                    <input type="text" id="soundInput" value="sounds/BoxingBell.mp3">
+                </div>
+            </div>
+            <button id="applySettingsBtn" class="apply-btn">Apply & Restart</button>
+        </div>
+
+        <div id="volumeSection" class="config-section">
+            <h4>🔊 Volume</h4>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span>🔈</span>
+                <input type="range" id="volumeSlider" min="0" max="100" value="80" style="flex: 1;">
+                <span id="volumeValue">80%</span>
+                <span>🔊</span>
+            </div>
+        </div>
+
+        <div id="debugConsole">Ready...</div>
+    </div>
+
+    <!-- Load spatial_audio.js library first, then spatial_audio_app -->
+    <script src="spatial_audio_fresh.js"></script>
+    <script src="spatial_audio_app_v3.js"></script>
+    <script>
+        // Service Worker temporarily disabled for testing
+        // if ('serviceWorker' in navigator) {
+        if (false) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then((reg) => console.log('✅ Service Worker registered'))
+                    .catch((err) => console.error('❌ SW registration failed:', err));
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // === UI STATE ===
+            let app = null;
+            let soundConfig = {
+                distance: 15,
+                direction: 0,
+                activationRadius: 30,
+                soundUrl: 'sounds/BoxingBell.mp3',
+                volume: 0.8
+            };
+
+            // === ELEMENTS ===
+            const statusEl = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            const soundEl = document.getElementById('sound1');
+            const debugConsole = document.getElementById('debugConsole');
+
+            function debugLog(msg) {
+                const time = new Date().toLocaleTimeString();
+                debugConsole.textContent = `[${time}] ${msg}\n` + debugConsole.textContent;
+                const lines = debugConsole.textContent.split('\n');
+                if (lines.length > 20) debugConsole.textContent = lines.slice(0, 20).join('\n');
+            }
+
+            debugLog('📄 Single Sound Test v2.0 initialized');
+
+            // === START/STOP ===
+            startBtn.addEventListener('click', async () => {
+                if (app && app.isRunning) {
+                    // Stop
+                    app.stop();
+                    app = null;
+                    startBtn.textContent = 'Start';
+                    statusEl.textContent = 'Tap "Start" to begin';
+                    statusEl.className = '';
+                    soundEl.classList.remove('active');
+                    debugLog('⏹ Stopped');
+                } else {
+                    // Start
+                    startBtn.disabled = true;
+                    startBtn.textContent = 'Starting...';
+                    statusEl.textContent = 'Starting...';
+
+                    try {
+                        // Calculate sound position RELATIVE to listener
+                        // SpatialAudioApp will handle GPS internally
+                        const soundData = {
+                            id: 'bell1',
+                            url: soundConfig.soundUrl,
+                            distance: soundConfig.distance,  // meters from listener
+                            direction: soundConfig.direction, // degrees (0=North)
+                            activationRadius: soundConfig.activationRadius,
+                            volume: soundConfig.volume,
+                            loop: true
+                        };
+
+                        // Create app - it will handle GPS internally
+                        app = new SpatialAudioApp([soundData], {
+                            gpsSmoothing: true,
+                            autoLock: true
+                        });
+
+                        // Set up callbacks (UI responds to engine events)
+                        app.onPositionUpdate = (data) => {
+                            // Update display with position data
+                            updateDisplay(data);
+                        };
+
+                        app.onStateChange = (state) => {
+                            console.log('[UI] State changed to:', state);
+                            debugLog(`📊 State: ${state}`);
+                            if (state === 'running') {
+                                startBtn.disabled = false;
+                                startBtn.textContent = 'Stop';
+                                statusEl.textContent = '✅ Ready! Walk toward the sound';
+                                statusEl.className = 'ready';
+                            } else if (state === 'starting') {
+                                startBtn.disabled = true;
+                                startBtn.textContent = 'Starting...';
+                                statusEl.textContent = 'Starting...';
+                            } else if (state === 'error') {
+                                startBtn.disabled = false;
+                                startBtn.textContent = 'Start Over';
+                            } else if (state === 'stopped') {
+                                startBtn.disabled = false;
+                                startBtn.textContent = 'Start';
+                                statusEl.textContent = 'Tap "Start" to begin';
+                            }
+                        };
+
+                        app.onError = (error) => {
+                            debugLog(`❌ Error: ${error.message}`);
+                            statusEl.textContent = '❌ ' + error.message;
+                            statusEl.className = 'error';
+                        };
+
+                        // Start the experience
+                        await app.start();
+
+                    } catch (error) {
+                        debugLog(`❌ Error: ${error.message}`);
+                        statusEl.textContent = '❌ ' + error.message;
+                        statusEl.className = 'error';
+                        startBtn.disabled = false;
+                        startBtn.textContent = 'Try Again';
+                    }
+                }
+            });
+
+            // === DISPLAY UPDATE ===
+            function updateDisplay(data) {
+                if (!data || !data.listener || !data.sounds || data.sounds.length === 0) return;
+
+                const sound = data.sounds[0];
+                
+                document.getElementById('dist1').textContent = sound.distance.toFixed(1) + ' m';
+                document.getElementById('bearing1').textContent = 
+                    `${sound.bearing.toFixed(0)}° (relative: ${GPSUtils.relativeBearing(sound.bearing, data.listener.heading).toFixed(0)}°)`;
+                
+                // Update GPS status
+                const gpsStatusEl = document.getElementById('gpsStatus');
+                if (app && app.gpsTracker && app.gpsTracker.isLocked) {
+                    gpsStatusEl.textContent = '🔒 GPS LOCKED (stationary)';
+                    gpsStatusEl.style.color = '#00ff88';
+                } else {
+                    gpsStatusEl.textContent = '🔓 GPS LIVE (moving)';
+                    gpsStatusEl.style.color = '#aaa';
+                }
+
+                // Update sound visual
+                if (sound.distance < soundConfig.activationRadius) {
+                    soundEl.classList.add('active');
+                } else {
+                    soundEl.classList.remove('active');
+                }
+            }
+
+            // === BUTTON HANDLERS ===
+            
+            // Settings toggle
+            document.getElementById('settingsBtn').onclick = () => {
+                document.getElementById('settingsSection').style.display = 
+                    document.getElementById('settingsSection').style.display === 'none' ? 'block' : 'none';
+            };
+
+            // Volume toggle
+            document.getElementById('volumeBtn').onclick = () => {
+                document.getElementById('volumeSection').style.display = 
+                    document.getElementById('volumeSection').style.display === 'none' ? 'block' : 'none';
+            };
+
+            // Apply settings
+            document.getElementById('applySettingsBtn').onclick = () => {
+                soundConfig.distance = parseInt(document.getElementById('distanceInput').value);
+                soundConfig.direction = parseInt(document.getElementById('directionInput').value);
+                soundConfig.activationRadius = parseInt(document.getElementById('radiusInput').value);
+                soundConfig.soundUrl = document.getElementById('soundInput').value;
+                
+                debugLog(`⚙️ Config updated: ${soundConfig.distance}m @ ${soundConfig.direction}°`);
+                document.getElementById('settingsSection').style.display = 'none';
+                
+                // Restart if running
+                if (app && app.isRunning) {
+                    app.stop();
+                    setTimeout(() => startBtn.click(), 500);
+                }
+            };
+
+            // Volume slider
+            document.getElementById('volumeSlider').addEventListener('input', (e) => {
+                soundConfig.volume = e.target.value / 100;
+                document.getElementById('volumeValue').textContent = e.target.value + '%';
+                
+                // Request volume change via app API
+                if (app) {
+                    app.setVolume('bell1', soundConfig.volume);
+                }
+            });
+
+            // Test sound
+            document.getElementById('testBtn').onclick = async () => {
+                if (!app || !app.isRunning) {
+                    debugLog('⚠️ Start first!');
+                    return;
+                }
+                
+                debugLog(`🔊 Test: Volume set to ${(soundConfig.volume * 100)}%`);
+                app.setVolume('bell1', soundConfig.volume);
+            };
+        });
+    </script>
+</body>
+</html>

@@ -2,10 +2,10 @@
  * Service Worker for Audio AR App
  * Enables offline functionality by caching all assets
  * 
- * @version 1.0
+ * @version 1.1 (v3 cache)
  */
 
-const CACHE_NAME = 'audio-ar-v2';
+const CACHE_NAME = 'audio-ar-v26';
 const UPDATE_CHECK_INTERVAL = 3600000; // Check for updates every hour
 
 // Files to cache immediately

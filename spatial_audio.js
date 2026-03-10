@@ -2,10 +2,10 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  * 
- * @version 4.0 (Phase 4 - MultiOscillatorSource + Presets)
+ * @version 4.1 (SampleSource - MP3/WAV/M4A support)
  */
 
-console.log('[spatial_audio.js] Loading v4.0...');
+console.log('[spatial_audio.js] Loading v4.1...');
 
 /**
  * GPS Utility Functions
@@ -37,13 +37,42 @@ const GPSUtils = {
                   Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
         let bearing = Math.atan2(y, x) * 180 / Math.PI;
         return (bearing + 360) % 360;
+    },
+
+    /**
+     * Place a sound at specified distance and direction from listener
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @param {number} distance - Distance in meters
+     * @param {number} direction - Direction in degrees (0=North, 90=East, etc.)
+     * @returns {{lat: number, lon: number}} Sound GPS position
+     */
+    placeSound(listenerLat, listenerLon, distance, direction) {
+        const dirRad = direction * Math.PI / 180;
+        const dLat = (distance * Math.cos(dirRad)) / 111000;
+        const dLon = (distance * Math.sin(dirRad)) / (111000 * Math.cos(listenerLat * Math.PI / 180));
+        return {
+            lat: listenerLat + dLat,
+            lon: listenerLon + dLon
+        };
+    },
+
+    /**
+     * Calculate relative bearing (adjusted for user heading)
+     * @param {number} bearing - Absolute bearing (0-360°)
+     * @param {number} heading - User heading (0-360°)
+     * @returns {number} Relative bearing (0-360°)
+     */
+    relativeBearing(bearing, heading) {
+        return (bearing - heading + 360) % 360;
     }
 };
 
 /**
- * Listener - Represents the person experiencing the audio
+ * EngineListener - Represents the person experiencing the audio (engine-level)
+ * Internal to spatial_audio.js - not exported to window
  */
-class Listener {
+class EngineListener {
     constructor() {
         this.lat = null;
         this.lon = null;
@@ -281,6 +310,122 @@ class MultiOscillatorSource extends GpsSoundSource {
 }
 
 /**
+ * SampleSource - Plays audio files (MP3, WAV, M4A) at GPS positions
+ */
+class SampleSource extends GpsSoundSource {
+    constructor(engine, id, options = {}) {
+        super(engine, id, options);
+        this.url = options.url || '';
+        this.loop = options.loop || false;
+        this.buffer = null;
+        this.sourceNode = null;
+        this.loadPromise = null;
+    }
+
+    async load() {
+        if (!this.url) {
+            console.error('[SampleSource] No URL provided');
+            return false;
+        }
+
+        try {
+            console.log('[SampleSource] Loading:', this.url);
+            const response = await fetch(this.url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
+            console.log('[SampleSource] Loaded:', this.url, 'Duration:', this.buffer.duration.toFixed(2) + 's');
+            return true;
+        } catch (err) {
+            console.error('[SampleSource] Load failed:', this.url, err);
+            return false;
+        }
+    }
+
+    init() {
+        this.gain = this.engine.ctx.createGain();
+        this.gain.gain.value = this.options.gain || 0.5;
+
+        this.panner = this.engine.ctx.createPanner();
+        this.panner.panningModel = 'HRTF';
+        this.panner.distanceModel = 'inverse';
+        this.panner.refDistance = 1;
+        this.panner.maxDistance = 10000;
+        this.panner.rolloffFactor = 1;
+
+        this.setPosition(this.x, this.z);
+
+        this.gain.connect(this.panner);
+        this.panner.connect(this.engine.masterGain);
+    }
+
+    start() {
+        if (!this.buffer) {
+            console.warn('[SampleSource] Cannot start - buffer not loaded');
+            return false;
+        }
+
+        if (this.sourceNode) {
+            this.stop();
+        }
+
+        this.sourceNode = this.engine.ctx.createBufferSource();
+        this.sourceNode.buffer = this.buffer;
+        this.sourceNode.loop = this.loop;
+        this.sourceNode.connect(this.gain);
+        this.sourceNode.start();
+
+        this.sourceNode.onended = () => {
+            if (this.loop && this.isPlaying) {
+                this.start();
+            }
+        };
+
+        super.start();
+        console.log('[SampleSource] Started:', this.id);
+        return true;
+    }
+
+    stop() {
+        if (this.sourceNode) {
+            try {
+                this.sourceNode.stop(this.engine.ctx.currentTime + 0.1);
+            } catch (e) {}
+            this.sourceNode = null;
+        }
+        super.stop();
+    }
+
+    dispose() {
+        this.stop();
+        if (this.gain) {
+            this.gain.disconnect();
+            this.gain = null;
+        }
+        if (this.panner) {
+            this.panner.disconnect();
+            this.panner = null;
+        }
+        this.buffer = null;
+    }
+
+    setLoop(loop) {
+        this.loop = loop;
+        if (this.sourceNode) {
+            this.sourceNode.loop = loop;
+        }
+    }
+
+    setPlaybackRate(rate) {
+        if (this.sourceNode) {
+            this.sourceNode.playbackRate.value = rate;
+        }
+    }
+}
+
+/**
  * Sound Presets - Predefined sound configurations
  */
 const SoundPresets = {
@@ -330,7 +475,7 @@ class SpatialAudioEngine {
     constructor(options = {}) {
         this.ctx = null;
         this.masterGain = null;
-        this.listener = new Listener();
+        this.listener = new EngineListener();
         this.sources = new Map();
         this.isInitialized = false;
         this.keepAliveEnabled = options.keepAlive || false;
@@ -419,6 +564,21 @@ class SpatialAudioEngine {
         return this.createMultiOscillatorSource(id, options);
     }
 
+    async createSampleSource(id, options = {}) {
+        const source = new SampleSource(this, id, options);
+        source.init();
+        this.sources.set(id, source);
+        
+        // Load the audio file
+        const loaded = await source.load();
+        if (!loaded) {
+            console.error('[SpatialAudioEngine] Failed to load sample:', options.url);
+            return null;
+        }
+        
+        return source;
+    }
+
     updateAllGpsSources(lat, lon, heading) {
         this.sources.forEach((source) => {
             if (source instanceof GpsSoundSource) {
@@ -499,7 +659,123 @@ class SpatialAudioEngine {
 }
 
 /**
- * DeviceOrientation Helper
+ * GPS Tracker - Smooths GPS coordinates and auto-locks when stationary
+ * Reduces GPS drift/jitter for more stable audio positioning
+ */
+class GPSTracker {
+    constructor(options = {}) {
+        this.history = [];
+        this.historySize = options.historySize || 10;      // Track last N readings
+        this.minMovement = options.minMovement || 0.5;     // Meters - ignore smaller movements
+        this.stationaryThreshold = options.stationaryThreshold || 0.3; // Meters variance
+        this.stationaryTime = options.stationaryTime || 3000; // ms to lock
+        
+        // Lock state
+        this.isLocked = false;
+        this.lockedLat = null;
+        this.lockedLon = null;
+        this.lastMoveTime = Date.now();
+        this.stationarySince = null;
+    }
+
+    /**
+     * Update with new GPS reading
+     * @param {number} lat - Latitude
+     * @param {number} lon - Longitude
+     * @returns {{lat: number, lon: number, locked: boolean}} Smoothed/locked position
+     */
+    update(lat, lon) {
+        const now = Date.now();
+        
+        // Add to history
+        this.history.push({ lat, lon, time: now });
+        
+        // Keep only last N readings
+        if (this.history.length > this.historySize) {
+            this.history.shift();
+        }
+        
+        // Need minimum readings before we can detect stationary
+        if (this.history.length < 3) {
+            return { lat, lon, locked: false };
+        }
+        
+        // Calculate movement from previous reading
+        const prevPos = this.history[this.history.length - 2];
+        const movement = GPSUtils.distance(prevPos.lat, prevPos.lon, lat, lon);
+        
+        // Track when user was last moving significantly
+        if (movement > this.minMovement) {
+            this.lastMoveTime = now;
+            this.stationarySince = null;
+            this.isLocked = false;
+        }
+        
+        // Check if user has been stationary long enough
+        const stationaryDuration = now - this.lastMoveTime;
+        
+        if (stationaryDuration >= this.stationaryTime && !this.isLocked) {
+            // Just became stationary - lock position
+            this.isLocked = true;
+            this.stationarySince = this.lastMoveTime;
+            
+            // Calculate average position for lock
+            let avgLat = 0, avgLon = 0;
+            this.history.forEach(pos => {
+                avgLat += pos.lat;
+                avgLon += pos.lon;
+            });
+            this.lockedLat = avgLat / this.history.length;
+            this.lockedLon = avgLon / this.history.length;
+        }
+        
+        // Return locked position if locked, otherwise smoothed
+        if (this.isLocked) {
+            return { lat: this.lockedLat, lon: this.lockedLon, locked: true };
+        }
+        
+        // Calculate smoothed position (not locked yet)
+        let avgLat = 0, avgLon = 0;
+        this.history.forEach(pos => {
+            avgLat += pos.lat;
+            avgLon += pos.lon;
+        });
+        avgLat /= this.history.length;
+        avgLon /= this.history.length;
+        
+        return { lat: avgLat, lon: avgLon, locked: false };
+    }
+
+    /**
+     * Reset tracker (clear history, unlock)
+     */
+    reset() {
+        this.history = [];
+        this.isLocked = false;
+        this.lockedLat = null;
+        this.lockedLon = null;
+        this.lastMoveTime = Date.now();
+        this.stationarySince = null;
+    }
+
+    /**
+     * Get tracker status
+     * @returns {{isLocked: boolean, historySize: number, stationaryDuration: number}}
+     */
+    getStatus() {
+        const stationaryDuration = this.isLocked ? Date.now() - this.stationarySince : 0;
+        return {
+            isLocked: this.isLocked,
+            historySize: this.history.length,
+            stationaryDuration: stationaryDuration,
+            lockedLat: this.lockedLat,
+            lockedLon: this.lockedLon
+        };
+    }
+}
+
+/**
+ * DeviceOrientation Helper - Uses iOS webkitCompassHeading for true magnetic compass
  */
 const DeviceOrientationHelper = {
     isAvailable: typeof DeviceOrientationEvent !== 'undefined',
@@ -509,6 +785,7 @@ const DeviceOrientationHelper = {
 
     async start(onOrientationChange) {
         this.callback = onOrientationChange;
+        
         if (this.isPermissionRequired) {
             try {
                 const permission = await DeviceOrientationEvent.requestPermission();
@@ -516,6 +793,7 @@ const DeviceOrientationHelper = {
                     this._enableListener();
                     return true;
                 }
+                console.warn('[DeviceOrientation] Permission denied');
                 return false;
             } catch (err) {
                 console.error('[DeviceOrientation] Error:', err);
@@ -528,33 +806,229 @@ const DeviceOrientationHelper = {
     },
 
     _enableListener() {
-        window.addEventListener('deviceorientation', (event) => {
-            if (event.alpha !== null && this.callback) {
-                this.callback(event.alpha);
+        // iOS 13+ uses deviceorientationabsolute or webkitCompassHeading
+        const handler = (event) => {
+            let heading;
+            
+            // iOS: Use webkitCompassHeading (true magnetic compass)
+            if (event.webkitCompassHeading !== undefined) {
+                heading = event.webkitCompassHeading;
+                console.log('[Compass] iOS magnetic:', heading.toFixed(1) + '°');
+            } 
+            // Android: Use alpha (may need adjustment)
+            else if (event.alpha !== null) {
+                heading = event.alpha;
+                console.log('[Compass] Android alpha:', heading.toFixed(1) + '°');
             }
-        });
+            
+            if (heading !== undefined && this.callback) {
+                this.callback(heading);
+            }
+        };
+        
+        window.addEventListener('deviceorientation', handler, true);
+        console.log('[DeviceOrientation] Listener enabled (using webkitCompassHeading if available)');
     },
 
-    stop() { this.callback = null; }
+    stop() { 
+        this.callback = null;
+        window.removeEventListener('deviceorientation', null, true);
+    }
 };
 
-// Export
+/**
+ * HeadingManager - Combines GPS heading and device compass
+ * Intelligently switches between sources based on reliability
+ */
+class HeadingManager {
+    constructor(options = {}) {
+        this.gpsHeading = null;
+        this.compassHeading = 0;
+        this.gpsSamples = [];
+        this.maxSamples = options.maxSamples || 10;
+        this.minSpeed = options.minSpeed || 1.0;      // m/s - must exceed to trust GPS
+        this.stopSpeed = options.stopSpeed || 0.3;    // m/s - below this = stationary
+        this.stabilityThreshold = options.stabilityThreshold || 15; // degrees variance
+        this.minStableCount = options.minStableCount || 3;
+        this.stableCount = 0;
+        this.useGPS = false;
+        this.lastSwitchTime = 0;
+        this.switchDebounce = 2000; // ms - don't switch sources more than every 2s
+    }
+
+    /**
+     * Update with GPS data
+     * @param {number} heading - GPS heading (0-360°) or null
+     * @param {number} speed - GPS speed in m/s
+     * @returns {string} 'gps' or 'compass' - which source to use
+     */
+    updateGPS(heading, speed) {
+        const now = Date.now();
+        
+        // Store sample
+        if (heading !== null) {
+            this.gpsHeading = heading;
+            this.gpsSamples.push({ heading, speed, time: now });
+            
+            // Keep buffer at maxSamples
+            if (this.gpsSamples.length > this.maxSamples) {
+                this.gpsSamples.shift();
+            }
+        }
+        
+        // If speed too low, don't trust GPS (likely drift)
+        if (speed < this.minSpeed) {
+            this.stableCount = 0;
+            this.useGPS = false;
+            return 'compass';
+        }
+        
+        // Need minimum samples before trusting GPS
+        if (this.gpsSamples.length < 5) {
+            return 'compass';
+        }
+        
+        // Prevent rapid switching
+        if (now - this.lastSwitchTime < this.switchDebounce) {
+            return this.useGPS ? 'gps' : 'compass';
+        }
+        
+        // Calculate heading variance (stability)
+        const variance = this._calculateVariance();
+        
+        if (variance < this.stabilityThreshold) {
+            this.stableCount++;
+            
+            if (this.stableCount >= this.minStableCount && !this.useGPS) {
+                this.useGPS = true;
+                this.lastSwitchTime = now;
+                console.log('[HeadingManager] Switched to GPS (variance:', variance.toFixed(1) + '°)');
+                return 'gps';
+            }
+        } else {
+            this.stableCount = 0;
+            if (this.useGPS) {
+                this.useGPS = false;
+                this.lastSwitchTime = now;
+                console.log('[HeadingManager] GPS unstable, switched to compass (variance:', variance.toFixed(1) + '°)');
+            }
+            return 'compass';
+        }
+        
+        return this.useGPS ? 'gps' : 'compass';
+    }
+
+    /**
+     * Update with compass data
+     * @param {number} alpha - Compass heading (0-360°)
+     * @returns {string} 'gps' or 'compass' - which source to use
+     */
+    updateCompass(alpha) {
+        this.compassHeading = alpha;
+        
+        // DEBUG
+        console.log('[HeadingManager] Compass update:', alpha.toFixed(1) + '°, useGPS:', this.useGPS, 'gpsHeading:', this.gpsHeading);
+
+        // If GPS is active and stable, keep using it
+        if (this.useGPS) {
+            return 'gps';
+        }
+
+        return 'compass';
+    }
+
+    /**
+     * Get current best heading
+     * @returns {number} Heading in degrees (0-360°)
+     */
+    getHeading() {
+        if (this.useGPS && this.gpsHeading !== null) {
+            return this.gpsHeading;
+        }
+        return this.compassHeading;
+    }
+
+    /**
+     * Get current heading source
+     * @returns {string} 'gps' or 'compass'
+     */
+    getSource() {
+        return this.useGPS ? 'gps' : 'compass';
+    }
+
+    /**
+     * Get diagnostic info
+     * @returns {object} Status information
+     */
+    getStatus() {
+        return {
+            source: this.getSource(),
+            heading: this.getHeading(),
+            gpsHeading: this.gpsHeading,
+            compassHeading: this.compassHeading,
+            samples: this.gpsSamples.length,
+            stableCount: this.stableCount,
+            variance: this._calculateVariance()
+        };
+    }
+
+    /**
+     * Calculate variance of recent GPS headings
+     * @returns {number} Variance in degrees
+     * @private
+     */
+    _calculateVariance() {
+        if (this.gpsSamples.length < 2) return 360;
+        
+        const headings = this.gpsSamples.map(s => s.heading);
+        const avg = headings.reduce((a, b) => a + b, 0) / headings.length;
+        
+        // Handle wraparound (359° vs 1°)
+        let variance = 0;
+        for (const h of headings) {
+            let diff = Math.abs(h - avg);
+            if (diff > 180) diff = 360 - diff;
+            variance += diff;
+        }
+        
+        return variance / headings.length;
+    }
+
+    /**
+     * Reset all state
+     */
+    reset() {
+        this.gpsHeading = null;
+        this.gpsSamples = [];
+        this.stableCount = 0;
+        this.useGPS = false;
+        this.lastSwitchTime = 0;
+    }
+}
+
+// Export (don't export Listener - it's internal to engine)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { 
-        SpatialAudioEngine, Listener, SoundSource, OscillatorSource, 
-        GpsSoundSource, MultiOscillatorSource, SoundPresets,
-        GPSUtils, DeviceOrientationHelper
+        SpatialAudioEngine, SoundSource, OscillatorSource, 
+        GpsSoundSource, MultiOscillatorSource, SampleSource, SoundPresets,
+        GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker
     };
 } else {
     window.SpatialAudioEngine = SpatialAudioEngine;
-    window.Listener = Listener;
     window.SoundSource = SoundSource;
     window.OscillatorSource = OscillatorSource;
     window.GpsSoundSource = GpsSoundSource;
     window.MultiOscillatorSource = MultiOscillatorSource;
+    window.SampleSource = SampleSource;
     window.SoundPresets = SoundPresets;
     window.GPSUtils = GPSUtils;
     window.DeviceOrientationHelper = DeviceOrientationHelper;
-    console.log('[spatial_audio.js] v4.0 loaded');
+    window.HeadingManager = HeadingManager;
+    window.GPSTracker = GPSTracker;
+    console.log('[spatial_audio.js] v4.7 loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
+    console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
+    console.log('[spatial_audio.js] HeadingManager: GPS + Compass hybrid');
+    console.log('[spatial_audio.js] GPSTracker: Auto-lock when stationary');
+    console.log('[spatial_audio.js] SpatialAudioApp: High-level app orchestration');
 }

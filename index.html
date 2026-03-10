@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1a1a2e">
-    <title>Audio Panning Test v3.0</title>
+    <title>Audio Panning Test v3.3</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
     <style>
@@ -284,6 +284,7 @@
             const points = 128;
 
             if (mode === 'circular') {
+                // Use HRTF panner for circular motion around head
                 const duration = 5;
                 for (let rot = 0; rot < 10; rot++) {
                     for (let i = 0; i <= points; i++) {
@@ -296,23 +297,46 @@
                     }
                 }
             } else if (mode === 'ns') {
-                const duration = 5;
-                for (let cycle = 0; cycle < 10; cycle++) {
+                // Pre-schedule smooth front-back motion with many points
+                const halfDuration = 2.5; // 2.5s front-to-back, 2.5s back-to-front
+                for (let cycle = 0; cycle < 5; cycle++) {
+                    const base = t0 + cycle * halfDuration * 2;
+                    // Front to back
                     for (let i = 0; i <= points; i++) {
-                        const t = t0 + cycle * duration + (i / points) * duration;
-                        const pos = Math.cos((i / points) * Math.PI) * 2;
+                        const t = base + (i / points) * halfDuration;
+                        const z = 2 - (i / points) * 4; // +2 (front) to -2 (back)
                         source.panner.positionX.setValueAtTime(0, t);
-                        source.panner.positionZ.setValueAtTime(pos, t);
+                        source.panner.positionZ.setValueAtTime(z, t);
+                    }
+                    // Back to front
+                    for (let i = 0; i <= points; i++) {
+                        const t = base + halfDuration + (i / points) * halfDuration;
+                        const z = -2 + (i / points) * 4; // -2 (back) to +2 (front)
+                        source.panner.positionX.setValueAtTime(0, t);
+                        source.panner.positionZ.setValueAtTime(z, t);
                     }
                 }
             } else if (mode === 'ew') {
-                const duration = 5;
-                for (let cycle = 0; cycle < 10; cycle++) {
+                // Use StereoPanner with pre-scheduled smooth left-right motion
+                const stereoPanner = engine.ctx.createStereoPanner();
+                stereoPanner.connect(engine.masterGain);
+                source.gain.disconnect();
+                source.gain.connect(stereoPanner);
+                
+                const halfDuration = 2.5; // 2.5s left-to-right, 2.5s right-to-left
+                for (let cycle = 0; cycle < 5; cycle++) {
+                    const base = t0 + cycle * halfDuration * 2;
+                    // Left to right
                     for (let i = 0; i <= points; i++) {
-                        const t = t0 + cycle * duration + (i / points) * duration;
-                        const pos = Math.cos((i / points) * Math.PI) * 2;
-                        source.panner.positionX.setValueAtTime(pos, t);
-                        source.panner.positionZ.setValueAtTime(0, t);
+                        const t = base + (i / points) * halfDuration;
+                        const pan = -1 + (i / points) * 2; // -1 (left) to +1 (right)
+                        stereoPanner.pan.setValueAtTime(pan, t);
+                    }
+                    // Right to left
+                    for (let i = 0; i <= points; i++) {
+                        const t = base + halfDuration + (i / points) * halfDuration;
+                        const pan = 1 - (i / points) * 2; // +1 (right) to -1 (left)
+                        stereoPanner.pan.setValueAtTime(pan, t);
                     }
                 }
             }
@@ -320,25 +344,33 @@
             function updateVisual() {
                 if (!currentMode) return;
                 const elapsed = performance.now() - visualStartTime;
-                
+
                 if (mode === 'circular') {
                     const duration = 5000;
                     const angleDeg = ((elapsed % duration) / duration) * 360;
                     updateCompass(angleDeg);
-                } else {
-                    const duration = 5000;
-                    const t = ((elapsed % duration) / duration);
-                    const pos = Math.cos(t * Math.PI);
-                    if (mode === 'ns') {
-                        updateCompass(pos > 0 ? 0 : 180);
+                } else if (mode === 'ns') {
+                    // 10 second full cycle (5s front-to-back, 5s back-to-front)
+                    const cycleDuration = 10000;
+                    const t = (elapsed % cycleDuration) / cycleDuration;
+                    if (t < 0.5) {
+                        updateCompass(0); // Front (N)
                     } else {
-                        updateCompass(pos > 0 ? 90 : 270);
+                        updateCompass(180); // Back (S)
+                    }
+                } else if (mode === 'ew') {
+                    // 10 second full cycle (5s left-to-right, 5s right-to-left)
+                    const cycleDuration = 10000;
+                    const t = (elapsed % cycleDuration) / cycleDuration;
+                    if (t < 0.5) {
+                        updateCompass(270); // Left (W)
+                    } else {
+                        updateCompass(90); // Right (E)
                     }
                 }
-                
+
                 animationId = requestAnimationFrame(updateVisual);
             }
-            animationId = requestAnimationFrame(updateVisual);
         }
 
         document.getElementById('toggleBtn').addEventListener('click', async () => {
@@ -389,7 +421,7 @@
             }
         });
 
-        log('🎵 Audio panning test v3.0 (spatial_audio.js) ready.', 'info');
+        log('🎵 Audio panning test v3.3 - Smooth back-and-forth panning', 'info');
     </script>
 </body>
 </html>

@@ -76,7 +76,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v11.2</span></h1>
+        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v10.17</span></h1>
         <p class="subtitle">Walk between 3 spatial sound locations</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -133,17 +133,6 @@
 
         <div class="btn-row">
             <button id="configToggleBtn">⚙️ Settings</button>
-            <button id="volumeToggleBtn">🔊 Volume</button>
-        </div>
-
-        <div id="volumeSection" style="display: none; margin-top: 15px; padding: 15px; background: rgba(255,255,255,0.1); border-radius: 12px;">
-            <h4 style="margin-bottom:10px;">🔊 Volume Control</h4>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 0.85em; color: #aaa;">🔈</span>
-                <input type="range" id="volumeSlider" min="0" max="100" value="80" style="flex: 1;">
-                <span style="font-size: 0.85em; color: #aaa;" id="volumeValue">80%</span>
-                <span style="font-size: 0.85em; color: #aaa;">🔊</span>
-            </div>
         </div>
 
         <div id="debugConsole">Ready...</div>
@@ -165,25 +154,25 @@
             // === CONFIG ===
             let SPACING = 15;
             let ACTIVATION_RADIUS = 20;
-            let MASTER_VOLUME = 0.8;  // Master volume (0.0 - 1.0)
             let USE_SAMPLES = true; // Set to true to use MP3 files instead of oscillators
 
             // Sample sound configuration (when USE_SAMPLES = true)
             const SAMPLE_CONFIG = [
-                { id: 'loc1', url: 'sounds/StepDance.mp3', name: 'Bell 1', loop: false },
-                { id: 'loc2', url: 'sounds/WoodDoor.mp3', name: 'Bell 2', loop: false },
-                { id: 'loc3', url: 'sounds/Tom.mp3', name: 'Bell 3', loop: false }
+                { id: 'loc1', url: 'sounds/BoxingBell.mp3', name: 'Ocean', loop: true },
+                { id: 'loc2', url: 'sounds/WoodDoor.mp3', name: 'Alarm', loop: true },
+                { id: 'loc3', url: 'sounds/Tom.mp3', name: 'Chord', loop: true }
             ];
 
             // Oscillator presets (when USE_SAMPLES = false)
             const PRESET_CONFIG = [
-                { id: 'loc1', name: 'Bell 1', preset: 'ocean' },
-                { id: 'loc2', name: 'Bell 2', preset: 'alarm' },
-                { id: 'loc3', name: 'Bell 3', preset: 'chord' }
+                { id: 'loc1', name: 'Ocean', preset: 'ocean' },
+                { id: 'loc2', name: 'Alarm', preset: 'alarm' },
+                { id: 'loc3', name: 'Chord', preset: 'chord' }
             ];
 
             // === STATE ===
             let engine = null;
+            let headingManager = null;
             let userLat = null, userLon = null, userHeading = 0;
             let centerLat = null, centerLon = null;
             let locations = [], testMode = false;
@@ -375,12 +364,27 @@
                         (p) => {
                             userLat = p.coords.latitude;
                             userLon = p.coords.longitude;
-
-                            // Update sound field with new GPS position
-                            // Compass heading is updated separately by DeviceOrientation
+                            
+                            // Get GPS heading and speed
+                            const gpsHeading = p.coords.heading;
+                            const speed = p.coords.speed || 0;
+                            
+                            // Let HeadingManager decide which source to use
+                            const source = headingManager.updateGPS(gpsHeading, speed);
+                            userHeading = headingManager.getHeading();
+                            
+                            // Get status for debugging
+                            const status = headingManager.getStatus();
+                            
+                            // Update sound field with heading
                             if (engine) {
                                 engine.updateAllGpsSources(userLat, userLon, userHeading);
                                 updateAudio();
+                                
+                                // Log heading source changes
+                                if (Math.random() < 0.05) { // 5% of updates to avoid spam
+                                    debugLog(`🧭 Heading: ${userHeading.toFixed(0)}° (${source}) - Var: ${status.variance.toFixed(1)}°`);
+                                }
                             }
                         },
                         (e) => debugLog('GPS error: ' + e.message),
@@ -410,25 +414,22 @@
 
             function updateAudio() {
                 if (!userLat || !engine) return;
-
+                
                 locations.forEach((loc, i) => {
                     const dist = GPSUtils.distance(userLat, userLon, loc.lat, loc.lon);
                     document.getElementById('dist' + (i+1)).textContent = dist.toFixed(1) + ' m';
-
+                    
                     const el = document.getElementById('loc' + (i+1));
                     const source = engine.getSource(`loc${loc.id}`);
-
+                    
                     if (dist < ACTIVATION_RADIUS) {
                         el.classList.add('active');
-                        if (source) {
-                            // Direct gain control - no distance attenuation for now
-                            source.gain.gain.value = MASTER_VOLUME;
+                        if (source && !testMode) {
+                            source.updateGainByDistance(userLat, userLon, 0.4);
                         }
                     } else {
                         el.classList.remove('active');
-                        if (source) {
-                            source.gain.gain.value = 0;
-                        }
+                        if (source) source.gain.gain.value = 0;
                     }
                 });
             }
@@ -450,18 +451,6 @@
             document.getElementById('configToggleBtn').onclick = () => {
                 configSection.style.display = configSection.style.display === 'none' ? 'block' : 'none';
             };
-
-            // Volume controls
-            document.getElementById('volumeToggleBtn').onclick = () => {
-                const volSection = document.getElementById('volumeSection');
-                volSection.style.display = volSection.style.display === 'none' ? 'block' : 'none';
-            };
-
-            document.getElementById('volumeSlider').addEventListener('input', (e) => {
-                MASTER_VOLUME = e.target.value / 100;
-                document.getElementById('volumeValue').textContent = e.target.value + '%';
-                debugLog(`🔊 Volume: ${(MASTER_VOLUME * 100).toFixed(0)}%`);
-            });
 
             document.getElementById('applyConfigBtn').onclick = () => {
                 SPACING = parseInt(document.getElementById('spacingInput').value);
