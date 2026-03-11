@@ -175,14 +175,16 @@ class SpatialAudioApp {
             // Initialize audio engine FIRST (user gesture context)
             console.log('[SpatialAudioApp] Initializing audio...');
             this.engine = new SpatialAudioEngine({
-                keepAlive: true,
-                keepAliveInterval: 3000
+                keepAlive: false,  // DISABLED - causes intermodulation distortion
+                keepAliveInterval: 3000,
+                reverbEnabled: true  // ENABLED - clean reverb with short IR
             });
             await this.engine.init();
             console.log('[SpatialAudioApp] Audio initialized');
             
             await this.engine.resume();
-            this.engine.enableKeepAlive(3000);
+            // Keep-alive DISABLED - causes intermodulation distortion (audible ringing)
+            // this.engine.enableKeepAlive(3000);
 
             // TODO: Future - auto-switch these based on GPS speed
             // Initialize GPS tracker (tuned for walking + stopping)

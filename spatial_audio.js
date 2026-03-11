@@ -1,11 +1,11 @@
 /**
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
- * 
- * @version 4.1 (SampleSource - MP3/WAV/M4A support)
+ *
+ * @version 5.0 (Reverb Zones - distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v4.1...');
+console.log('[spatial_audio.js] Loading v5.0...');
 
 /**
  * GPS Utility Functions
@@ -119,11 +119,23 @@ class SoundSource {
         this.gain = null;
         this.panner = null;
         this.isPlaying = false;
+        
+        // Reverb wet/dry mix nodes
+        this.dryGain = null;
+        this.wetGain = null;
+        this.currentWetValue = 0;
     }
 
     init() {
         this.gain = this.engine.ctx.createGain();
         this.gain.gain.value = this.options.gain || 0.3;
+        
+        // Create wet/dry split for reverb
+        this.dryGain = this.engine.ctx.createGain();
+        this.wetGain = this.engine.ctx.createGain();
+        this.dryGain.gain.value = 1.0;  // Start fully dry
+        this.wetGain.gain.value = 0.0;
+        
         this.panner = this.engine.ctx.createPanner();
         this.panner.panningModel = 'HRTF';
         this.panner.distanceModel = 'inverse';
@@ -163,6 +175,8 @@ class SoundSource {
     dispose() {
         this.stop();
         if (this.gain) { this.gain.disconnect(); this.gain = null; }
+        if (this.dryGain) { this.dryGain.disconnect(); this.dryGain = null; }
+        if (this.wetGain) { this.wetGain.disconnect(); this.wetGain = null; }
         if (this.panner) { this.panner.disconnect(); this.panner = null; }
     }
 }
@@ -182,8 +196,23 @@ class OscillatorSource extends SoundSource {
         this.oscillator.type = this.options.wave || 'sine';
         this.oscillator.frequency.value = this.options.freq || 440;
         this.oscillator.connect(this.gain);
-        this.gain.connect(this.panner);
+
+        // Split signal into dry and wet paths
+        this.gain.connect(this.dryGain);
+        this.gain.connect(this.wetGain);
+
+        // Dry goes to panner (spatialized)
+        this.dryGain.connect(this.panner);
         this.panner.connect(this.engine.masterGain);
+
+        // Wet goes to reverb ONLY if reverb is enabled
+        if (this.engine.reverbEnabled && this.engine.reverb) {
+            this.wetGain.connect(this.engine.reverb);
+            // Reverb already connected to masterGain in engine.init()
+        } else {
+            // Reverb disabled - mute wet path to prevent signal loss
+            this.wetGain.gain.value = 0;
+        }
     }
 
     start() {
@@ -244,15 +273,19 @@ class GpsSoundSource extends OscillatorSource {
 
     updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
         const dist = this.getDistance(listenerLat, listenerLon);
-        
+
         if (this.gain) {
             if (dist < this.activationRadius) {
                 // Inside activation radius: panner handles smooth falloff via inverse square law
                 this.gain.gain.value = targetGain;
-                
+
+                // Apply distance-based reverb wet mix
+                // Closer = drier, farther = wetter (within the activation radius)
+                this._updateReverbWetMix(dist);
+
                 // Debug: Log gain changes (throttle to avoid spam)
                 if (Math.random() < 0.1) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${targetGain.toFixed(2)} (inside ${this.activationRadius}m)`);
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${targetGain.toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (inside ${this.activationRadius}m)`);
                 }
             } else {
                 // Outside activation radius: smooth fade-out over 15% of radius (min 3m, max 10m)
@@ -260,23 +293,52 @@ class GpsSoundSource extends OscillatorSource {
                 const fadeZonePercent = 0.15;  // 15% of activation radius
                 const fadeZone = Math.max(3, Math.min(10, this.activationRadius * fadeZonePercent));
                 const distPastEdge = dist - this.activationRadius;
-                
+
                 if (distPastEdge < fadeZone) {
                     // In transition zone: smooth exponential fade
                     const fadeAmount = Math.pow(distPastEdge / fadeZone, 2);  // Quadratic fade
-                    this.gain.gain.value = targetGain * (1 - fadeAmount);
+                    const currentGain = targetGain * (1 - fadeAmount);
+                    this.gain.gain.value = currentGain;
+                    
+                    // Maintain max wet value in fade zone (reverb lingers as sound fades)
+                    this._updateReverbWetMix(dist);
                 } else {
                     // Beyond transition zone: silent
                     this.gain.gain.value = 0;
+                    this.wetGain.gain.value = 0;
+                    this.dryGain.gain.value = 0;
                 }
-                
+
                 // Debug: Log gain changes (throttle to avoid spam)
                 if (Math.random() < 0.1) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${this.gain.gain.value.toFixed(2)} (fade zone: ${fadeZone.toFixed(1)}m)`);
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${this.gain.gain.value.toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (fade zone: ${fadeZone.toFixed(1)}m)`);
                 }
             }
         }
         return dist < this.activationRadius;
+    }
+
+    /**
+     * Update reverb wet/dry mix based on distance and environment
+     * Uses psychoacoustic principle: more reverb = perceived as farther
+     * @param {number} distance - Distance in meters
+     * @private
+     */
+    _updateReverbWetMix(distance) {
+        if (!this.dryGain || !this.wetGain) return;
+
+        // Get reverb settings for current distance and environment
+        const reverb = getReverbForDistance(distance);
+
+        // Apply wet/dry mix (equal power compensation)
+        this.wetGain.gain.value = reverb.wet;
+        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
+        this.currentWetValue = reverb.wet;
+
+        // Debug: Log environment/zone changes (throttled)
+        if (Math.random() < 0.05) {
+            console.log(`[Reverb] ${distance.toFixed(1)}m, env=${reverb.environment}, zone=${reverb.zone}, wet=${(reverb.wet * 100).toFixed(1)}%`);
+        }
     }
 }
 
@@ -291,15 +353,7 @@ class MultiOscillatorSource extends GpsSoundSource {
     }
 
     init() {
-        this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.3;
-        this.panner = this.engine.ctx.createPanner();
-        this.panner.panningModel = 'HRTF';
-        this.panner.distanceModel = 'inverse';
-        this.panner.refDistance = 1;
-        this.panner.maxDistance = 10000;
-        this.panner.rolloffFactor = 1;
-        this.setPosition(this.x, this.z);
+        super.init();  // Call parent init to set up gain, dryGain, wetGain, panner
 
         this.oscillatorConfigs.forEach((oscConfig) => {
             const osc = this.engine.ctx.createOscillator();
@@ -312,8 +366,16 @@ class MultiOscillatorSource extends GpsSoundSource {
             this.oscillators.push({ osc, gain: oscGain, config: oscConfig });
         });
 
-        this.gain.connect(this.panner);
+        // Split signal into dry and wet paths (same as OscillatorSource)
+        this.gain.connect(this.dryGain);
+        this.gain.connect(this.wetGain);
+        
+        // Dry goes to panner (spatialized)
+        this.dryGain.connect(this.panner);
         this.panner.connect(this.engine.masterGain);
+        
+        // Wet goes to reverb (already connected to master in engine.init)
+        this.wetGain.connect(this.engine.reverb);
     }
 
     start() {
@@ -340,6 +402,8 @@ class MultiOscillatorSource extends GpsSoundSource {
         });
         this.oscillators = [];
         if (this.gain) { this.gain.disconnect(); this.gain = null; }
+        if (this.dryGain) { this.dryGain.disconnect(); this.dryGain = null; }
+        if (this.wetGain) { this.wetGain.disconnect(); this.wetGain = null; }
         if (this.panner) { this.panner.disconnect(); this.panner = null; }
     }
 }
@@ -358,6 +422,7 @@ class SampleSource extends GpsSoundSource {
     }
 
     async load() {
+        console.log('[SampleSource] load() called for:', this.url);
         if (!this.url) {
             console.error('[SampleSource] No URL provided');
             return false;
@@ -366,12 +431,20 @@ class SampleSource extends GpsSoundSource {
         try {
             console.log('[SampleSource] Loading:', this.url);
             const response = await fetch(this.url);
+            console.log('[SampleSource] Fetch response:', response.status, response.ok);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
             const arrayBuffer = await response.arrayBuffer();
-            this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
-            console.log('[SampleSource] Loaded:', this.url, 'Duration:', this.buffer.duration.toFixed(2) + 's');
+            console.log('[SampleSource] Array buffer size:', arrayBuffer.byteLength);
+            try {
+                this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
+                console.log('[SampleSource] Loaded:', this.url, 'Duration:', this.buffer.duration.toFixed(2) + 's');
+                console.log('[SampleSource] Buffer sample rate:', this.buffer.sampleRate, 'channels:', this.buffer.numberOfChannels);
+            } catch (decodeErr) {
+                console.error('[SampleSource] Decode failed:', decodeErr);
+                throw new Error('Audio decode failed: ' + decodeErr.message);
+            }
             return true;
         } catch (err) {
             console.error('[SampleSource] Load failed:', this.url, err);
@@ -385,7 +458,7 @@ class SampleSource extends GpsSoundSource {
 
         this.panner = this.engine.ctx.createPanner();
         this.panner.panningModel = 'HRTF';
-        
+
         console.log('[SampleSource] Panner created:', {
             panningModel: this.panner.panningModel,
             distanceModel: this.panner.distanceModel,
@@ -393,23 +466,36 @@ class SampleSource extends GpsSoundSource {
             maxDistance: this.panner.maxDistance,
             rolloffFactor: this.panner.rolloffFactor
         });
-        
+
         // Use inverse square law for realistic distance falloff
-        // TODO: Make distance model configurable (linear, inverse, exponential)
-        // TODO: Add UI slider for rolloffFactor (0.5-3.0)
-        // TODO: Add UI slider for refDistance (0.5-5.0m)
-        // TODO: Add UI slider for maxDistance (20-200m)
         this.panner.distanceModel = 'inverse';
-        this.panner.refDistance = 1;        // 1m = full volume
-        this.panner.maxDistance = 100;      // Max audible distance
-        this.panner.rolloffFactor = 1.5;    // Slightly steeper than natural
+        this.panner.refDistance = 1;
+        this.panner.maxDistance = 100;
+        this.panner.rolloffFactor = 1.5;
 
         this.setPosition(this.x, this.z);
 
-        this.gain.connect(this.panner);
+        // ALWAYS create wet/dry split (needed for distance-based reverb)
+        this.dryGain = this.engine.ctx.createGain();
+        this.wetGain = this.engine.ctx.createGain();
+        
+        // Start with dry only (no reverb)
+        this.dryGain.gain.value = 1.0;
+        this.wetGain.gain.value = 0.0;
+        
+        // Connect dry path
+        this.gain.connect(this.dryGain);
+        this.dryGain.connect(this.panner);
         this.panner.connect(this.engine.masterGain);
         
-        console.log('[SampleSource] Audio chain connected: gain → panner → masterGain');
+        // Connect wet path ONLY if reverb exists
+        if (this.engine.reverb) {
+            this.gain.connect(this.wetGain);
+            this.wetGain.connect(this.engine.reverb);
+            // Reverb outputs to masterGain (connected in engine.init)
+        }
+        
+        console.log('[SampleSource] Audio chain connected (dry + wet paths ready)');
     }
 
     start() {
@@ -454,6 +540,14 @@ class SampleSource extends GpsSoundSource {
         if (this.gain) {
             this.gain.disconnect();
             this.gain = null;
+        }
+        if (this.dryGain) {
+            this.dryGain.disconnect();
+            this.dryGain = null;
+        }
+        if (this.wetGain) {
+            this.wetGain.disconnect();
+            this.wetGain = null;
         }
         if (this.panner) {
             this.panner.disconnect();
@@ -520,6 +614,95 @@ const SoundPresets = {
 };
 
 /**
+ * Reverb Zone Presets - Distance-based reverb settings
+ * Based on psychoacoustic research: reverb-to-dry ratio as distance cue
+ *
+ * Environment Presets:
+ *   - outdoor: Open air, fields, desert (minimal reverb)
+ *   - indoor: Rooms, offices, small spaces
+ *   - large: Halls, cathedrals, warehouses
+ *   - cave: Underground, enclosed natural spaces
+ *   - urban: City streets, reflections from buildings
+ *
+ * TODO: Make these configurable via UI
+ *   - Add preset selector: 'outdoor' | 'indoor' | 'large' | 'cave' | 'urban'
+ *   - Add sliders for: decay (0.1-5.0s), wet (0-100%), preDelay (0-100ms)
+ *   - Store preset in localStorage to remember user preference
+ *   - Show current settings: "Environment: outdoor, Decay: X.Xs, Wet: XX%"
+ */
+
+/**
+ * Environment Types - Select the acoustic space
+ * Each environment has different reverb characteristics regardless of distance
+ */
+const REVERB_ENVIRONMENTS = {
+    // Name: [decay seconds, max wet%, description]
+    // Wet levels tuned for natural spatial audio AR experience
+    outdoor: { decay: 0.2, maxWet: 0.15, description: 'Open air, desert, fields' },
+    indoor:  { decay: 0.5,  maxWet: 0.30, description: 'Rooms, offices, small spaces' },
+    large:   { decay: 1.5,  maxWet: 0.50, description: 'Halls, cathedrals, warehouses' },
+    cave:    { decay: 2.5,  maxWet: 0.60, description: 'Underground, enclosed natural' },
+    urban:   { decay: 0.6,  maxWet: 0.25, description: 'City streets, building reflections' }
+};
+
+/**
+ * Distance zones within an environment
+ * Fine-tunes reverb based on how far the sound is
+ */
+const REVERB_DISTANCE_ZONES = {
+    close:    { minDistance: 0, maxDistance: 10, wetMultiplier: 0.3 },    // 0-10m: Drier
+    medium:   { minDistance: 10, maxDistance: 30, wetMultiplier: 0.6 },   // 10-30m: Moderate
+    far:      { minDistance: 30, maxDistance: 60, wetMultiplier: 0.85 },  // 30-60m: Wetter
+    distant:  { minDistance: 60, maxDistance: Infinity, wetMultiplier: 1.0 }  // 60m+: Full wet
+};
+
+// Default environment (can be overridden by app)
+let CURRENT_REVERB_ENVIRONMENT = 'outdoor';
+
+/**
+ * Set the current acoustic environment
+ * @param {string} envName - Environment name: 'outdoor' | 'indoor' | 'large' | 'cave' | 'urban'
+ */
+function setReverbEnvironment(envName) {
+    if (REVERB_ENVIRONMENTS[envName]) {
+        CURRENT_REVERB_ENVIRONMENT = envName;
+        console.log(`[Reverb] Environment set to: ${envName} - ${REVERB_ENVIRONMENTS[envName].description}`);
+    } else {
+        console.warn(`[Reverb] Unknown environment: ${envName}, using ${CURRENT_REVERB_ENVIRONMENT}`);
+    }
+}
+
+/**
+ * Get reverb settings for current distance and environment
+ * @param {number} distance - Distance in meters
+ * @returns {{decay: number, wet: number, environment: string, zone: string}}
+ */
+function getReverbForDistance(distance) {
+    const env = REVERB_ENVIRONMENTS[CURRENT_REVERB_ENVIRONMENT];
+    
+    // Find distance zone
+    let zone = REVERB_DISTANCE_ZONES.distant;
+    for (const [zoneName, zoneData] of Object.entries(REVERB_DISTANCE_ZONES)) {
+        if (distance >= zoneData.minDistance && distance < zoneData.maxDistance) {
+            zone = zoneData;
+            break;
+        }
+    }
+    
+    // Calculate wet value: environment max * distance zone multiplier
+    const wetValue = env.maxWet * zone.wetMultiplier;
+    
+    return {
+        decay: env.decay,
+        wet: wetValue,
+        environment: CURRENT_REVERB_ENVIRONMENT,
+        zone: zone === REVERB_DISTANCE_ZONES.close ? 'close' :
+              zone === REVERB_DISTANCE_ZONES.medium ? 'medium' :
+              zone === REVERB_DISTANCE_ZONES.far ? 'far' : 'distant'
+    };
+}
+
+/**
  * SpatialAudioEngine - Main audio engine
  */
 class SpatialAudioEngine {
@@ -533,6 +716,61 @@ class SpatialAudioEngine {
         this.keepAliveInterval = null;
         this.keepAliveMs = options.keepAliveInterval || 3000;
         this.onAudioSuspended = options.onAudioSuspended || null;
+
+        // Reverb nodes (distance-based wet/dry mix)
+        this.reverb = null;
+        this.reverbBuffer = null;
+        this.reverbOutputGain = null;  // Controls overall reverb output level
+        this.currentReverbPreset = null;
+        this.reverbEnabled = options.reverbEnabled !== false;  // Default true, can disable
+    }
+
+    /**
+     * Create impulse response for reverb effect
+     * Uses exponential decay with proper tail behavior
+     * @param {number} duration - Reverb decay time in seconds (0.1-5.0)
+     * @param {number} decay - Decay factor (higher = faster decay, 8.0-15.0)
+     * @returns {AudioBuffer} Impulse response buffer
+     */
+    _createImpulseResponse(duration = 0.15, decay = 25.0) {
+        const sampleRate = this.ctx.sampleRate;
+        const length = Math.floor(sampleRate * duration);
+        const impulse = this.ctx.createBuffer(2, length, sampleRate);
+        const left = impulse.getChannelData(0);
+        const right = impulse.getChannelData(1);
+
+        // Generate exponential decay noise with proper tail-off
+        // Scale down significantly to prevent accumulation/feedback
+        const noiseScale = 0.08;  // Keep IR much quieter to prevent buildup
+        const silenceThreshold = 0.001;  // Samples below this are silent
+
+        for (let i = 0; i < length; i++) {
+            // Exponential decay envelope (T60-style reverb)
+            const t = i / sampleRate;
+            const envelope = Math.exp(-decay * t);
+
+            // Add randomness for natural reverb texture (scaled down)
+            const noise = (Math.random() * 2 - 1) * envelope * noiseScale;
+            
+            // Hard cutoff - samples below threshold are truly silent
+            left[i] = Math.abs(envelope) < silenceThreshold ? 0 : noise;
+
+            // Slight stereo variation with delay (scaled down)
+            const stereoDelay = Math.floor(sampleRate * 0.001); // 1ms delay
+            if (i > stereoDelay) {
+                const rightEnvelope = Math.exp(-decay * (i - stereoDelay) / sampleRate);
+                const rightNoise = (Math.random() * 2 - 1) * rightEnvelope * noiseScale * 0.7;
+                right[i] = Math.abs(rightEnvelope) < silenceThreshold ? 0 : rightNoise;
+            } else {
+                right[i] = 0;
+            }
+        }
+
+        // Verify decay reaches near-zero at end
+        const finalEnvelope = Math.exp(-decay * duration);
+        console.log(`[Reverb] IR: ${duration}s, decay=${decay}, final amplitude=${(finalEnvelope * 100).toFixed(4)}%`);
+
+        return impulse;
     }
 
     async init() {
@@ -541,9 +779,26 @@ class SpatialAudioEngine {
         this.masterGain = this.ctx.createGain();
         this.masterGain.gain.value = 0.5;
         this.masterGain.connect(this.ctx.destination);
+
+        // ALWAYS create reverb (wet path will be muted if not used)
+        // Moderate IR (0.25s) with natural decay (10.0) = pleasant reverb tail
+        this.reverb = this.ctx.createConvolver();
+        this.reverbBuffer = this._createImpulseResponse(0.25, 10.0);
+        this.reverb.buffer = this.reverbBuffer;
+        
+        // Reverb output gain (limits max level to prevent accumulation)
+        this.reverbOutputGain = this.ctx.createGain();
+        this.reverbOutputGain.gain.value = 0.5;  // 50% max output (balanced)
+        
+        // Connect: reverb → output gain → master
+        this.reverb.connect(this.reverbOutputGain);
+        this.reverbOutputGain.connect(this.masterGain);
+        
+        this.reverbEnabled = true;  // Reverb available for use
+
         this._updateListenerOrientation();
         this.isInitialized = true;
-        console.log('[SpatialAudioEngine] Initialized');
+        console.log('[SpatialAudioEngine] Initialized with reverb (wet path muted by default)');
     }
 
     enableKeepAlive(intervalMs = 3000) {
@@ -616,17 +871,21 @@ class SpatialAudioEngine {
     }
 
     async createSampleSource(id, options = {}) {
+        console.log('[SpatialAudioEngine] createSampleSource: creating source:', id);
         const source = new SampleSource(this, id, options);
+        console.log('[SpatialAudioEngine] createSampleSource: calling init()');
         source.init();
+        console.log('[SpatialAudioEngine] createSampleSource: init() complete, calling load()');
         this.sources.set(id, source);
-        
+
         // Load the audio file
         const loaded = await source.load();
+        console.log('[SpatialAudioEngine] createSampleSource: load() returned:', loaded);
         if (!loaded) {
             console.error('[SpatialAudioEngine] Failed to load sample:', options.url);
             return null;
         }
-        
+
         return source;
     }
 
@@ -1131,10 +1390,15 @@ if (typeof module !== 'undefined' && module.exports) {
     window.DeviceOrientationHelper = DeviceOrientationHelper;
     window.HeadingManager = HeadingManager;
     window.GPSTracker = GPSTracker;
-    console.log('[spatial_audio.js] v4.7 loaded');
+    window.setReverbEnvironment = setReverbEnvironment;
+    window.getReverbForDistance = getReverbForDistance;
+    window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
+    console.log('[spatial_audio.js] v5.0 (Reverb Zones) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] HeadingManager: GPS + Compass hybrid');
     console.log('[spatial_audio.js] GPSTracker: Auto-lock when stationary');
     console.log('[spatial_audio.js] SpatialAudioApp: High-level app orchestration');
+    console.log('[spatial_audio.js] Reverb Environments:', Object.keys(REVERB_ENVIRONMENTS).join(', '));
+    console.log('[spatial_audio.js] Usage: setReverbEnvironment("outdoor"|"indoor"|"large"|"cave"|"urban")');
 }

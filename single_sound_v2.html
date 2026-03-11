@@ -86,7 +86,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.19</span></h1>
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.49</span></h1>
         <p class="subtitle">Clean architecture with SpatialAudioApp</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -128,7 +128,7 @@
                 </div>
                 <div>
                     <label>Sound File</label>
-                    <input type="text" id="soundInput" value="sounds/BoxingBell.mp3">
+                    <input type="text" id="soundInput" value="/sounds/BoxingBell.mp3">
                 </div>
             </div>
             <button id="applySettingsBtn" class="apply-btn">Apply & Restart</button>
@@ -149,9 +149,9 @@
     </div>
 
     <!-- Load debug logger first, then audio libraries -->
-    <script src="debug_logger.js?v=20260311110158"></script>
-    <script src="spatial_audio.js?v=20260311110158"></script>
-    <script src="spatial_audio_app.js?v=20260311110158"></script>
+    <script src="debug_logger.js?v=20260311142041"></script>
+    <script src="spatial_audio.js?v=20260311142041"></script>
+    <script src="spatial_audio_app.js?v=20260311142041"></script>
     <script>
         // Initialize debug logger to capture GPS logs
         DebugLogger.init('debugConsole', 50);
@@ -173,8 +173,9 @@
                 distance: 15,
                 direction: 0,
                 activationRadius: 30,
-                soundUrl: 'sounds/BoxingBell.mp3',
-                volume: 0.8
+                soundUrl: '/sounds/BoxingBell.mp3',
+                volume: 0.8,
+                loop: true
             };
             let wakeLock = null;  // Keep screen on
             let lastCompassUpdate = 0;  // Throttle compass updates
@@ -304,13 +305,14 @@
                             direction: soundConfig.direction, // degrees (0=North)
                             activationRadius: soundConfig.activationRadius,
                             volume: soundConfig.volume,
-                            loop: true
+                            loop: soundConfig.loop  // Use config setting
                         };
 
                         // Create app - it will handle GPS internally
                         app = new SpatialAudioApp([soundData], {
                             gpsSmoothing: true,
-                            autoLock: true
+                            autoLock: true,
+                            reverbEnabled: true  // ENABLED - reverb working!
                         });
 
                         // Set up callbacks (UI responds to engine events)
