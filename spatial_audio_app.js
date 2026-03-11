@@ -112,6 +112,24 @@ class Sound {
 /**
  * SpatialAudioApp - Main application class
  * Orchestrates audio experience with clean UI separation
+ * 
+ * Current GPS Tuning (optimized for walking + stopping):
+ *   - historySize: 5 samples (~2.5s smoothing)
+ *   - minMovement: 0.5m (ignores small drift)
+ *   - stationaryTime: 3000ms (locks after 3s still)
+ *   - unlockThreshold: 3x (1.5m to unlock)
+ * 
+ * TODO: Future Enhancements
+ *   - Auto-switch smoothing based on GPS speed (walk vs drive)
+ *   - Speed thresholds: Standing <0.5m/s, Walking 0.5-2m/s, Driving >5m/s
+ *   - Add hysteresis to prevent rapid mode switching at boundaries
+ *   - Handle null GPS speed (fallback to distance/time estimate)
+ *   - Make configurable via UI preset selector
+ *   - Add presets: Walking, Casual, Standing, Running, Driving
+ *   - Store preset in localStorage to remember user preference
+ *   - Add UI slider for fine-tuning: historySize (2-10), minMovement (0.2-5.0m)
+ *   - Add "Lock enabled" toggle for standing vs walking modes
+ *   - Show current settings: "X samples, ~Ys lag, ±Zm drift"
  */
 class SpatialAudioApp {
     constructor(soundConfigs, options = {}) {
@@ -166,11 +184,12 @@ class SpatialAudioApp {
             await this.engine.resume();
             this.engine.enableKeepAlive(3000);
 
-            // Initialize GPS tracker (less aggressive locking)
+            // TODO: Future - auto-switch these based on GPS speed
+            // Initialize GPS tracker (tuned for walking + stopping)
             this.gpsTracker = new GPSTracker({
-                historySize: 5,           // Fewer samples = more responsive
-                minMovement: 2.0,         // Ignore movements < 2m (was 0.5m)
-                stationaryTime: 5000      // Wait 5s to lock (was 3s)
+                historySize: 5,           // TODO: Auto-adjust (2-10 based on speed)
+                minMovement: 0.5,         // TODO: Auto-adjust (0.2-5.0 based on speed)
+                stationaryTime: 3000      // TODO: Auto-adjust (1000-10000 based on speed)
             });
 
             // Create listener (will be updated with GPS)
@@ -222,9 +241,8 @@ class SpatialAudioApp {
             console.log('[SpatialAudioApp] Starting GPS tracking...');
             this._startGPSTracking();
 
-            // Start compass tracking
-            console.log('[SpatialAudioApp] Starting compass tracking...');
-            this._startCompassTracking();
+            // Compass is already started in the UI click handler (single_sound_v2.html)
+            // No need to request permission again here
 
             this._setState('running');
             console.log('[SpatialAudioApp] ✅ Started successfully - state is now RUNNING');
@@ -356,8 +374,12 @@ class SpatialAudioApp {
      * @private
      */
     async _initializeSounds() {
+        console.log('[SpatialAudioApp] _initializeSounds called, sounds count:', this.sounds.length);
+        
         for (const sound of this.sounds) {
             try {
+                console.log('[SpatialAudioApp] Creating sound:', sound.id, 'URL:', sound.url);
+                
                 const source = await this.engine.createSampleSource(sound.id, {
                     url: sound.url,
                     lat: sound.lat,
@@ -367,12 +389,24 @@ class SpatialAudioApp {
                     activationRadius: sound.activationRadius
                 });
 
+                console.log('[SpatialAudioApp] createSampleSource returned:', source ? 'SUCCESS' : 'NULL');
+
                 if (source) {
-                    source.start();
+                    console.log('[SpatialAudioApp] Starting sound:', sound.id);
+                    const started = source.start();
+                    console.log('[SpatialAudioApp] source.start() returned:', started);
+                    
                     sound.sourceNode = source;
                     sound.gainNode = source.gain;
                     sound.pannerNode = source.panner;
                     sound.isPlaying = true;
+                    
+                    console.log('[SpatialAudioApp] Sound chain:', 
+                        'sourceNode:', !!source.sourceNode,
+                        'gain:', !!source.gain,
+                        'panner:', !!source.panner,
+                        'buffer:', !!source.buffer,
+                        'loop:', source.loop);
                 }
             } catch (error) {
                 console.error(`[SpatialAudioApp] Failed to create sound ${sound.id}:`, error);
@@ -398,8 +432,13 @@ class SpatialAudioApp {
                     position.coords.longitude
                 );
 
-                // Update listener position
+                // Update listener position (keep compass heading!)
                 this.listener.update(pos.lat, pos.lon, this.listener.heading);
+
+                // Debug: Log GPS updates with heading
+                if (Math.random() < 0.1) {
+                    console.log(`[GPS] ${pos.locked ? '🔒' : '🔓'} pos=${pos.lat.toFixed(6)},${pos.lon.toFixed(6)} heading=${this.listener.heading.toFixed(0)}°`);
+                }
 
                 // Update sound positions based on listener movement
                 this._updateSoundPositions();
@@ -428,12 +467,24 @@ class SpatialAudioApp {
      * Start compass tracking
      * @private
      */
-    _startCompassTracking() {
-        DeviceOrientationHelper.start((heading) => {
+    async _startCompassTracking() {
+        console.log('[SpatialAudioApp] Requesting compass permission...');
+        
+        // Request compass - this should return true/false for permission
+        const result = DeviceOrientationHelper.start((heading) => {
             if (!this.listener || !this.isRunning) return;
 
             // Update listener heading
+            const oldHeading = this.listener.heading;
             this.listener.setHeading(heading);
+
+            // Debug: Log compass updates
+            if (Math.abs(heading - oldHeading) > 5) {  // Only log significant changes
+                console.log(`[Compass] ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}°`);
+            } else if (Math.random() < 0.01) {
+                // Occasional heartbeat log
+                console.log(`[Compass] ${heading.toFixed(0)}° (stable)`);
+            }
 
             // Update sound positions based on heading change
             this._updateSoundPositions();
@@ -441,6 +492,17 @@ class SpatialAudioApp {
             // Notify UI of position update
             this._notifyPositionUpdate();
         });
+        
+        console.log('[SpatialAudioApp] DeviceOrientationHelper.start() returned:', result);
+        
+        // If it's a Promise, await it
+        if (result && typeof result.then === 'function') {
+            const granted = await result;
+            console.log('[SpatialAudioApp] Compass permission:', granted ? 'GRANTED ✅' : 'DENIED ❌');
+        } else {
+            // Not a Promise - assume it worked
+            console.log('[SpatialAudioApp] Compass: No permission required (or already granted)');
+        }
     }
 
     /**
@@ -450,11 +512,40 @@ class SpatialAudioApp {
     _updateSoundPositions() {
         if (!this.engine || !this.listener) return;
 
-        this.engine.updateAllGpsSources(
+        // Always use compass for orientation (heading), GPS for position (lat/lon)
+        // This prevents snapping when GPS transitions between locked/live
+        // Compass provides smooth, continuous heading regardless of movement
+        
+        // Update engine's listener position and orientation
+        // Uses compass heading for smooth rotation even while walking
+        this.engine.updateListenerPosition(
             this.listener.lat,
             this.listener.lon,
-            this.listener.heading
+            this.listener.heading  // ← Always compass heading
         );
+
+        // Update source positions when GPS changes (walking/moving)
+        // Sources are positioned in world space, listener rotation handles orientation
+        // When stationary (GPS locked), positions don't change, skip the update
+        if (!this.gpsTracker || !this.gpsTracker.isLocked) {
+            this.engine.updateAllGpsSources(
+                this.listener.lat,
+                this.listener.lon,
+                0  // ← Heading ignored by updatePosition now
+            );
+        }
+
+        // Update gain/volume based on distance (fade in/out as you approach)
+        this.sounds.forEach(sound => {
+            const source = this.engine.getSource(sound.id);
+            if (source && source.updateGainByDistance) {
+                source.updateGainByDistance(
+                    this.listener.lat,
+                    this.listener.lon,
+                    sound.volume  // Max volume at close range
+                );
+            }
+        });
     }
 
     /**

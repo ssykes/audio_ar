@@ -18,8 +18,41 @@ $VERSION = Get-Date -Format "yyyyMMddHHmmss"
 Write-Host "Version: $VERSION" -ForegroundColor Cyan
 Write-Host ""
 
+# Update display versions in HTML (e.g., v2.4 → v2.5)
+Write-Host "Updating display versions..." -ForegroundColor Yellow
+
+$DISPLAY_VERSION_FILES = @(
+    "audio_ar_app.html",
+    "single_sound_v2.html",
+    "single_sound.html",
+    "index.html",
+    "auto_rotate.html"
+)
+
+foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
+    $filePath = Join-Path $LOCAL_PATH $htmlFile
+    if (Test-Path $filePath) {
+        $content = Get-Content $filePath -Raw
+        
+        # Match version in <span> tags like: v2.4</span>
+        if ($content -match '<span[^>]*>v(\d+)\.(\d+)</span>') {
+            $major = $matches[1]
+            $minor = [int]$matches[2]
+            $oldVersion = "v$major.$minor</span>"
+            $newMinor = $minor + 1
+            $newVersion = "v$major.$newMinor</span>"
+            
+            $content = $content -replace [regex]::Escape($oldVersion), $newVersion
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile ($oldVersion → $newVersion)" -ForegroundColor Green
+        }
+    }
+}
+
+Write-Host ""
+
 # Update HTML files with new version numbers (cache-busting)
-Write-Host "Updating version numbers in HTML files..." -ForegroundColor Yellow
+Write-Host "Updating cache-busting version numbers..." -ForegroundColor Yellow
 
 $HTML_FILES = @(
     "audio_ar_app.html",
@@ -32,6 +65,7 @@ $HTML_FILES = @(
 # Patterns to match existing versioned script tags
 $JS_VERSION_PATTERN = "spatial_audio\.js\?v=[\d]+"
 $JS_FRESH_PATTERN = "spatial_audio_fresh\.js"
+$DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
 $APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
 $APP_V3_PATTERN = "spatial_audio_app_v[\d]+\.js"
 
@@ -39,28 +73,35 @@ foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
     if (Test-Path $filePath) {
         $content = Get-Content $filePath -Raw
-        
+
         # Update spatial_audio.js version
         if ($content -match $JS_VERSION_PATTERN) {
             $content = $content -replace $JS_VERSION_PATTERN, "spatial_audio.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (spatial_audio.js)" -ForegroundColor Green
         }
-        
+
         # Update spatial_audio_fresh.js → spatial_audio.js with version
         if ($content -match $JS_FRESH_PATTERN) {
             $content = $content -replace $JS_FRESH_PATTERN, "spatial_audio.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (spatial_audio_fresh.js → spatial_audio.js)" -ForegroundColor Yellow
         }
-        
+
+        # Update debug_logger.js version
+        if ($content -match $DEBUG_LOGGER_PATTERN) {
+            $content = $content -replace $DEBUG_LOGGER_PATTERN, "debug_logger.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (debug_logger.js)" -ForegroundColor Green
+        }
+
         # Update spatial_audio_app.js version (if present with query string)
         if ($content -match $APP_VERSION_PATTERN) {
             $content = $content -replace $APP_VERSION_PATTERN, "spatial_audio_app.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (spatial_audio_app.js)" -ForegroundColor Green
         }
-        
+
         # Update spatial_audio_app_v3.js (if present - filename versioning)
         if ($content -match $APP_V3_PATTERN) {
             $content = $content -replace $APP_V3_PATTERN, "spatial_audio_app.js?v=$VERSION"
@@ -79,6 +120,7 @@ $ALL_FILES = @(
     "single_sound.html",
     "single_sound_v2.html",
     "spatial_audio_app.js",
+    "debug_logger.js",
     "index.html",
     "auto_rotate.html",
     "offline.html",

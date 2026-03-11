@@ -219,12 +219,23 @@ class GpsSoundSource extends OscillatorSource {
         this.fixed = true;
     }
 
+    /**
+     * Update position based on listener movement (NOT heading)
+     * Heading rotation is handled by AudioContext listener
+     * @param {number} listenerLat 
+     * @param {number} listenerLon 
+     * @param {number} listenerHeading - Ignored for position, used for logging
+     */
     updatePosition(listenerLat, listenerLon, listenerHeading) {
+        // Convert GPS to local coordinates (x, z)
+        // No rotation - let AudioContext listener handle orientation
         const { x, z } = GPSUtils.toMeters(this.gpsLat, this.gpsLon, listenerLat, listenerLon);
-        const rad = listenerHeading * Math.PI / 180;
-        const rotatedX = x * Math.cos(rad) - z * Math.sin(rad);
-        const rotatedZ = x * Math.sin(rad) + z * Math.cos(rad);
-        this.setPosition(rotatedX, rotatedZ);
+        this.setPosition(x, z);
+
+        // Debug: Log position updates (throttled)
+        if (Math.random() < 0.05) {
+            console.log(`[Audio] Panner: x=${x.toFixed(1)}m, z=${z.toFixed(1)}m (listener heading=${listenerHeading.toFixed(0)}°)`);
+        }
     }
 
     getDistance(listenerLat, listenerLon) {
@@ -233,15 +244,39 @@ class GpsSoundSource extends OscillatorSource {
 
     updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
         const dist = this.getDistance(listenerLat, listenerLon);
-        if (dist < this.activationRadius) {
-            const normalizedDist = dist / this.activationRadius;
-            const gain = (1 - normalizedDist ** 2) * targetGain;
-            if (this.gain) this.gain.gain.value = gain;
-            return true;
-        } else {
-            if (this.gain) this.gain.gain.value = 0;
-            return false;
+        
+        if (this.gain) {
+            if (dist < this.activationRadius) {
+                // Inside activation radius: panner handles smooth falloff via inverse square law
+                this.gain.gain.value = targetGain;
+                
+                // Debug: Log gain changes (throttle to avoid spam)
+                if (Math.random() < 0.1) {
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${targetGain.toFixed(2)} (inside ${this.activationRadius}m)`);
+                }
+            } else {
+                // Outside activation radius: smooth fade-out over 15% of radius (min 3m, max 10m)
+                // TODO: Make fadeZonePercent configurable via UI (default 15%)
+                const fadeZonePercent = 0.15;  // 15% of activation radius
+                const fadeZone = Math.max(3, Math.min(10, this.activationRadius * fadeZonePercent));
+                const distPastEdge = dist - this.activationRadius;
+                
+                if (distPastEdge < fadeZone) {
+                    // In transition zone: smooth exponential fade
+                    const fadeAmount = Math.pow(distPastEdge / fadeZone, 2);  // Quadratic fade
+                    this.gain.gain.value = targetGain * (1 - fadeAmount);
+                } else {
+                    // Beyond transition zone: silent
+                    this.gain.gain.value = 0;
+                }
+                
+                // Debug: Log gain changes (throttle to avoid spam)
+                if (Math.random() < 0.1) {
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${this.gain.gain.value.toFixed(2)} (fade zone: ${fadeZone.toFixed(1)}m)`);
+                }
+            }
         }
+        return dist < this.activationRadius;
     }
 }
 
@@ -350,15 +385,31 @@ class SampleSource extends GpsSoundSource {
 
         this.panner = this.engine.ctx.createPanner();
         this.panner.panningModel = 'HRTF';
+        
+        console.log('[SampleSource] Panner created:', {
+            panningModel: this.panner.panningModel,
+            distanceModel: this.panner.distanceModel,
+            refDistance: this.panner.refDistance,
+            maxDistance: this.panner.maxDistance,
+            rolloffFactor: this.panner.rolloffFactor
+        });
+        
+        // Use inverse square law for realistic distance falloff
+        // TODO: Make distance model configurable (linear, inverse, exponential)
+        // TODO: Add UI slider for rolloffFactor (0.5-3.0)
+        // TODO: Add UI slider for refDistance (0.5-5.0m)
+        // TODO: Add UI slider for maxDistance (20-200m)
         this.panner.distanceModel = 'inverse';
-        this.panner.refDistance = 1;
-        this.panner.maxDistance = 10000;
-        this.panner.rolloffFactor = 1;
+        this.panner.refDistance = 1;        // 1m = full volume
+        this.panner.maxDistance = 100;      // Max audible distance
+        this.panner.rolloffFactor = 1.5;    // Slightly steeper than natural
 
         this.setPosition(this.x, this.z);
 
         this.gain.connect(this.panner);
         this.panner.connect(this.engine.masterGain);
+        
+        console.log('[SampleSource] Audio chain connected: gain → panner → masterGain');
     }
 
     start() {
@@ -633,12 +684,22 @@ class SpatialAudioEngine {
         if (!this.ctx) return;
         const rad = this.listener.getHeadingRad();
         const listener = this.ctx.listener;
+        
+        // Store old values for debug logging
+        const oldForwardX = listener.forwardX.value;
+        const oldForwardZ = listener.forwardZ.value;
+        
         listener.forwardX.value = Math.sin(rad);
         listener.forwardY.value = 0;
         listener.forwardZ.value = -Math.cos(rad);
         listener.upX.value = 0;
         listener.upY.value = 1;
         listener.upZ.value = 0;
+        
+        // Debug: Log listener orientation changes (throttled)
+        if (Math.random() < 0.1) {
+            console.log(`[Audio] Listener: heading=${this.listener.heading.toFixed(0)}°, forwardX=${listener.forwardX.value.toFixed(2)}, forwardZ=${listener.forwardZ.value.toFixed(2)}`);
+        }
     }
 
     getState() { return this.ctx ? this.ctx.state : 'not-initialized'; }
@@ -661,6 +722,24 @@ class SpatialAudioEngine {
 /**
  * GPS Tracker - Smooths GPS coordinates and auto-locks when stationary
  * Reduces GPS drift/jitter for more stable audio positioning
+ * 
+ * Current Tuning (optimized for walking + stopping):
+ *   - historySize: 5 samples (~2.5s smoothing)
+ *   - minMovement: 0.5m (ignores small drift)
+ *   - stationaryTime: 3000ms (locks after 3s still)
+ *   - unlockThreshold: 3x (1.5m to unlock)
+ * 
+ * TODO: Future Enhancements
+ *   - Auto-switch smoothing based on GPS speed (walk vs drive)
+ *   - Speed thresholds: Standing <0.5m/s, Walking 0.5-2m/s, Driving >5m/s
+ *   - Add hysteresis to prevent rapid mode switching at boundaries
+ *   - Handle null GPS speed (fallback to distance/time estimate)
+ *   - Make configurable via UI preset selector
+ *   - Add presets: Walking, Casual, Standing, Running, Driving
+ *   - Store preset in localStorage to remember user preference
+ *   - Add UI slider for fine-tuning: historySize (2-10), minMovement (0.2-5.0m)
+ *   - Add "Lock enabled" toggle for standing vs walking modes
+ *   - Show current settings: "X samples, ~Ys lag, ±Zm drift"
  */
 class GPSTracker {
     constructor(options = {}) {
@@ -669,7 +748,8 @@ class GPSTracker {
         this.minMovement = options.minMovement || 0.5;     // Meters - ignore smaller movements
         this.stationaryThreshold = options.stationaryThreshold || 0.3; // Meters variance
         this.stationaryTime = options.stationaryTime || 3000; // ms to lock
-        
+        // TODO: Add this.lockEnabled = options.lockEnabled !== false;
+
         // Lock state
         this.isLocked = false;
         this.lockedLat = null;
@@ -686,39 +766,46 @@ class GPSTracker {
      */
     update(lat, lon) {
         const now = Date.now();
-        
+
+        // Calculate time since last reading
+        let timeSinceLast = 0;
+        if (this.history.length > 0) {
+            timeSinceLast = now - this.history[this.history.length - 1].time;
+        }
+
         // Add to history
         this.history.push({ lat, lon, time: now });
-        
+
         // Keep only last N readings
         if (this.history.length > this.historySize) {
             this.history.shift();
         }
-        
+
         // Need minimum readings before we can detect stationary
         if (this.history.length < 3) {
+            console.log(`[GPS] ${timeSinceLast}ms, ${0.00}m, 🔓 Live`);
             return { lat, lon, locked: false };
         }
-        
+
         // Calculate movement from previous reading
         const prevPos = this.history[this.history.length - 2];
         const movement = GPSUtils.distance(prevPos.lat, prevPos.lon, lat, lon);
-        
+
         // Track when user was last moving significantly
         if (movement > this.minMovement) {
             this.lastMoveTime = now;
             this.stationarySince = null;
             this.isLocked = false;
         }
-        
+
         // Check if user has been stationary long enough
         const stationaryDuration = now - this.lastMoveTime;
-        
+
         if (stationaryDuration >= this.stationaryTime && !this.isLocked) {
             // Just became stationary - lock position
             this.isLocked = true;
             this.stationarySince = this.lastMoveTime;
-            
+
             // Calculate average position for lock
             let avgLat = 0, avgLon = 0;
             this.history.forEach(pos => {
@@ -727,13 +814,30 @@ class GPSTracker {
             });
             this.lockedLat = avgLat / this.history.length;
             this.lockedLon = avgLon / this.history.length;
+            
+            console.log(`[GPS] ${timeSinceLast}ms, ${movement.toFixed(2)}m, 🔒 Locked @ ${this.lockedLat.toFixed(6)}, ${this.lockedLon.toFixed(6)}`);
         }
-        
-        // Return locked position if locked, otherwise smoothed
+
+        // If locked, check if we should unlock (user moved from locked position)
+        // Use 3x threshold for unlock to prevent rapid lock/unlock from GPS drift
+        // TODO: Make multiplier configurable (current: 3x = 1.5m unlock for walking)
+        // Walking: 2-3x (1.0-1.5m), Driving: 5-6x (2.5-3.0m)
         if (this.isLocked) {
-            return { lat: this.lockedLat, lon: this.lockedLon, locked: true };
+            const distFromLock = GPSUtils.distance(this.lockedLat, this.lockedLon, lat, lon);
+            if (distFromLock > this.minMovement * 3) {
+                // User moved significantly from locked position - unlock
+                this.isLocked = false;
+                this.stationarySince = null;
+                this.lastMoveTime = now;
+                console.log(`[GPS] ${timeSinceLast}ms, ${distFromLock.toFixed(2)}m, 🔓 Unlocked`);
+                // Fall through to return smoothed position
+            } else {
+                // Still locked - return locked position
+                console.log(`[GPS] ${timeSinceLast}ms, ${distFromLock.toFixed(2)}m, 🔒 Locked`);
+                return { lat: this.lockedLat, lon: this.lockedLon, locked: true };
+            }
         }
-        
+
         // Calculate smoothed position (not locked yet)
         let avgLat = 0, avgLon = 0;
         this.history.forEach(pos => {
@@ -742,8 +846,10 @@ class GPSTracker {
         });
         avgLat /= this.history.length;
         avgLon /= this.history.length;
-        
-        return { lat: avgLat, lon: avgLon, locked: false };
+
+        const smoothed = { lat: avgLat, lon: avgLon, locked: false };
+        console.log(`[GPS] ${timeSinceLast}ms, ${movement.toFixed(2)}m, 🔓 Live`);
+        return smoothed;
     }
 
     /**
@@ -809,25 +915,25 @@ const DeviceOrientationHelper = {
         // iOS 13+ uses deviceorientationabsolute or webkitCompassHeading
         const handler = (event) => {
             let heading;
-            
+
             // iOS: Use webkitCompassHeading (true magnetic compass)
             if (event.webkitCompassHeading !== undefined) {
                 heading = event.webkitCompassHeading;
-                console.log('[Compass] iOS magnetic:', heading.toFixed(1) + '°');
-            } 
+                // Removed verbose logging - heading is logged in app when it changes
+            }
             // Android: Use alpha (may need adjustment)
             else if (event.alpha !== null) {
                 heading = event.alpha;
-                console.log('[Compass] Android alpha:', heading.toFixed(1) + '°');
+                // Removed verbose logging - heading is logged in app when it changes
             }
-            
+
             if (heading !== undefined && this.callback) {
                 this.callback(heading);
             }
         };
-        
+
         window.addEventListener('deviceorientation', handler, true);
-        console.log('[DeviceOrientation] Listener enabled (using webkitCompassHeading if available)');
+        // Removed verbose logging - permission result is logged in app
     },
 
     stop() { 
