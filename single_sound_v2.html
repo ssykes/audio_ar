@@ -44,6 +44,14 @@
             color: #fff; border: none; border-radius: 12px; cursor: pointer;
         }
         #startBtn:disabled { background: #444; cursor: not-allowed; }
+        #startBtn.enable-sound { 
+            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
         .controls { display: flex; gap: 10px; margin-top: 20px; }
         .controls button {
             flex: 1; padding: 12px; background: rgba(255,255,255,0.1);
@@ -86,7 +94,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.49</span></h1>
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.62</span></h1>
         <p class="subtitle">Clean architecture with SpatialAudioApp</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -149,9 +157,9 @@
     </div>
 
     <!-- Load debug logger first, then audio libraries -->
-    <script src="debug_logger.js?v=20260311142041"></script>
-    <script src="spatial_audio.js?v=20260311142041"></script>
-    <script src="spatial_audio_app.js?v=20260311142041"></script>
+    <script src="debug_logger.js?v=20260311210632"></script>
+    <script src="spatial_audio.js?v=20260311210632"></script>
+    <script src="spatial_audio_app.js?v=20260311210632"></script>
     <script>
         // Initialize debug logger to capture GPS logs
         DebugLogger.init('debugConsole', 50);
@@ -180,6 +188,7 @@
             let wakeLock = null;  // Keep screen on
             let lastCompassUpdate = 0;  // Throttle compass updates
             const COMPASS_THROTTLE_MS = 100;  // Max 10 updates/sec
+            let needsAudioEnable = false;  // Track if second tap is needed (iOS DuckDuckGo)
 
             // Request wake lock to prevent screen sleep
             async function requestWakeLock() {
@@ -187,14 +196,19 @@
                     if ('wakeLock' in navigator) {
                         wakeLock = await navigator.wakeLock.request('screen');
                         debugLog('💡 Screen wake lock enabled');
+                        
                         wakeLock.addEventListener('release', () => {
                             debugLog('💡 Wake lock released');
+                            // Don't auto-retry - wake lock needs user gesture to re-acquire
+                            // It will be re-requested on next user interaction
                         });
                     } else {
                         debugLog('⚠️ Wake Lock API not supported - screen may sleep');
                     }
                 } catch (err) {
+                    // Wake lock often fails when called outside user gesture
                     debugLog(`⚠️ Wake lock failed: ${err.message}`);
+                    // Don't retry - needs user gesture
                 }
             }
 
@@ -204,6 +218,26 @@
                     await wakeLock.release();
                     wakeLock = null;
                 }
+            }
+
+            // Monitor audio state and resume if suspended (prevents sleep interruption)
+            let audioMonitorInterval = null;
+            function monitorAudioState() {
+                if (audioMonitorInterval) clearInterval(audioMonitorInterval);
+                
+                audioMonitorInterval = setInterval(() => {
+                    if (app && app.isRunning && app.engine) {
+                        const state = app.engine.getState();
+                        if (state === 'suspended') {
+                            debugLog('⏸ Audio suspended (sleep?) - resuming...');
+                            app.engine.resume().then(() => {
+                                debugLog('✅ Audio auto-resumed');
+                            }).catch(err => {
+                                debugLog(`⚠️ Auto-resume failed: ${err.message}`);
+                            });
+                        }
+                    }
+                }, 2000);  // Check every 2 seconds
             }
 
             // === ELEMENTS ===
@@ -236,11 +270,84 @@
 
             debugLog('📄 Single Sound Test v2.6 initialized');
 
+            // Resume audio when page becomes visible (after phone wakes up)
+            document.addEventListener('visibilitychange', async () => {
+                if (document.visibilityState === 'visible' && app && app.isRunning && app.engine) {
+                    debugLog('👁 Page visible - checking audio...');
+                    
+                    const state = app.engine.getState();
+                    debugLog(`🔊 Audio state: ${state}`);
+                    
+                    if (state === 'suspended') {
+                        debugLog('⏸ Audio suspended - resuming...');
+                        try {
+                            await app.engine.resume();
+                            debugLog('✅ Audio resumed');
+                            
+                            // Also resume any sounds that may have stopped
+                            if (app.sounds) {
+                                for (const sound of app.sounds) {
+                                    if (sound.sourceNode && !sound.isPlaying) {
+                                        debugLog(`🔊 Resuming sound: ${sound.id}`);
+                                        sound.sourceNode.start();
+                                        sound.isPlaying = true;
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            debugLog(`⚠️ Resume failed: ${err.message}`);
+                        }
+                    } else if (state === 'running') {
+                        debugLog('✅ Audio already running');
+                        
+                        // Verify sounds are still playing
+                        if (app.sounds) {
+                            for (const sound of app.sounds) {
+                                if (sound.sourceNode && !sound.isPlaying) {
+                                    debugLog(`🔊 Restarting sound: ${sound.id}`);
+                                    sound.sourceNode.start();
+                                    sound.isPlaying = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
             // === START/STOP ===
             startBtn.addEventListener('click', async () => {
+                // Log immediately to confirm click handler is firing
+                console.log('[CLICK] Start button clicked!');
+                debugLog('👆 START BUTTON CLICKED');
+                
+                // Check if we just need to enable audio (second tap on iOS DuckDuckGo)
+                if (needsAudioEnable && app && app.engine) {
+                    debugLog('🔊 Enabling audio context...');
+                    try {
+                        await app.engine.resume();
+                        const state = app.engine.getState();
+                        debugLog(`✅ Audio context state: ${state}`);
+
+                        if (state === 'running') {
+                            needsAudioEnable = false;
+                            startBtn.textContent = 'Stop';
+                            startBtn.className = '';
+                            statusEl.textContent = '✅ Audio enabled! Walk toward the sound';
+                            debugLog('✅ Audio enabled - sound should now work!');
+                        }
+                    } catch (err) {
+                        debugLog(`❌ Audio enable failed: ${err.message}`);
+                    }
+                    return;
+                }
+                
                 if (app && app.isRunning) {
                     // Stop
                     releaseWakeLock();
+                    if (audioMonitorInterval) {
+                        clearInterval(audioMonitorInterval);
+                        audioMonitorInterval = null;
+                    }
                     app.stop();
                     app = null;
                     startBtn.textContent = 'Start';
@@ -255,18 +362,81 @@
                     statusEl.textContent = 'Starting...';
 
                     try {
-                        // Initialize audio FIRST (must be in direct click handler for iOS)
+                        // === Request wake lock FIRST (must be in direct user gesture) ===
+                        // This keeps screen on while walking with phone in pocket
+                        await requestWakeLock();
+                        
+                        // === CRITICAL: Request GPS FIRST (before ANY await) ===
+                        // iOS requires geolocation permission in synchronous user gesture
+                        // DuckDuckGo on iOS is especially strict about this
+                        debugLog('📍 Requesting GPS permission (immediate)...');
+                        
+                        let gpsResolved = false;
+                        const initialGPS = await new Promise((resolve) => {
+                            // Set timeout to detect if callback never fires
+                            const timeoutId = setTimeout(() => {
+                                if (!gpsResolved) {
+                                    debugLog('⚠️ GPS request TIMEOUT - callbacks never fired');
+                                    resolve({ lat: 0, lon: 0 });
+                                }
+                            }, 12000);
+                            
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    gpsResolved = true;
+                                    clearTimeout(timeoutId);
+                                    debugLog(`📍 GPS GRANTED ✅ (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}, accuracy: ${pos.coords.accuracy.toFixed(1)}m)`);
+                                    resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+                                },
+                                (err) => {
+                                    gpsResolved = true;
+                                    clearTimeout(timeoutId);
+                                    debugLog(`📍 GPS ERROR ❌: ${err.message} (code: ${err.code})`);
+                                    resolve({ lat: 0, lon: 0 }); // Fallback
+                                },
+                                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                            );
+                            debugLog('📍 geolocation.getCurrentPosition called');
+                        });
+                        
+                        debugLog(`📍 GPS resolved: ${initialGPS.lat !== 0 || initialGPS.lon !== 0 ? 'YES' : 'NO (fallback)'}`);
+
+                        // === Now safe to do other async operations ===
+
+                        // Initialize audio (must be in direct click handler for iOS)
                         debugLog('🔊 Initializing audio context...');
                         const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        await tempAudioCtx.resume();
+                        
+                        // Add timeout to detect if resume() hangs
+                        const resumePromise = tempAudioCtx.resume();
+                        const audioTimeout = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Audio resume timeout')), 3000)
+                        );
+                        
+                        try {
+                            await Promise.race([resumePromise, audioTimeout]);
+                            debugLog('✅ Audio context initialized');
+                        } catch (audioErr) {
+                            debugLog(`⚠️ Audio context issue: ${audioErr.message} (continuing anyway)`);
+                        }
+                        
                         tempAudioCtx.close();  // Close immediately, just to satisfy iOS gesture requirement
-                        debugLog('✅ Audio context initialized');
 
                         // Request wake lock to prevent screen sleep
+                        debugLog('🔒 Requesting wake lock...');
                         await requestWakeLock();
+                        debugLog('✅ Wake lock done');
 
                         // Request compass permission (must be in direct click handler for iOS)
                         debugLog('🧭 Requesting compass permission...');
+                        
+                        // Check if DeviceOrientationHelper is available
+                        if (typeof DeviceOrientationHelper === 'undefined') {
+                            debugLog('⚠️ DeviceOrientationHelper not loaded!');
+                        } else {
+                            debugLog(`🧭 Helper available: ${DeviceOrientationHelper.isAvailable}, permissionRequired: ${DeviceOrientationHelper.isPermissionRequired}`);
+                        }
+                        
                         const compassGranted = await DeviceOrientationHelper.start((heading) => {
                             if (!app || !app.listener || !app.isRunning) return;
 
@@ -309,10 +479,12 @@
                         };
 
                         // Create app - it will handle GPS internally
+                        // Pass initialPosition to avoid iOS permission race condition
                         app = new SpatialAudioApp([soundData], {
                             gpsSmoothing: true,
                             autoLock: true,
-                            reverbEnabled: true  // ENABLED - reverb working!
+                            reverbEnabled: true,  // ENABLED - reverb working!
+                            initialPosition: initialGPS  // Pre-fetched GPS position
                         });
 
                         // Set up callbacks (UI responds to engine events)
@@ -325,20 +497,43 @@
                             console.log('[UI] State changed to:', state);
                             debugLog(`📊 State: ${state}`);
                             if (state === 'running') {
-                                startBtn.disabled = false;
-                                startBtn.textContent = 'Stop';
-                                statusEl.textContent = '✅ Ready! Walk toward the sound';
-                                statusEl.className = 'ready';
+                                // Check if audio actually works by testing context state
+                                const audioWorks = app.engine && app.engine.getState() === 'running';
+
+                                if (!audioWorks) {
+                                    // Audio context didn't resume - needs second tap (iOS DuckDuckGo)
+                                    needsAudioEnable = true;
+                                    startBtn.disabled = false;
+                                    startBtn.textContent = '👆 Tap to Enable Sound';
+                                    startBtn.className = 'enable-sound';
+                                    statusEl.textContent = '⚠️ Tap button to enable audio';
+                                    statusEl.className = 'ready';
+                                    debugLog('⚠️ Audio context not running - needs second tap');
+                                } else {
+                                    // Audio is working normally (Safari, most browsers)
+                                    needsAudioEnable = false;
+                                    startBtn.disabled = false;
+                                    startBtn.textContent = 'Stop';
+                                    startBtn.className = '';
+                                    statusEl.textContent = '✅ Ready! Walk toward the sound';
+                                    statusEl.className = 'ready';
+                                    
+                                    // Monitor audio state periodically to catch suspensions
+                                    monitorAudioState();
+                                }
                             } else if (state === 'starting') {
                                 startBtn.disabled = true;
                                 startBtn.textContent = 'Starting...';
+                                startBtn.className = '';
                                 statusEl.textContent = 'Starting...';
                             } else if (state === 'error') {
                                 startBtn.disabled = false;
                                 startBtn.textContent = 'Start Over';
+                                startBtn.className = '';
                             } else if (state === 'stopped') {
                                 startBtn.disabled = false;
                                 startBtn.textContent = 'Start';
+                                startBtn.className = '';
                                 statusEl.textContent = 'Tap "Start" to begin';
                             }
                         };
@@ -350,7 +545,9 @@
                         };
 
                         // Start the experience
+                        debugLog('🚀 Calling app.start()...');
                         await app.start();
+                        debugLog('✅ app.start() completed');
 
                     } catch (error) {
                         debugLog(`❌ Error: ${error.message}`);

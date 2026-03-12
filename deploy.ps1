@@ -211,7 +211,7 @@ if ($failedCount -eq 0) {
 }
 
 Write-Host ""
-Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
+Write-Host "Cache-Requestionusting Version: $VERSION" -ForegroundColor Cyan
 Write-Host "  (HTML files updated with new version numbers)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan

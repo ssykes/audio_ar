@@ -143,6 +143,7 @@ class SpatialAudioApp {
             activationRadius: options.activationRadius || 30,
             gpsSmoothing: options.gpsSmoothing !== false,  // Default true
             autoLock: options.autoLock !== false,          // Default true
+            initialPosition: options.initialPosition || null,  // Pre-fetched GPS position
             ...options
         };
 
@@ -152,7 +153,7 @@ class SpatialAudioApp {
         this.sounds = [];
         this.gpsTracker = null;
         this.isRunning = false;
-        
+
         // Callbacks for UI
         this.onPositionUpdate = null;
         this.onStateChange = null;
@@ -181,37 +182,65 @@ class SpatialAudioApp {
             });
             await this.engine.init();
             console.log('[SpatialAudioApp] Audio initialized');
+
+            console.log('[SpatialAudioApp] Resuming audio engine...');
             
-            await this.engine.resume();
+            // Add timeout to prevent hanging on iOS DuckDuckGo
+            const resumePromise = this.engine.resume();
+            const resumeTimeout = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Audio engine resume timeout')), 3000)
+            );
+            
+            try {
+                await Promise.race([resumePromise, resumeTimeout]);
+                console.log('[SpatialAudioApp] Audio engine resumed, state:', this.engine.getState());
+            } catch (resumeErr) {
+                console.warn('[SpatialAudioApp] Audio resume issue (contining anyway):', resumeErr.message);
+            }
             // Keep-alive DISABLED - causes intermodulation distortion (audible ringing)
             // this.engine.enableKeepAlive(3000);
 
             // TODO: Future - auto-switch these based on GPS speed
             // Initialize GPS tracker (tuned for walking + stopping)
+            console.log('[SpatialAudioApp] Creating GPS tracker...');
             this.gpsTracker = new GPSTracker({
                 historySize: 5,           // TODO: Auto-adjust (2-10 based on speed)
                 minMovement: 0.5,         // TODO: Auto-adjust (0.2-5.0 based on speed)
                 stationaryTime: 3000      // TODO: Auto-adjust (1000-10000 based on speed)
             });
+            console.log('[SpatialAudioApp] GPS tracker created');
 
             // Create listener (will be updated with GPS)
+            console.log('[SpatialAudioApp] Creating listener...');
             this.listener = new Listener();
+            console.log('[SpatialAudioApp] Listener created');
 
             // Get initial GPS position FIRST
-            console.log('[SpatialAudioApp] Requesting GPS...');
-            const initialPos = await this._getInitialGPS();
+            // Use pre-fetched position if available (avoids iOS permission race condition)
+            console.log('[SpatialAudioApp] Getting initial GPS position...');
+            let initialPos;
+            if (this.options.initialPosition) {
+                console.log('[SpatialAudioApp] Using pre-fetched GPS position');
+                initialPos = this.options.initialPosition;
+            } else {
+                console.log('[SpatialAudioApp] Requesting GPS...');
+                initialPos = await this._getInitialGPS();
+            }
             console.log('[SpatialAudioApp] GPS received:', initialPos);
-            
+
+            console.log('[SpatialAudioApp] Updating listener position...');
             this.listener.update(initialPos.lat, initialPos.lon, 0);
+            console.log('[SpatialAudioApp] Listener updated');
 
             // Create sounds from configs
+            console.log('[SpatialAudioApp] Creating sounds from configs...');
             this.sounds = this.soundConfigs.map((config, i) => {
                 // If config has distance/direction, calculate lat/lon from GPS
                 if (config.distance !== undefined && config.direction !== undefined) {
                     const dirRad = config.direction * Math.PI / 180;
                     const dLat = (config.distance * Math.cos(dirRad)) / 111000;
                     const dLon = (config.distance * Math.sin(dirRad)) / (111000 * Math.cos(initialPos.lat * Math.PI / 180));
-                    
+
                     return new Sound({
                         id: config.id || `sound_${i}`,
                         url: config.url,
@@ -226,15 +255,16 @@ class SpatialAudioApp {
                     return new Sound(config);
                 }
             });
-            
+
             console.log('[SpatialAudioApp] Sounds created:', this.sounds.length);
 
             // Place sounds at their GPS positions
             console.log('[SpatialAudioApp] Initializing sounds...');
             await this._initializeSounds();
             console.log('[SpatialAudioApp] Sounds initialized - created', this.sounds.length, 'sounds');
-            
+
             // Verify sounds are playing
+            console.log('[SpatialAudioApp] Verifying sounds...');
             this.sounds.forEach((sound, i) => {
                 console.log(`[SpatialAudioApp] Sound ${i}: ${sound.id}, playing=${sound.isPlaying}, volume=${sound.volume}`);
             });
@@ -242,10 +272,12 @@ class SpatialAudioApp {
             // Start GPS tracking
             console.log('[SpatialAudioApp] Starting GPS tracking...');
             this._startGPSTracking();
+            console.log('[SpatialAudioApp] GPS tracking started');
 
             // Compass is already started in the UI click handler (single_sound_v2.html)
             // No need to request permission again here
 
+            console.log('[SpatialAudioApp] Setting state to running...');
             this._setState('running');
             console.log('[SpatialAudioApp] ✅ Started successfully - state is now RUNNING');
 
