@@ -94,7 +94,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.63</span></h1>
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.64</span></h1>
         <p class="subtitle">Clean architecture with SpatialAudioApp</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -157,9 +157,9 @@
     </div>
 
     <!-- Load debug logger first, then audio libraries -->
-    <script src="debug_logger.js?v=20260311213748"></script>
-    <script src="spatial_audio.js?v=20260311213748"></script>
-    <script src="spatial_audio_app.js?v=20260311213748"></script>
+    <script src="debug_logger.js?v=20260312100903"></script>
+    <script src="spatial_audio.js?v=20260312100903"></script>
+    <script src="spatial_audio_app.js?v=20260312100903"></script>
     <script>
         // Initialize debug logger to capture GPS logs
         DebugLogger.init('debugConsole', 50);
@@ -493,9 +493,10 @@
                         });
 
                         // Set up callbacks (UI responds to engine events)
-                        app.onPositionUpdate = (data) => {
-                            // Update display with position data
-                            updateDisplay(data);
+                        // Old code: app.onPositionUpdate = (data) => { updateDisplay(data); };
+                        app.onPositionUpdate = () => {
+                            // New: use app methods to query distance/bearing directly
+                            updateDisplay();
                         };
 
                         app.onStateChange = (state) => {
@@ -565,8 +566,14 @@
             });
 
             // === DISPLAY UPDATE ===
-            // TODO: Replace with app.getSoundDistance(id) and app.getSoundBearing(id) when available
-            function updateDisplay(data) {
+            function updateDisplay() {
+                // Use new app API methods instead of processing callback data
+                const distance = app.getSoundDistance('bell1');
+                const bearing = app.getSoundBearing('bell1');
+                const relativeBearing = app.getSoundRelativeBearing('bell1');
+
+                // Old code (replaced by app methods above):
+                /*
                 if (!data || !data.listener || !data.sounds || data.sounds.length === 0) return;
 
                 const sound = data.sounds[0];
@@ -574,6 +581,16 @@
                 document.getElementById('dist1').textContent = sound.distance.toFixed(1) + ' m';
                 document.getElementById('bearing1').textContent =
                     `${sound.bearing.toFixed(0)}° (relative: ${GPSUtils.relativeBearing(sound.bearing, data.listener.heading).toFixed(0)}°)`;
+                */
+
+                // Update display with values from app
+                if (distance !== null) {
+                    document.getElementById('dist1').textContent = distance.toFixed(1) + ' m';
+                }
+                if (bearing !== null && relativeBearing !== null) {
+                    document.getElementById('bearing1').textContent =
+                        `${bearing.toFixed(0)}° (relative: ${relativeBearing.toFixed(0)}°)`;
+                }
 
                 // Update GPS status
                 const gpsStatusEl = document.getElementById('gpsStatus');
@@ -585,8 +602,9 @@
                     gpsStatusEl.style.color = '#aaa';
                 }
 
-                // Update sound visual
-                if (sound.distance < soundConfig.activationRadius) {
+                // Update sound visual (use queried distance instead of data.sounds[0].distance)
+                // Old code: if (sound.distance < soundConfig.activationRadius) {
+                if (distance !== null && distance < soundConfig.activationRadius) {
                     soundEl.classList.add('active');
                 } else {
                     soundEl.classList.remove('active');

@@ -349,6 +349,58 @@ class SpatialAudioApp {
     }
 
     /**
+     * Get distance from listener to a sound source
+     * @param {string} soundId - Sound ID
+     * @returns {number|null} Distance in meters, or null if sound not found
+     */
+    getSoundDistance(soundId) {
+        if (!this.listener) return null;
+        const sound = this.sounds.find(s => s.id === soundId);
+        if (!sound) return null;
+        return GPSUtils.distance(
+            this.listener.lat,
+            this.listener.lon,
+            sound.lat,
+            sound.lon
+        );
+    }
+
+    /**
+     * Get absolute bearing from listener to a sound source
+     * @param {string} soundId - Sound ID
+     * @returns {number|null} Bearing in degrees (0-360°), or null if sound not found
+     */
+    getSoundBearing(soundId) {
+        if (!this.listener) return null;
+        const sound = this.sounds.find(s => s.id === soundId);
+        if (!sound) return null;
+        return GPSUtils.bearing(
+            this.listener.lat,
+            this.listener.lon,
+            sound.lat,
+            sound.lon
+        );
+    }
+
+    /**
+     * Get relative bearing from listener to a sound source (adjusted for listener heading)
+     * @param {string} soundId - Sound ID
+     * @returns {number|null} Relative bearing in degrees (0-360°), or null if sound not found
+     */
+    getSoundRelativeBearing(soundId) {
+        if (!this.listener) return null;
+        const sound = this.sounds.find(s => s.id === soundId);
+        if (!sound) return null;
+        const bearing = GPSUtils.bearing(
+            this.listener.lat,
+            this.listener.lon,
+            sound.lat,
+            sound.lon
+        );
+        return GPSUtils.relativeBearing(bearing, this.listener.heading);
+    }
+
+    /**
      * Get current state
      * @returns {{isRunning: boolean, listener: object, sounds: array}}
      */
