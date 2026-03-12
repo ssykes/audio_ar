@@ -274,10 +274,16 @@ class GpsSoundSource extends OscillatorSource {
     updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
         const dist = this.getDistance(listenerLat, listenerLon);
 
+        // Apply 2-meter floor: never calculate gain for closer than 2 meters
+        // This is the realistic "closest approach" and gives us maximum volume here
+        const gainDistance = Math.max(dist, 2);
+
         if (this.gain) {
-            if (dist < this.activationRadius) {
+            if (gainDistance < this.activationRadius) {
                 // Inside activation radius: panner handles smooth falloff via inverse square law
-                this.gain.gain.value = targetGain;
+                // Boost gain when very close (< 2m) for maximum volume at closest approach
+                const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
+                this.gain.gain.value = targetGain * distanceBoost;
 
                 // Apply distance-based reverb wet mix
                 // Closer = drier, farther = wetter (within the activation radius)
@@ -285,7 +291,7 @@ class GpsSoundSource extends OscillatorSource {
 
                 // Debug: Log gain changes (throttle to avoid spam)
                 if (Math.random() < 0.1) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${targetGain.toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (inside ${this.activationRadius}m)`);
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (inside ${this.activationRadius}m)`);
                 }
             } else {
                 // Outside activation radius: smooth fade-out over 15% of radius (min 3m, max 10m)
@@ -776,29 +782,43 @@ class SpatialAudioEngine {
     async init() {
         if (this.isInitialized) return;
         this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Master gain
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.5;
-        this.masterGain.connect(this.ctx.destination);
+        this.masterGain.gain.value = 0.8;  // Increased from 0.5 for louder playback
+
+        // Dynamics compressor to prevent clipping from multiple concurrent sources
+        // This allows individual sources to be boosted without worrying about digital distortion
+        this.compressor = this.ctx.createDynamicsCompressor();
+        this.compressor.threshold.value = -6;    // Start compressing at -6dB
+        this.compressor.knee.value = 12;         // Smooth knee (12dB)
+        this.compressor.ratio.value = 4;         // 4:1 compression ratio
+        this.compressor.attack.value = 0.003;    // Fast attack (3ms)
+        this.compressor.release.value = 0.25;    // Medium release (250ms)
+
+        // Connect: masterGain → compressor → destination
+        this.masterGain.connect(this.compressor);
+        this.compressor.connect(this.ctx.destination);
 
         // ALWAYS create reverb (wet path will be muted if not used)
         // Moderate IR (0.25s) with natural decay (10.0) = pleasant reverb tail
         this.reverb = this.ctx.createConvolver();
         this.reverbBuffer = this._createImpulseResponse(0.25, 10.0);
         this.reverb.buffer = this.reverbBuffer;
-        
+
         // Reverb output gain (limits max level to prevent accumulation)
         this.reverbOutputGain = this.ctx.createGain();
         this.reverbOutputGain.gain.value = 0.5;  // 50% max output (balanced)
-        
+
         // Connect: reverb → output gain → master
         this.reverb.connect(this.reverbOutputGain);
         this.reverbOutputGain.connect(this.masterGain);
-        
+
         this.reverbEnabled = true;  // Reverb available for use
 
         this._updateListenerOrientation();
         this.isInitialized = true;
-        console.log('[SpatialAudioEngine] Initialized with reverb (wet path muted by default)');
+        console.log('[SpatialAudioEngine] Initialized with compressor (threshold: -6dB, ratio: 4:1)');
     }
 
     enableKeepAlive(intervalMs = 3000) {

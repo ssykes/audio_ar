@@ -76,7 +76,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v11.59</span></h1>
+        <h1>🎧 Audio AR <span style="font-size:0.5em; color:#666;">v11.60</span></h1>
         <p class="subtitle">Walk between 3 spatial sound locations</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -150,7 +150,7 @@
     </div>
 
     <!-- Load spatial_audio.js v4.2 library -->
-    <script src="spatial_audio.js?v=20260311210632.2"></script>
+    <script src="spatial_audio.js?v=20260311213748.2"></script>
     <script>
         // Register Service Worker for offline support
         if ('serviceWorker' in navigator) {
@@ -341,7 +341,7 @@
                                 lat: loc.lat,
                                 lon: loc.lon,
                                 loop: soundConfig.loop,
-                                gain: 0.8,          // Louder base gain
+                                gain: 1.0,          // Increased from 0.8 for louder playback (max at 2m)
                                 activationRadius: ACTIVATION_RADIUS * 2  // Wider activation zone
                             });
                             if (source) {
@@ -352,7 +352,7 @@
                             source = engine.createPresetSource(soundConfig.id, soundConfig.preset, {
                                 lat: loc.lat,
                                 lon: loc.lon,
-                                gain: 0.5,          // Louder for oscillators
+                                gain: 0.6,          // Increased from 0.5 for oscillators
                                 activationRadius: ACTIVATION_RADIUS * 2
                             });
                             if (source) {
@@ -481,7 +481,7 @@
                     config.forEach(async (soundConfig) => {
                         const loc = locations.find(l => l.id === parseInt(soundConfig.id.replace('loc', '')));
                         if (!loc) return;
-                        
+
                         let source;
                         if (USE_SAMPLES) {
                             source = await engine.createSampleSource(soundConfig.id, {
@@ -489,14 +489,14 @@
                                 lat: loc.lat,
                                 lon: loc.lon,
                                 loop: soundConfig.loop,
-                                gain: 0.5,
+                                gain: 1.0,
                                 activationRadius: ACTIVATION_RADIUS
                             });
                         } else {
                             source = engine.createPresetSource(soundConfig.id, soundConfig.preset, {
                                 lat: loc.lat,
                                 lon: loc.lon,
-                                gain: 0.4,
+                                gain: 0.6,
                                 activationRadius: ACTIVATION_RADIUS
                             });
                         }
