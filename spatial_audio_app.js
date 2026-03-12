@@ -112,13 +112,13 @@ class Sound {
 /**
  * SpatialAudioApp - Main application class
  * Orchestrates audio experience with clean UI separation
- * 
+ *
  * Current GPS Tuning (optimized for walking + stopping):
  *   - historySize: 5 samples (~2.5s smoothing)
  *   - minMovement: 0.5m (ignores small drift)
  *   - stationaryTime: 3000ms (locks after 3s still)
  *   - unlockThreshold: 3x (1.5m to unlock)
- * 
+ *
  * TODO: Future Enhancements
  *   - Auto-switch smoothing based on GPS speed (walk vs drive)
  *   - Speed thresholds: Standing <0.5m/s, Walking 0.5-2m/s, Driving >5m/s
@@ -130,6 +130,14 @@ class Sound {
  *   - Add UI slider for fine-tuning: historySize (2-10), minMovement (0.2-5.0m)
  *   - Add "Lock enabled" toggle for standing vs walking modes
  *   - Show current settings: "X samples, ~Ys lag, ±Zm drift"
+ *
+ * TODO: API Simplification - Move UI logic into app-level methods:
+ *   - app.enableWakeLock() - Currently manual in single_sound_v2.html (requestWakeLock/releaseWakeLock)
+ *   - app.autoResumeAudio() - Handle visibility changes internally (visibilitychange event listener)
+ *   - app.setCompassThrottle(ms) - Configure throttling (currently COMPASS_THROTTLE_MS in HTML)
+ *   - app.getSoundDistance(id) - Query sound distance (currently calculated in updateDisplay)
+ *   - app.getSoundBearing(id) - Query sound bearing (currently calculated in updateDisplay)
+ *   - app.monitorAudioState() - Auto-resume suspended audio (currently monitorAudioState in HTML)
  */
 class SpatialAudioApp {
     constructor(soundConfigs, options = {}) {

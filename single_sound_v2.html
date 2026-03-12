@@ -186,17 +186,19 @@
                 loop: true
             };
             let wakeLock = null;  // Keep screen on
+            // TODO: Move to spatial_audio_app.js - app.setCompassThrottle(ms)
             let lastCompassUpdate = 0;  // Throttle compass updates
             const COMPASS_THROTTLE_MS = 100;  // Max 10 updates/sec
             let needsAudioEnable = false;  // Track if second tap is needed (iOS DuckDuckGo)
 
+            // TODO: Move to spatial_audio_app.js - app.enableWakeLock()
             // Request wake lock to prevent screen sleep
             async function requestWakeLock() {
                 try {
                     if ('wakeLock' in navigator) {
                         wakeLock = await navigator.wakeLock.request('screen');
                         debugLog('💡 Screen wake lock enabled');
-                        
+
                         wakeLock.addEventListener('release', () => {
                             debugLog('💡 Wake lock released');
                             // Don't auto-retry - wake lock needs user gesture to re-acquire
@@ -212,6 +214,7 @@
                 }
             }
 
+            // TODO: Move to spatial_audio_app.js - app.disableWakeLock()
             // Release wake lock
             async function releaseWakeLock() {
                 if (wakeLock) {
@@ -220,11 +223,12 @@
                 }
             }
 
+            // TODO: Move to spatial_audio_app.js - app.monitorAudioState()
             // Monitor audio state and resume if suspended (prevents sleep interruption)
             let audioMonitorInterval = null;
             function monitorAudioState() {
                 if (audioMonitorInterval) clearInterval(audioMonitorInterval);
-                
+
                 audioMonitorInterval = setInterval(() => {
                     if (app && app.isRunning && app.engine) {
                         const state = app.engine.getState();
@@ -270,20 +274,21 @@
 
             debugLog('📄 Single Sound Test v2.6 initialized');
 
+            // TODO: Move to spatial_audio_app.js - app.autoResumeAudio()
             // Resume audio when page becomes visible (after phone wakes up)
             document.addEventListener('visibilitychange', async () => {
                 if (document.visibilityState === 'visible' && app && app.isRunning && app.engine) {
                     debugLog('👁 Page visible - checking audio...');
-                    
+
                     const state = app.engine.getState();
                     debugLog(`🔊 Audio state: ${state}`);
-                    
+
                     if (state === 'suspended') {
                         debugLog('⏸ Audio suspended - resuming...');
                         try {
                             await app.engine.resume();
                             debugLog('✅ Audio resumed');
-                            
+
                             // Also resume any sounds that may have stopped
                             if (app.sounds) {
                                 for (const sound of app.sounds) {
@@ -299,7 +304,7 @@
                         }
                     } else if (state === 'running') {
                         debugLog('✅ Audio already running');
-                        
+
                         // Verify sounds are still playing
                         if (app.sounds) {
                             for (const sound of app.sounds) {
@@ -560,15 +565,16 @@
             });
 
             // === DISPLAY UPDATE ===
+            // TODO: Replace with app.getSoundDistance(id) and app.getSoundBearing(id) when available
             function updateDisplay(data) {
                 if (!data || !data.listener || !data.sounds || data.sounds.length === 0) return;
 
                 const sound = data.sounds[0];
-                
+
                 document.getElementById('dist1').textContent = sound.distance.toFixed(1) + ' m';
-                document.getElementById('bearing1').textContent = 
+                document.getElementById('bearing1').textContent =
                     `${sound.bearing.toFixed(0)}° (relative: ${GPSUtils.relativeBearing(sound.bearing, data.listener.heading).toFixed(0)}°)`;
-                
+
                 // Update GPS status
                 const gpsStatusEl = document.getElementById('gpsStatus');
                 if (app && app.gpsTracker && app.gpsTracker.isLocked) {
