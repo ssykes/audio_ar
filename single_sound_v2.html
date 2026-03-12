@@ -94,7 +94,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.64</span></h1>
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.71</span></h1>
         <p class="subtitle">Clean architecture with SpatialAudioApp</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -157,9 +157,9 @@
     </div>
 
     <!-- Load debug logger first, then audio libraries -->
-    <script src="debug_logger.js?v=20260312100903"></script>
-    <script src="spatial_audio.js?v=20260312100903"></script>
-    <script src="spatial_audio_app.js?v=20260312100903"></script>
+    <script src="debug_logger.js?v=20260312143230"></script>
+    <script src="spatial_audio.js?v=20260312143230"></script>
+    <script src="spatial_audio_app.js?v=20260312143230"></script>
     <script>
         // Initialize debug logger to capture GPS logs
         DebugLogger.init('debugConsole', 50);
@@ -367,8 +367,94 @@
                     statusEl.textContent = 'Starting...';
 
                     try {
-                        // === Request wake lock FIRST (must be in direct user gesture) ===
-                        // This keeps screen on while walking with phone in pocket
+                        // =====================================================================
+                        // ⚠️ CRITICAL: iOS PERMISSION ORDER MATTERS! ⚠️
+                        // =====================================================================
+                        // iOS requires certain permissions to be requested in a SYNCHRONOUS
+                        // user gesture context. This means:
+                        //
+                        // 1. NO `await` calls before requesting the permission
+                        // 2. NO async/await between the click and the permission request
+                        // 3. The permission request must be DIRECTLY in the click handler
+                        //
+                        // Why? iOS tracks "user gesture context" - a flag that gets set when
+                        // the user clicks/taps. This flag is CLEARED when:
+                        //   - An `await` yields control back to the event loop
+                        //   - A setTimeout/setInterval callback runs
+                        //   - A Promise resolution handler runs
+                        //
+                        // If the gesture context is lost, iOS will silently deny permissions
+                        // without showing the permission dialog. This is especially strict in:
+                        //   - iOS Safari (all versions)
+                        //   - iOS DuckDuckGo (even stricter than Safari)
+                        //   - iOS Chrome (uses WebKit, same restrictions)
+                        //
+                        // Order of operations in this click handler:
+                        //   1. Compass (DeviceOrientation) - MUST be first, before any await
+                        //   2. Wake Lock - must be in user gesture
+                        //   3. GPS (Geolocation) - must be before other awaits
+                        //   4. Audio (AudioContext) - can be after awaits, but benefits from gesture
+                        //
+                        // See: https://developer.apple.com/documentation/webkit/requesting_device_orientation_permission
+                        // See: https://webkit.org/blog/10308/automation-permission-issue-for-webdriver-in-safari-13/
+                        // =====================================================================
+
+                        // ---------------------------------------------------------------------
+                        // STEP 1: Request compass permission (BEFORE ANY AWAIT)
+                        // ---------------------------------------------------------------------
+                        // iOS 13+ requires DeviceOrientationEvent.requestPermission() to be
+                        // called synchronously in a user gesture handler. The call itself is
+                        // synchronous, but returns a Promise that resolves asynchronously.
+                        //
+                        // IMPORTANT: We do NOT await this promise! The callback will be called
+                        // when permission is granted. Awaiting would lose the gesture context
+                        // for subsequent operations.
+                        // ---------------------------------------------------------------------
+                        debugLog('🧭 Requesting compass permission (immediate, before any await)...');
+
+                        if (typeof DeviceOrientationHelper !== 'undefined') {
+                            debugLog(`🧭 Helper available: ${DeviceOrientationHelper.isAvailable}, permissionRequired: ${DeviceOrientationHelper.isPermissionRequired}`);
+
+                            // Call start() - it calls requestPermission() synchronously
+                            // The permission dialog appears immediately (if needed)
+                            DeviceOrientationHelper.start((heading) => {
+                                if (!app || !app.listener || !app.isRunning) return;
+
+                                // Throttle: Skip if too soon (max 10 updates/sec)
+                                const now = Date.now();
+                                if (now - lastCompassUpdate < COMPASS_THROTTLE_MS) return;
+                                lastCompassUpdate = now;
+
+                                // Update listener heading
+                                const oldHeading = app.listener.heading;
+                                app.listener.setHeading(heading);
+
+                                // Only update if heading changed significantly (> 2°)
+                                const headingChange = Math.abs(heading - oldHeading);
+                                if (headingChange < 2 && Math.random() > 0.01) return;
+
+                                // Log significant changes
+                                if (headingChange > 5) {
+                                    console.log(`[Compass] ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}° (Δ${headingChange.toFixed(0)}°)`);
+                                } else {
+                                    // Occasional heartbeat to confirm compass is still firing
+                                    console.log(`[Compass] ${heading.toFixed(0)}° (GPS: ${app.gpsTracker?.isLocked ? '🔒' : '🔓'})`);
+                                }
+
+                                // Update sound positions based on heading change
+                                app._updateSoundPositions();
+                            });
+                            debugLog('🧭 Compass: DeviceOrientationHelper.start() called (will resolve asynchronously)');
+                        } else {
+                            debugLog('⚠️ DeviceOrientationHelper not loaded!');
+                        }
+
+                        // ---------------------------------------------------------------------
+                        // STEP 2: Request wake lock (must be in user gesture)
+                        // ---------------------------------------------------------------------
+                        // Wake lock must also be requested in a user gesture context, but it's
+                        // less strict than compass/GPS. Still, we do it early to be safe.
+                        // ---------------------------------------------------------------------
                         await requestWakeLock();
                         
                         // === CRITICAL: Request GPS FIRST (before ANY await) ===
@@ -432,44 +518,8 @@
                         await requestWakeLock();
                         debugLog('✅ Wake lock done');
 
-                        // Request compass permission (must be in direct click handler for iOS)
-                        debugLog('🧭 Requesting compass permission...');
-                        
-                        // Check if DeviceOrientationHelper is available
-                        if (typeof DeviceOrientationHelper === 'undefined') {
-                            debugLog('⚠️ DeviceOrientationHelper not loaded!');
-                        } else {
-                            debugLog(`🧭 Helper available: ${DeviceOrientationHelper.isAvailable}, permissionRequired: ${DeviceOrientationHelper.isPermissionRequired}`);
-                        }
-                        
-                        const compassGranted = await DeviceOrientationHelper.start((heading) => {
-                            if (!app || !app.listener || !app.isRunning) return;
-
-                            // Throttle: Skip if too soon (max 10 updates/sec)
-                            const now = Date.now();
-                            if (now - lastCompassUpdate < COMPASS_THROTTLE_MS) return;
-                            lastCompassUpdate = now;
-
-                            // Update listener heading
-                            const oldHeading = app.listener.heading;
-                            app.listener.setHeading(heading);
-
-                            // Only update if heading changed significantly (> 2°)
-                            const headingChange = Math.abs(heading - oldHeading);
-                            if (headingChange < 2 && Math.random() > 0.01) return;
-
-                            // Log significant changes
-                            if (headingChange > 5) {
-                                console.log(`[Compass] ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}° (Δ${headingChange.toFixed(0)}°)`);
-                            } else {
-                                // Occasional heartbeat to confirm compass is still firing
-                                console.log(`[Compass] ${heading.toFixed(0)}° (GPS: ${app.gpsTracker?.isLocked ? '🔒' : '🔓'})`);
-                            }
-
-                            // Update sound positions based on heading change
-                            app._updateSoundPositions();
-                        });
-                        debugLog(`🧭 Compass: ${compassGranted ? 'GRANTED ✅' : 'DENIED ❌'}`);
+                        // Compass was already requested at the start of the click handler (before any await)
+                        // Now continue with creating the SpatialAudioApp
 
                         // Calculate sound position RELATIVE to listener
                         // SpatialAudioApp will handle GPS internally

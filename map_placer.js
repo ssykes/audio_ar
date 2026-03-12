@@ -2,10 +2,20 @@
  * Map Placer App
  * Visual map interface for placing sound waypoints
  * @version 1.0 - Editor Mode Only
- * 
+ *
  * TODO Session_2: Add Player Mode (audio integration)
  * TODO Session_2: Add Start/Stop toggle with wake lock
  * TODO Session_2: Add GPS tracking in player mode
+ * TODO Session_2: Add compass tracking in player mode (use DeviceOrientationHelper - see single_sound_v2.html)
+ * TODO Session_2: Add SpatialAudioApp initialization for playing sounds
+ * TODO Session_2: Implement _handleStartClick() full flow:
+ *                  1. Get GPS position (getCurrentPosition)
+ *                  2. Initialize AudioContext (satisfy iOS user gesture requirement)
+ *                  3. Request wake lock
+ *                  4. Request compass permission (DeviceOrientationHelper.start in click handler!)
+ *                  5. Create SpatialAudioApp with waypoints as sound sources
+ *                  6. Set up callbacks (onPositionUpdate, onStateChange, onError)
+ *                  7. Call app.start()
  * TODO Session_3: Add JSON export/import for configs
  * TODO Session_3: Add sound preview on click (editor mode)
  */
@@ -95,11 +105,39 @@ class MapPlacerApp {
         }
     }
 
-    _handleStartClick() {
+    async _handleStartClick() {
         if (this.waypoints.length === 0) {
             this._showToast('Add at least one waypoint first', 'warning');
             return;
         }
+        
+        // Request compass permission FIRST (must be in user gesture for iOS)
+        // TODO Session_2: Full player mode initialization should follow single_sound_v2.html pattern:
+        //                  1. Get GPS position first (getCurrentPosition with timeout)
+        //                  2. Initialize AudioContext (create + resume + close, satisfies iOS gesture)
+        //                  3. Request wake lock
+        //                  4. Request compass permission (DeviceOrientationHelper.start - HERE)
+        //                  5. Create SpatialAudioApp with waypoints as sound sources
+        //                  6. Set up callbacks (onPositionUpdate, onStateChange, onError)
+        //                  7. Call app.start() and handle state changes
+        console.log('[MapPlacer] 🧭 Requesting compass permission...');
+        if (typeof DeviceOrientationHelper !== 'undefined') {
+            console.log('[MapPlacer] 🧭 DeviceOrientationHelper available:', 
+                DeviceOrientationHelper.isAvailable, 
+                'permissionRequired:', DeviceOrientationHelper.isPermissionRequired);
+            
+            const compassGranted = await DeviceOrientationHelper.start((heading) => {
+                // Update listener heading if we have one
+                if (this.listener && this.listener.setHeading) {
+                    this.listener.setHeading(heading);
+                }
+                console.log('[MapPlacer] 🧭 Compass:', heading.toFixed(0) + '°');
+            });
+            console.log('[MapPlacer] 🧭 Compass:', compassGranted ? 'GRANTED ✅' : 'DENIED ❌');
+        } else {
+            console.warn('[MapPlacer] ⚠️ DeviceOrientationHelper not loaded!');
+        }
+        
         // TODO Session_2: Transition to player mode
         this._showToast('Player mode coming in Session 2', 'info');
     }

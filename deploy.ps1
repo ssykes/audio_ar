@@ -22,11 +22,10 @@ Write-Host ""
 Write-Host "Updating display versions..." -ForegroundColor Yellow
 
 $DISPLAY_VERSION_FILES = @(
-    "audio_ar_app.html",
     "single_sound_v2.html",
-    "single_sound.html",
     "index.html",
-    "auto_rotate.html"
+    "auto_rotate.html",
+    "map_placer.html"
 )
 
 foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
@@ -55,19 +54,18 @@ Write-Host ""
 Write-Host "Updating cache-busting version numbers..." -ForegroundColor Yellow
 
 $HTML_FILES = @(
-    "audio_ar_app.html",
     "single_sound_v2.html",
-    "single_sound.html",
     "index.html",
-    "auto_rotate.html"
+    "auto_rotate.html",
+    "map_placer.html"
 )
 
 # Patterns to match existing versioned script tags
 $JS_VERSION_PATTERN = "spatial_audio\.js\?v=[\d]+"
-$JS_FRESH_PATTERN = "spatial_audio_fresh\.js"
 $DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
 $APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
-$APP_V3_PATTERN = "spatial_audio_app_v[\d]+\.js"
+$WAKE_LOCK_PATTERN = "wake_lock_helper\.js"
+$MAP_PLACER_PATTERN = "map_placer\.js"
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -79,13 +77,6 @@ foreach ($htmlFile in $HTML_FILES) {
             $content = $content -replace $JS_VERSION_PATTERN, "spatial_audio.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (spatial_audio.js)" -ForegroundColor Green
-        }
-
-        # Update spatial_audio_fresh.js → spatial_audio.js with version
-        if ($content -match $JS_FRESH_PATTERN) {
-            $content = $content -replace $JS_FRESH_PATTERN, "spatial_audio.js?v=$VERSION"
-            Set-Content $filePath $content -NoNewline
-            Write-Host "  Updated: $htmlFile (spatial_audio_fresh.js → spatial_audio.js)" -ForegroundColor Yellow
         }
 
         # Update debug_logger.js version
@@ -102,11 +93,18 @@ foreach ($htmlFile in $HTML_FILES) {
             Write-Host "  Updated: $htmlFile (spatial_audio_app.js)" -ForegroundColor Green
         }
 
-        # Update spatial_audio_app_v3.js (if present - filename versioning)
-        if ($content -match $APP_V3_PATTERN) {
-            $content = $content -replace $APP_V3_PATTERN, "spatial_audio_app.js?v=$VERSION"
+        # Update wake_lock_helper.js version
+        if ($content -match $WAKE_LOCK_PATTERN) {
+            $content = $content -replace $WAKE_LOCK_PATTERN, "wake_lock_helper.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
-            Write-Host "  Updated: $htmlFile (spatial_audio_app_v3.js → spatial_audio_app.js)" -ForegroundColor Yellow
+            Write-Host "  Updated: $htmlFile (wake_lock_helper.js)" -ForegroundColor Green
+        }
+
+        # Update map_placer.js version
+        if ($content -match $MAP_PLACER_PATTERN) {
+            $content = $content -replace $MAP_PLACER_PATTERN, "map_placer.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_placer.js)" -ForegroundColor Green
         }
     }
 }
@@ -116,8 +114,6 @@ Write-Host ""
 # Files to deploy (core files without version - HTML files get updated inline)
 $ALL_FILES = @(
     ".htaccess",
-    "audio_ar_app.html",
-    "single_sound.html",
     "single_sound_v2.html",
     "spatial_audio_app.js",
     "debug_logger.js",
@@ -129,10 +125,10 @@ $ALL_FILES = @(
     "manifest.json",
     "icon-192.svg",
     "icon-512.svg",
-    "architecture.md",
-    "OFFLINE_SETUP.md",
-    "SAMPLESOURCE.md",
-    "deploy.ps1"
+    "deploy.ps1",
+    "map_placer.html",
+    "map_placer.js",
+    "wake_lock_helper.js"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow

@@ -1161,6 +1161,72 @@ class GPSTracker {
 
 /**
  * DeviceOrientation Helper - Uses iOS webkitCompassHeading for true magnetic compass
+ * 
+ * =============================================================================
+ * ⚠️ CRITICAL iOS REQUIREMENTS - DO NOT MODIFY WITHOUT UNDERSTANDING ⚠️
+ * =============================================================================
+ * 
+ * iOS 13+ requires device orientation permission to be requested in a SYNCHRONOUS
+ * user gesture context. This is a WebKit security requirement.
+ * 
+ * KEY REQUIREMENTS:
+ * 
+ * 1. requestPermission() MUST be called synchronously in a click/tap handler
+ *    - Cannot be inside an async function that has `await` before it
+ *    - Cannot be in a setTimeout/setInterval callback
+ *    - Cannot be in a Promise.then() handler
+ *    - The call stack must lead directly back to the user's click
+ * 
+ * 2. DO NOT await the permission promise in the calling code
+ *    - The start() method calls requestPermission() synchronously
+ *    - The promise resolves asynchronously (after user responds)
+ *    - Awaiting in start() would lose the gesture context
+ *    - Instead, we use .then() to handle the result
+ * 
+ * 3. The permission dialog only appears once per app session
+ *    - User can grant or deny
+ *    - If denied, user must manually reset in Settings > Safari
+ *    - If granted, subsequent calls to start() work immediately
+ * 
+ * WHY THIS MATTERS:
+ * 
+ * iOS tracks a "user gesture context" flag that is:
+ *   - SET when the user clicks/taps a button
+ *   - CLEARED when the event handler yields to the event loop
+ * 
+ * Yielding happens when:
+ *   - An `await` is encountered (even if the promise resolves immediately)
+ *   - A setTimeout/setInterval callback runs
+ *   - A Promise resolution handler runs (.then, .catch)
+ *   - An async function returns and control goes back to the caller
+ * 
+ * If the gesture context is lost, requestPermission() will:
+ *   - Not show the permission dialog
+ *   - Return a promise that resolves to "denied"
+ *   - Provide no error or indication of what went wrong
+ * 
+ * BROWSER BEHAVIOR:
+ * 
+ *   Safari (iOS):     Strict - requires synchronous user gesture
+ *   DuckDuckGo (iOS): Even stricter - additional privacy restrictions
+ *   Chrome (iOS):     Uses WebKit, same as Safari
+ *   Firefox (iOS):    Uses WebKit, same as Safari
+ *   Desktop browsers: No permission required (no DeviceOrientationEvent.requestPermission)
+ * 
+ * DEBUGGING TIPS:
+ * 
+ * If compass permission is denied:
+ *   1. Check console for "isPermissionRequired: true"
+ *   2. Verify start() is called BEFORE any await in the click handler
+ *   3. Look for "Permission result: denied" in console
+ *   4. Check Safari Settings > [Your App] > Device Orientation
+ *   5. Try in a private/incognito window (clears cached permissions)
+ * 
+ * REFERENCES:
+ *   - https://developer.apple.com/documentation/webkit/requesting_device_orientation_permission
+ *   - https://webkit.org/blog/10308/automation-permission-issue-for-webdriver-in-safari-13/
+ *   - https://caniuse.com/device-orientation
+ * =============================================================================
  */
 const DeviceOrientationHelper = {
     isAvailable: typeof DeviceOrientationEvent !== 'undefined',
@@ -1168,23 +1234,59 @@ const DeviceOrientationHelper = {
                           typeof DeviceOrientationEvent.requestPermission === 'function',
     callback: null,
 
-    async start(onOrientationChange) {
+    /**
+     * Start listening for device orientation changes
+     * 
+     * @param {Function} onOrientationChange - Callback fired when heading changes
+     * @returns {boolean} true if listener was enabled (permission granted or not required)
+     * 
+     * ⚠️ CRITICAL: This method MUST be called synchronously in a user gesture handler.
+     * Do NOT await the result - the permission dialog appears asynchronously.
+     * 
+     * Example usage in click handler:
+     * 
+     *   button.addEventListener('click', () => {
+     *       // ✅ CORRECT: Called synchronously, no await
+     *       DeviceOrientationHelper.start((heading) => {
+     *           console.log('Heading:', heading);
+     *       });
+     *   });
+     * 
+     *   button.addEventListener('click', async () => {
+     *       await someAsyncOperation(); // ❌ WRONG: Loses gesture context!
+     *       DeviceOrientationHelper.start((heading) => {
+     *           console.log('Heading:', heading); // May never be called
+     *       });
+     *   });
+     */
+    start(onOrientationChange) {
+        console.log('[DeviceOrientationHelper] start() called');
+        console.log('[DeviceOrientationHelper] isAvailable:', this.isAvailable);
+        console.log('[DeviceOrientationHelper] isPermissionRequired:', this.isPermissionRequired);
+
         this.callback = onOrientationChange;
-        
+
         if (this.isPermissionRequired) {
-            try {
-                const permission = await DeviceOrientationEvent.requestPermission();
+            console.log('[DeviceOrientationHelper] Requesting permission on iOS...');
+            // IMPORTANT: Call requestPermission() synchronously in user gesture context
+            // Don't await - just call it and the promise will resolve asynchronously
+            // The gesture context is captured at the moment of this call
+            const permissionPromise = DeviceOrientationEvent.requestPermission();
+            permissionPromise.then((permission) => {
+                console.log('[DeviceOrientationHelper] Permission result:', permission);
                 if (permission === 'granted') {
+                    console.log('[DeviceOrientationHelper] Permission granted, enabling listener');
                     this._enableListener();
-                    return true;
+                } else {
+                    console.warn('[DeviceOrientationHelper] Permission denied:', permission);
+                    console.warn('[DeviceOrientationHelper] User must enable in Settings > Safari > [App]');
                 }
-                console.warn('[DeviceOrientation] Permission denied');
-                return false;
-            } catch (err) {
-                console.error('[DeviceOrientation] Error:', err);
-                return false;
-            }
+            }).catch((err) => {
+                console.error('[DeviceOrientationHelper] Error requesting permission:', err);
+            });
+            return true; // Return immediately, listener will be enabled when permission resolves
         } else {
+            console.log('[DeviceOrientationHelper] No permission required, enabling listener');
             this._enableListener();
             return true;
         }
