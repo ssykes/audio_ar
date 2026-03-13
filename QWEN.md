@@ -356,3 +356,27 @@ python -m http.server 8000
 # Deploy to test server
 ./deploy.ps1
 ```
+
+---
+
+## Git Commit on Windows (Important!)
+
+**Problem:** Windows CMD doesn't handle multi-line commit messages. Using `-m "line1\nline2"` causes errors like:
+```
+fatal: 3:: '3:' is outside repository
+```
+
+**Solution:** Use `write_file` + `-F` flag:
+
+```
+1. write_file to create .git/COMMIT_EDITMSG with full message
+2. git commit -F .git/COMMIT_EDITMSG
+3. git push
+```
+
+**Alternative:** Single-line messages only:
+```
+git commit -m "Short single-line message"
+```
+
+**DO NOT:** Use multi-line `-m` strings in CMD - they will fail.
