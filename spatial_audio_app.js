@@ -713,15 +713,14 @@ class SpatialAudioApp {
 
     /**
      * Start a soundscape with behaviors
-     * 
+     *
      * This method accepts a SoundScape object and executes its behaviors.
      * If no behaviors are defined, it defaults to starting all sounds together.
-     * 
+     *
      * @param {SoundScape} soundscape - Soundscape object with waypointData and behaviors
-     * @param {Object} options - Optional overrides for GPS, etc.
      * @returns {Promise<void>}
      */
-    async startSoundScape(soundscape, options = {}) {
+    async startSoundScape(soundscape) {
         if (!soundscape || !soundscape.waypointData) {
             throw new Error('startSoundScape requires a SoundScape with waypointData');
         }

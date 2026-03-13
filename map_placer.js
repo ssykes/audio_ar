@@ -34,7 +34,6 @@ class MapPlacerApp {
 
         // SoundScape management
         this.currentSoundscape = null;  // Current SoundScape instance
-        this.soundscapes = {};          // Map of id -> SoundScape (for future multi-soundscape)
 
         // Global sound configuration (applies to all waypoints)
         this.soundConfig = {
@@ -125,18 +124,18 @@ class MapPlacerApp {
         
         const editSoundscapeBtn = document.getElementById('editSoundscapeBtn');
         if (editSoundscapeBtn) editSoundscapeBtn.style.display = 'none';
-        
+
         const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
         if (deleteSoundscapeBtn) deleteSoundscapeBtn.style.display = 'none';
-        
-        // Hide soundscape selector (just use saved soundscape)
-        const soundscapeSelector = document.getElementById('soundscapeSelector');
-        if (soundscapeSelector) soundscapeSelector.style.display = 'none';
-        
+
+        // Hide soundscape controls (just use saved soundscape)
+        const soundscapeControls = document.getElementById('soundscapeControls');
+        if (soundscapeControls) soundscapeControls.style.display = 'none';
+
         // Update subtitle
         const subtitle = document.querySelector('.subtitle');
         if (subtitle) subtitle.textContent = 'Player Mode - Walk to explore';
-        
+
         this._showToast('📱 Player Mode: Walk to explore the soundscape', 'info');
     }
 
@@ -182,17 +181,11 @@ class MapPlacerApp {
     }
 
     /**
-     * Update soundscape selector dropdown
+     * Update soundscape selector dropdown (no-op: dropdown removed in single-soundscape mode)
      * @private
      */
     _updateSoundscapeSelector() {
-        const select = document.getElementById('soundscapeSelect');
-        if (!select) return;
-        
-        // For now, just show current soundscape (future: support multiple)
-        select.innerHTML = `
-            <option value="${this.currentSoundscape.id}" selected>${this.currentSoundscape.name}</option>
-        `;
+        // No-op: dropdown removed in single-soundscape mode
     }
 
     _initMap() {
@@ -261,12 +254,8 @@ class MapPlacerApp {
         if (importBtn) {
             importBtn.addEventListener('click', () => this._triggerImport());
         }
-        
+
         // SoundScape management
-        const soundscapeSelect = document.getElementById('soundscapeSelect');
-        if (soundscapeSelect) {
-            soundscapeSelect.addEventListener('change', (e) => this._onSoundscapeChange(e.target.value));
-        }
         const newSoundscapeBtn = document.getElementById('newSoundscapeBtn');
         if (newSoundscapeBtn) {
             newSoundscapeBtn.addEventListener('click', () => this._createNewSoundscape());
@@ -1250,13 +1239,16 @@ class MapPlacerApp {
         // Save current soundscape first
         this._saveSoundscapeToStorage();
 
-        // Create new soundscape with current waypoints
+        // Clear all waypoints for the new soundscape
+        this._clearAllWaypoints();
+
+        // Create new empty soundscape
         this.currentSoundscape = new SoundScape(
             'soundscape_' + Date.now(),
             name,
-            this.waypoints.map(wp => wp.id),
+            [],  // Empty soundIds
             [],
-            this.waypoints
+            []   // Empty waypointData
         );
 
         this._updateSoundscapeSelector();
@@ -1297,16 +1289,6 @@ class MapPlacerApp {
     }
 
     /**
-     * Handle soundscape selector change
-     * @param {string} soundscapeId
-     * @private
-     */
-    _onSoundscapeChange(soundscapeId) {
-        // For now, we only have one soundscape (future: switch between multiple)
-        this.debugLog(`🎼 Switched to soundscape: ${soundscapeId}`);
-    }
-
-    /**
      * Save current soundscape to localStorage
      * @private
      */
@@ -1318,10 +1300,11 @@ class MapPlacerApp {
         this.currentSoundscape.waypointData = this.waypoints;
 
         SoundScapeStorage.save(this.currentSoundscape, this.waypoints);
-        
+
         // Show brief feedback (debounced - don't spam user)
         if (!this.saveFeedbackTimer) {
             this.saveFeedbackTimer = setTimeout(() => {
+                this.debugLog('💾 Auto-saved');
                 this.saveFeedbackTimer = null;
             }, 2000);
         }

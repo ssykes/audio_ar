@@ -115,16 +115,12 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Placer <span class="version">v3.1</span></h1>
+                <h1>🗺️ Map Placer <span class="version">v3.2</span></h1>
                 <p class="subtitle">Place sounds on the map</p>
                 
                 <!-- SoundScape Management -->
-                <div id="soundscapeSelector" style="margin: 10px 0;">
-                    <label style="font-size: 0.85em; color: #888;">🎼 SoundScape:</label>
-                    <select id="soundscapeSelect" style="width: 100%; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid #444; border-radius: 6px; margin-top: 4px;">
-                        <option value="default">Default Soundscape</option>
-                    </select>
-                    <div style="display: flex; gap: 5px; margin-top: 5px;">
+                <div id="soundscapeControls" style="margin: 10px 0;">
+                    <div style="display: flex; gap: 5px; margin: 10px 0;">
                         <button id="newSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">+ New</button>
                         <button id="editSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">✏️ Edit</button>
                         <button id="deleteSoundscapeBtn" class="btn btn-danger" style="flex: 1; padding: 6px; font-size: 0.85em;">🗑️</button>
@@ -190,10 +186,10 @@
     <input type="file" id="importFileInput" accept=".json,application/json" style="display: none;">
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="soundscape.js?v=20260313133912"></script>
-    <script src="spatial_audio.js?v=20260313133912"></script>
-    <script src="spatial_audio_app.js?v=20260313133912"></script>
-    <script src="wake_lock_helper.js?v=20260313133912?v=20260313133000"></script>
-    <script src="map_placer.js?v=20260313133912?v=20260313133000"></script>
+    <script src="soundscape.js?v=20260313152428"></script>
+    <script src="spatial_audio.js?v=20260313152428"></script>
+    <script src="spatial_audio_app.js?v=20260313152428"></script>
+    <script src="wake_lock_helper.js?v=20260313152428?v=20260313133912?v=20260313133000"></script>
+    <script src="map_placer.js?v=20260313152428?v=20260313133912?v=20260313133000"></script>
 </body>
 </html>
