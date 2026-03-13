@@ -1,19 +1,19 @@
 /**
  * Map Placer App
  * Visual map interface for placing sound waypoints
- * @version 2.5 - Player Mode with Debug Logging
+ * @version 3.0 - SoundScape Persistence Support
  *
- * Session 2 Implementation:
+ * Session 3 Implementation:
+ * - SoundScape persistence with localStorage
+ * - SoundScape ↔ Waypoint linkage
+ * - Export/Import soundscape JSON
+ * - Phone mode detection (edit controls hidden on mobile)
+ *
+ * Previous Features (v2.5):
  * - Player mode with GPS tracking and compass rotation
  * - SpatialAudioApp integration for audio playback
  * - Wake lock, compass, and GPS permission handling
  * - Debug console with auto-copy for field testing
- *
- * Debug Logging:
- * - Auto-captures [Audio], [GPS], [Compass], [MapPlacer] messages
- * - Auto-copies to clipboard after 3s of stillness (hands-free testing)
- * - 1000-line buffer captures ~50-100 seconds of testing
- * - To disable: set this.autoCopyLogs = false in constructor
  */
 
 class MapPlacerApp {
@@ -31,6 +31,10 @@ class MapPlacerApp {
         // Default activation radius (meters)
         this.defaultActivationRadius = 20;
         this.nextId = 1;
+
+        // SoundScape management
+        this.currentSoundscape = null;  // Current SoundScape instance
+        this.soundscapes = {};          // Map of id -> SoundScape (for future multi-soundscape)
 
         // Global sound configuration (applies to all waypoints)
         this.soundConfig = {
@@ -52,16 +56,22 @@ class MapPlacerApp {
         this.simListenerMarker = null;
         this.simListenerLat = null;
         this.simListenerLon = null;
-        
+
         // Debug console
         this.debugConsole = null;
         this.maxDebugLines = 1000;  // Capture full walking test for analysis
-        
+
         // Auto-copy logs when user stops (for easy debugging while walking)
         this.autoCopyLogs = true;
         this.lastMoveTime = 0;
         this.copyAfterSeconds = 3;  // Auto-copy 3 seconds after last movement
         this.autoCopyTimer = null;
+
+        // Phone mode detection
+        this.isPhoneMode = this._detectPhoneMode();
+
+        // Auto-save feedback
+        this.saveFeedbackTimer = null;
     }
 
     async init() {
@@ -73,7 +83,116 @@ class MapPlacerApp {
         this._setupEventListeners();
         this._initDebugConsole();
         await this._getInitialGPS();
+        this._loadSoundscapeFromStorage();  // Load saved soundscape
         console.log('Map Placer ready (Editor Mode)');
+    }
+
+    /**
+     * Detect if running on a phone/tablet
+     * @returns {boolean}
+     * @private
+     */
+    _detectPhoneMode() {
+        // Check for mobile user agent
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        // Check for touch support (additional signal for tablet mode)
+        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        
+        // Check screen size (smaller threshold to avoid false positives on desktop)
+        const isSmallScreen = window.innerWidth < 600;
+        
+        // Phone mode: mobile device OR (touch + small screen)
+        return isMobile || (hasTouch && isSmallScreen);
+    }
+
+    /**
+     * Apply phone mode restrictions (hide edit controls)
+     * @private
+     */
+    _applyPhoneModeRestrictions() {
+        console.log('[MapPlacer] 📱 Phone mode detected - hiding edit controls');
+        
+        // Hide edit buttons
+        const addBtn = document.getElementById('addWaypointBtn');
+        if (addBtn) addBtn.style.display = 'none';
+        
+        const clearBtn = document.getElementById('clearAllBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
+        
+        const newSoundscapeBtn = document.getElementById('newSoundscapeBtn');
+        if (newSoundscapeBtn) newSoundscapeBtn.style.display = 'none';
+        
+        const editSoundscapeBtn = document.getElementById('editSoundscapeBtn');
+        if (editSoundscapeBtn) editSoundscapeBtn.style.display = 'none';
+        
+        const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
+        if (deleteSoundscapeBtn) deleteSoundscapeBtn.style.display = 'none';
+        
+        // Hide soundscape selector (just use saved soundscape)
+        const soundscapeSelector = document.getElementById('soundscapeSelector');
+        if (soundscapeSelector) soundscapeSelector.style.display = 'none';
+        
+        // Update subtitle
+        const subtitle = document.querySelector('.subtitle');
+        if (subtitle) subtitle.textContent = 'Player Mode - Walk to explore';
+        
+        this._showToast('📱 Player Mode: Walk to explore the soundscape', 'info');
+    }
+
+    /**
+     * Load soundscape from localStorage
+     * @private
+     */
+    _loadSoundscapeFromStorage() {
+        const saved = SoundScapeStorage.load();
+        if (saved && saved.soundscape && saved.waypoints) {
+            this.currentSoundscape = saved.soundscape;
+            this.waypoints = saved.waypoints;
+            
+            // Restore nextId from waypoints
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
+            }
+            
+            // Render waypoints on map
+            this.waypoints.forEach(wp => {
+                this._createMarker(wp);
+            });
+            
+            this._updateWaypointList();
+            this._updateSoundscapeSelector();
+            
+            this.debugLog(`🎼 Loaded soundscape: ${this.currentSoundscape.name} (${this.waypoints.length} waypoints)`);
+        } else {
+            // Create default soundscape
+            this._createDefaultSoundscape();
+        }
+    }
+
+    /**
+     * Create default soundscape
+     * @private
+     */
+    _createDefaultSoundscape() {
+        this.currentSoundscape = new SoundScape('default', 'Default Soundscape', [], []);
+        this._updateSoundscapeSelector();
+        this.debugLog('🎼 Created default soundscape');
+    }
+
+    /**
+     * Update soundscape selector dropdown
+     * @private
+     */
+    _updateSoundscapeSelector() {
+        const select = document.getElementById('soundscapeSelect');
+        if (!select) return;
+        
+        // For now, just show current soundscape (future: support multiple)
+        select.innerHTML = `
+            <option value="${this.currentSoundscape.id}" selected>${this.currentSoundscape.name}</option>
+        `;
     }
 
     _initMap() {
@@ -136,7 +255,40 @@ class MapPlacerApp {
         }
         const exportBtn = document.getElementById('exportBtn');
         if (exportBtn) {
-            exportBtn.addEventListener('click', () => this.exportConfig());
+            exportBtn.addEventListener('click', () => this._exportSoundscape());
+        }
+        const importBtn = document.getElementById('importBtn');
+        if (importBtn) {
+            importBtn.addEventListener('click', () => this._triggerImport());
+        }
+        
+        // SoundScape management
+        const soundscapeSelect = document.getElementById('soundscapeSelect');
+        if (soundscapeSelect) {
+            soundscapeSelect.addEventListener('change', (e) => this._onSoundscapeChange(e.target.value));
+        }
+        const newSoundscapeBtn = document.getElementById('newSoundscapeBtn');
+        if (newSoundscapeBtn) {
+            newSoundscapeBtn.addEventListener('click', () => this._createNewSoundscape());
+        }
+        const editSoundscapeBtn = document.getElementById('editSoundscapeBtn');
+        if (editSoundscapeBtn) {
+            editSoundscapeBtn.addEventListener('click', () => this._editSoundscape());
+        }
+        const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
+        if (deleteSoundscapeBtn) {
+            deleteSoundscapeBtn.addEventListener('click', () => this._deleteSoundscape());
+        }
+        
+        // Import file input
+        const importFileInput = document.getElementById('importFileInput');
+        if (importFileInput) {
+            importFileInput.addEventListener('change', (e) => this._handleImportFile(e.target.files[0]));
+        }
+
+        // Apply phone mode restrictions
+        if (this.isPhoneMode) {
+            this._applyPhoneModeRestrictions();
         }
     }
 
@@ -324,16 +476,26 @@ class MapPlacerApp {
             };
 
             // ---------------------------------------------------------------------
-            // STEP 7: Start the experience
+            // STEP 7: Start the experience (with soundscape behaviors if available)
             // ---------------------------------------------------------------------
-            console.log('[MapPlacer] 🚀 Calling app.start()...');
-            await this.app.start();
-            console.log('[MapPlacer] ✅ app.start() completed');
+            console.log('[MapPlacer] 🚀 Starting soundscape...');
+            
+            // Use startSoundScape if we have a soundscape with behaviors, otherwise use start()
+            if (this.currentSoundscape && this.currentSoundscape.behaviors && 
+                this.currentSoundscape.behaviors.length > 0) {
+                console.log('[MapPlacer] 🎼 Starting with behaviors:', this.currentSoundscape.behaviors.length);
+                await this.app.startSoundScape(this.currentSoundscape);
+            } else {
+                console.log('[MapPlacer] 🎵 Starting without behaviors (default)');
+                await this.app.start();
+            }
+            
+            console.log('[MapPlacer] ✅ Soundscape started');
 
             // Update state
             this.state = 'player';
             this._updateStartButton('starting');
-            
+
             // Refresh waypoint list to show distance placeholders
             this._updateWaypointList();
 
@@ -768,6 +930,13 @@ class MapPlacerApp {
         this.waypoints.push(waypoint);
         this._createMarker(waypoint);
         this._updateWaypointList();
+        
+        // Add to soundscape and auto-save
+        if (this.currentSoundscape) {
+            this.currentSoundscape.addSound(waypoint.id, waypoint);
+            this._saveSoundscapeToStorage();
+        }
+        
         return waypoint;
     }
 
@@ -866,6 +1035,12 @@ class MapPlacerApp {
         if (waypoint.circleMarker) waypoint.circleMarker.remove();
         this.waypoints.splice(index, 1);
         this._updateWaypointList();
+        
+        // Remove from soundscape and auto-save
+        if (this.currentSoundscape) {
+            this.currentSoundscape.removeSound(waypoint.id);
+            this._saveSoundscapeToStorage();
+        }
     }
 
     _clearAllWaypoints() {
@@ -875,6 +1050,13 @@ class MapPlacerApp {
         this.waypoints = [];
         this.nextId = 1;
         this._updateWaypointList();
+        
+        // Clear soundscape and auto-save
+        if (this.currentSoundscape) {
+            this.currentSoundscape.soundIds = [];
+            this.currentSoundscape.waypointData = [];
+            this._saveSoundscapeToStorage();
+        }
     }
 
     _updateWaypointList() {
@@ -966,6 +1148,183 @@ class MapPlacerApp {
         a.download = 'soundscape_' + new Date().getTime() + '.json';
         a.click();
         URL.revokeObjectURL(url);
+    }
+
+    // =====================================================================
+    // SOUNDSCAPE MANAGEMENT
+    // =====================================================================
+
+    /**
+     * Export soundscape with waypoints to JSON file
+     * @private
+     */
+    _exportSoundscape() {
+        if (!this.currentSoundscape) {
+            this._showToast('⚠️ No soundscape to export', 'warning');
+            return;
+        }
+
+        // Update soundscape with current waypoints
+        this.currentSoundscape.soundIds = this.waypoints.map(wp => wp.id);
+        this.currentSoundscape.waypointData = this.waypoints;
+
+        SoundScapeStorage.export(this.currentSoundscape, this.waypoints);
+        this._showToast('✅ Soundscape exported', 'success');
+    }
+
+    /**
+     * Trigger file import dialog
+     * @private
+     */
+    _triggerImport() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.click();
+        }
+    }
+
+    /**
+     * Handle imported file
+     * @param {File} file
+     * @private
+     */
+    _handleImportFile(file) {
+        if (!file) return;
+
+        this.debugLog(`📥 Importing: ${file.name}`);
+
+        // Confirm before overwriting if there's existing data
+        const hasExistingData = this.waypoints.length > 0;
+        if (hasExistingData) {
+            const confirmed = confirm(
+                `⚠️ Import will overwrite your current soundscape.\n\n` +
+                `You have ${this.waypoints.length} waypoint(s) that will be replaced.\n\n` +
+                `Click OK to import, or Cancel to abort.`
+            );
+            if (!confirmed) {
+                this.debugLog('❌ Import cancelled by user');
+                return;
+            }
+        }
+
+        SoundScapeStorage.import(file, (result, error) => {
+            if (error || !result) {
+                this._showToast('❌ Import failed: ' + (error?.message || 'Unknown error'), 'error');
+                return;
+            }
+
+            // Clear current data
+            this._clearAllWaypoints();
+
+            // Load imported data
+            this.currentSoundscape = result.soundscape;
+            this.waypoints = result.waypoints;
+
+            // Restore nextId
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
+            }
+
+            // Render waypoints
+            this.waypoints.forEach(wp => this._createMarker(wp));
+            this._updateWaypointList();
+            this._updateSoundscapeSelector();
+
+            // Save to localStorage
+            this._saveSoundscapeToStorage();
+
+            this.debugLog(`✅ Imported: ${this.currentSoundscape.name} (${this.waypoints.length} waypoints)`);
+            this._showToast(`✅ Imported: ${this.currentSoundscape.name}`, 'success');
+        });
+    }
+
+    /**
+     * Create new soundscape
+     * @private
+     */
+    _createNewSoundscape() {
+        const name = prompt('Enter soundscape name:', 'New Soundscape');
+        if (!name) return;
+
+        // Save current soundscape first
+        this._saveSoundscapeToStorage();
+
+        // Create new soundscape with current waypoints
+        this.currentSoundscape = new SoundScape(
+            'soundscape_' + Date.now(),
+            name,
+            this.waypoints.map(wp => wp.id),
+            [],
+            this.waypoints
+        );
+
+        this._updateSoundscapeSelector();
+        this._saveSoundscapeToStorage();
+
+        this.debugLog(`🎼 Created: ${this.currentSoundscape.name}`);
+        this._showToast(`✅ Created: ${this.currentSoundscape.name}`, 'success');
+    }
+
+    /**
+     * Edit current soundscape (rename, add behaviors)
+     * @private
+     */
+    _editSoundscape() {
+        if (!this.currentSoundscape) return;
+
+        const newName = prompt('Edit soundscape name:', this.currentSoundscape.name);
+        if (newName) {
+            this.currentSoundscape.name = newName;
+            this._updateSoundscapeSelector();
+            this._saveSoundscapeToStorage();
+            this._showToast('✅ Soundscape updated', 'success');
+        }
+    }
+
+    /**
+     * Delete current soundscape
+     * @private
+     */
+    _deleteSoundscape() {
+        if (!confirm('Delete current soundscape? This cannot be undone.')) return;
+
+        SoundScapeStorage.clear();
+        this.currentSoundscape = null;
+        this._clearAllWaypoints();
+        this._createDefaultSoundscape();
+        this._showToast('🗑️ Soundscape deleted', 'info');
+    }
+
+    /**
+     * Handle soundscape selector change
+     * @param {string} soundscapeId
+     * @private
+     */
+    _onSoundscapeChange(soundscapeId) {
+        // For now, we only have one soundscape (future: switch between multiple)
+        this.debugLog(`🎼 Switched to soundscape: ${soundscapeId}`);
+    }
+
+    /**
+     * Save current soundscape to localStorage
+     * @private
+     */
+    _saveSoundscapeToStorage() {
+        if (!this.currentSoundscape) return;
+
+        // Update soundscape with current waypoints
+        this.currentSoundscape.soundIds = this.waypoints.map(wp => wp.id);
+        this.currentSoundscape.waypointData = this.waypoints;
+
+        SoundScapeStorage.save(this.currentSoundscape, this.waypoints);
+        
+        // Show brief feedback (debounced - don't spam user)
+        if (!this.saveFeedbackTimer) {
+            this.saveFeedbackTimer = setTimeout(() => {
+                this.saveFeedbackTimer = null;
+            }, 2000);
+        }
     }
     
     _initDebugConsole() {

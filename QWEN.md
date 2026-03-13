@@ -220,3 +220,139 @@ class DefaultExecutor {
 - Start with `time_sync` (simplest - staggered starts)
 - Then `tempo_sync` (requires BPM clock)
 - Then `reverb_group` (shared effects send)
+
+---
+
+## Session 3: SoundScape Persistence - Completed ✅
+
+### What Was Implemented
+
+| Feature | Status | Files Modified |
+|---------|--------|----------------|
+| `SoundScape` class with `waypointData` | ✅ Done | `soundscape.js` |
+| `SoundScapeStorage` localStorage helpers | ✅ Done | `soundscape.js` |
+| Auto-save on waypoint add/delete/clear | ✅ Done | `map_placer.js` |
+| Export/Import JSON file | ✅ Done | `map_placer.js`, `map_placer.html` |
+| Phone mode detection + restrictions | ✅ Done | `map_placer.js` |
+| `SpatialAudioApp.startSoundScape()` | ✅ Done | `spatial_audio_app.js` |
+| Behavior execution via `BehaviorExecutor` | ✅ Done | `spatial_audio_app.js` |
+| Soundscape selector UI | ✅ Done | `map_placer.html` |
+
+### Data Flow (Working)
+
+```
+PC: Place waypoints → Auto-save to localStorage → Export JSON
+                          ↓
+Phone: Import JSON → Load to localStorage → Tap Start → GPS + Compass → Walk + Listen
+```
+
+---
+
+## Hit List: Issues for Future Sessions
+
+### P1 - Should Fix Soon
+
+| # | Issue | File | Current Behavior | Expected Behavior | Fix |
+|---|-------|------|------------------|-------------------|-----|
+| **1** | `_createNewSoundscape()` includes old waypoints | `map_placer.js` ~1246 | "New Soundscape" creates soundscape with all existing waypoints | User expects empty soundscape when creating "New" | Add `this._clearAllWaypoints()` before creating new soundscape, OR rename button to "Save As..." |
+| **2** | Auto-save feedback timer shows nothing | `map_placer.js` ~1315 | Timer set/cleared but no feedback shown | User should see "💾 Auto-saved" in debug console | Add `this.debugLog('💾 Auto-saved')` inside timer callback |
+
+### P2 - Nice to Fix
+
+| # | Issue | File | Current Behavior | Expected Behavior | Fix |
+|---|-------|------|------------------|-------------------|-----|
+| **3** | `this.soundscapes` property unused | `map_placer.js` ~48 | Declared but never accessed | Dead code should be removed | Remove `this.soundscapes = {}` from constructor |
+| **4** | `_onSoundscapeChange()` does nothing | `map_placer.js` ~1274 | Dropdown implies switching soundscapes, but handler just logs | Either implement multi-soundscape switching OR remove dropdown | Remove dropdown for now (single soundscape mode) |
+| **5** | `startSoundScape(options)` parameter unused | `spatial_audio_app.js` ~724 | Parameter declared but never used | Misleading API | Remove `options` parameter or use it to override `this.options` |
+| **6** | Version mismatch | `soundscape.js` ~18 | Says "v1.0" in console log | Should match project version | Update to "v3.0" |
+
+### P3 - Future Enhancements (Not Bugs)
+
+| # | Feature | Description | Priority |
+|---|---------|-------------|----------|
+| **A** | Multi-soundscape support | Store/switch between multiple soundscapes (use `this.soundscapes` map) | Low |
+| **B** | Behavior editing UI | Visual editor to create/edit behaviors (timeline, drag-drop sounds) | Medium |
+| **C** | Behavior presets | Pre-configured behavior templates (e.g., "Canon", "Call & Response") | Low |
+| **D** | Soundscape gallery | Browse/load community soundscapes | Low |
+| **E** | GPS-based triggers | Activate behaviors when near specific waypoints | Low |
+
+---
+
+## Known Limitations
+
+1. **No behavior editing UI** - Behaviors can be defined in code but not edited via UI
+2. **Single soundscape mode** - Dropdown exists but only one soundscape supported at a time
+3. **No soundscape list view** - Can't see all saved soundscapes, only current one
+4. **Import overwrites without backup** - Confirm dialog exists, but no "export before overwrite" option
+
+---
+
+## Testing Checklist (Next Session)
+
+### PC → Phone Flow
+- [ ] PC: Place 3 waypoints
+- [ ] PC: Export JSON file
+- [ ] Phone: Open `map_placer.html`
+- [ ] Phone: Verify edit controls are hidden (phone mode)
+- [ ] Phone: Import JSON file
+- [ ] Phone: Verify waypoints appear on map
+- [ ] Phone: Tap "Start"
+- [ ] Phone: Verify GPS permission granted
+- [ ] Phone: Verify compass permission granted
+- [ ] Phone: Walk toward waypoints - audio should update
+
+### Persistence
+- [ ] PC: Place waypoint → refresh page → waypoint persists
+- [ ] PC: Edit waypoint → refresh page → changes persist
+- [ ] PC: Delete waypoint → refresh page → deletion persists
+
+### Behaviors (If Implemented)
+- [ ] PC: Add `time_sync` behavior with stagger
+- [ ] PC: Export → Import on Phone
+- [ ] Phone: Tap "Start" - sounds should stagger according to behavior
+
+---
+
+## Code Quality Notes
+
+### Good Patterns
+- ✅ GPS/Compass permission order preserved (critical for iOS)
+- ✅ `BehaviorExecutor` availability check before use
+- ✅ Import confirm dialog prevents accidental data loss
+- ✅ Auto-save on every waypoint change
+- ✅ Phone mode detection uses multiple signals (UA + touch + screen size)
+
+### Debt to Address
+- ⚠️ Unused `this.soundscapes` property
+- ⚠️ Misleading `_onSoundscapeChange()` handler
+- ⚠️ Unused `options` parameter in `startSoundScape()`
+- ⚠️ Version string inconsistency
+
+---
+
+## Files Modified in Session 3
+
+| File | Lines Changed | Summary |
+|------|---------------|---------|
+| `soundscape.js` | +125 | Added `waypointData`, `SoundScapeStorage` class |
+| `map_placer.js` | +400 | Added persistence, phone mode, soundscape management |
+| `spatial_audio_app.js` | +60 | Added `startSoundScape()` method |
+| `map_placer.html` | +30 | Added soundscape selector UI, import/export buttons |
+
+---
+
+## Quick Start Commands
+
+```bash
+# Test on PC
+open map_placer.html
+
+# Test on Phone (local network)
+# 1. Start local server
+python -m http.server 8000
+
+# 2. Access from phone at http://YOUR_IP:8000/map_placer.html
+
+# Deploy to test server
+./deploy.ps1
+```

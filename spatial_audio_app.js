@@ -712,6 +712,72 @@ class SpatialAudioApp {
     }
 
     /**
+     * Start a soundscape with behaviors
+     * 
+     * This method accepts a SoundScape object and executes its behaviors.
+     * If no behaviors are defined, it defaults to starting all sounds together.
+     * 
+     * @param {SoundScape} soundscape - Soundscape object with waypointData and behaviors
+     * @param {Object} options - Optional overrides for GPS, etc.
+     * @returns {Promise<void>}
+     */
+    async startSoundScape(soundscape, options = {}) {
+        if (!soundscape || !soundscape.waypointData) {
+            throw new Error('startSoundScape requires a SoundScape with waypointData');
+        }
+
+        console.log('[SpatialAudioApp] Starting soundscape:', soundscape.name);
+
+        // Convert waypointData to sound configs
+        const soundConfigs = soundscape.waypointData.map(wp => ({
+            id: wp.id,
+            url: wp.soundUrl,
+            lat: wp.lat,
+            lon: wp.lon,
+            activationRadius: wp.activationRadius,
+            volume: wp.volume,
+            loop: wp.loop
+        }));
+
+        // Start the app with these configs
+        this.soundConfigs = soundConfigs;
+        await this.start();
+
+        // Execute behaviors after sounds are loaded
+        if (soundscape.behaviors && soundscape.behaviors.length > 0) {
+            console.log('[SpatialAudioApp] Executing', soundscape.behaviors.length, 'behaviors');
+
+            // Check if BehaviorExecutor is available (soundscape.js must be loaded)
+            if (typeof BehaviorExecutor === 'undefined') {
+                console.warn('[SpatialAudioApp] ⚠️ BehaviorExecutor not loaded - skipping behaviors');
+                console.warn('[SpatialAudioApp] 💡 Make sure soundscape.js is loaded before spatial_audio_app.js');
+                return;
+            }
+
+            // Wait for sounds to be initialized
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Execute each behavior
+            soundscape.behaviors.forEach(behaviorSpec => {
+                // Get sounds that are members of this behavior
+                const behaviorSounds = this.sounds.filter(s =>
+                    behaviorSpec.memberIds.includes(s.id)
+                );
+
+                if (behaviorSounds.length === 0) {
+                    console.warn('[SpatialAudioApp] No sounds found for behavior:', behaviorSpec.type);
+                    return;
+                }
+
+                // Create executor and start
+                const executor = BehaviorExecutor.create(behaviorSpec, behaviorSounds, this.engine);
+                executor.start();
+            });
+        }
+        // else: Default behavior (all sounds together) is handled by start()
+    }
+
+    /**
      * Update internal state and notify UI
      * @param {string} state - New state
      * @private

@@ -60,8 +60,17 @@ class SoundBehavior {
 /**
  * SoundScape - Persisted container for an audio experience
  *
- * Contains all sound waypoint IDs and their behaviors.
+ * Contains all sound waypoint IDs, waypoint data, and their behaviors.
  * Empty behaviors array = start all sounds together (implicit default).
+ * 
+ * ARCHITECTURE NOTE: Waypoint Data Storage
+ * =========================================
+ * This class stores both soundIds AND waypointData for self-containment:
+ * - soundIds: Ordered list of waypoint IDs (for behavior references)
+ * - waypointData: Full waypoint data {id, lat, lon, name, soundUrl, volume, loop, etc.}
+ * 
+ * This allows the soundscape to be fully self-contained for persistence and export.
+ * The MapPlacerApp maintains the authoritative waypoint list during editing.
  */
 class SoundScape {
     /**
@@ -69,21 +78,27 @@ class SoundScape {
      * @param {string} name - Human-readable name
      * @param {string[]} soundIds - Array of waypoint IDs
      * @param {SoundBehavior[]} behaviors - Array of behavior specifications
+     * @param {Object[]} waypointData - Optional: Full waypoint data for persistence
      */
-    constructor(id, name, soundIds = [], behaviors = []) {
+    constructor(id, name, soundIds = [], behaviors = [], waypointData = []) {
         this.id = id;
         this.name = name;
         this.soundIds = soundIds;
         this.behaviors = behaviors;
+        this.waypointData = waypointData;  // Full waypoint data for persistence
     }
 
     /**
      * Add a sound to the soundscape
      * @param {string} soundId
+     * @param {Object} waypointData - Optional: Full waypoint data
      */
-    addSound(soundId) {
+    addSound(soundId, waypointData = null) {
         if (!this.soundIds.includes(soundId)) {
             this.soundIds.push(soundId);
+        }
+        if (waypointData && !this.waypointData.find(wp => wp.id === soundId)) {
+            this.waypointData.push(waypointData);
         }
     }
 
@@ -93,6 +108,7 @@ class SoundScape {
      */
     removeSound(soundId) {
         this.soundIds = this.soundIds.filter(id => id !== soundId);
+        this.waypointData = this.waypointData.filter(wp => wp.id !== soundId);
         // Also remove from any behaviors
         this.behaviors.forEach(b => {
             b.memberIds = b.memberIds.filter(id => id !== soundId);
@@ -126,7 +142,8 @@ class SoundScape {
             id: this.id,
             name: this.name,
             soundIds: this.soundIds,
-            behaviors: this.behaviors.map(b => b.toJSON())
+            behaviors: this.behaviors.map(b => b.toJSON()),
+            waypointData: this.waypointData  // Include full waypoint data
         };
     }
 
@@ -137,7 +154,7 @@ class SoundScape {
      */
     static fromJSON(data) {
         const behaviors = data.behaviors.map(b => SoundBehavior.fromJSON(b));
-        return new SoundScape(data.id, data.name, data.soundIds, behaviors);
+        return new SoundScape(data.id, data.name, data.soundIds, behaviors, data.waypointData || []);
     }
 }
 
@@ -543,4 +560,129 @@ window.RandomSequenceExecutor = RandomSequenceExecutor;
 window.VolumeGroupExecutor = VolumeGroupExecutor;
 window.FilterGroupExecutor = FilterGroupExecutor;
 
-console.log('[soundscape.js] ✅ Loaded - SoundScape architecture ready');
+// =============================================================================
+// localStorage Persistence Helpers
+// =============================================================================
+
+/**
+ * SoundScapeStorage - localStorage persistence for soundscapes
+ * 
+ * Usage:
+ *   SoundScapeStorage.save(soundscape, waypoints);
+ *   const data = SoundScapeStorage.load();
+ *   SoundScapeStorage.export(soundscape, waypoints, filename);
+ *   SoundScapeStorage.import(file, callback);
+ */
+class SoundScapeStorage {
+    static STORAGE_KEY = 'soundscape_config';
+
+    /**
+     * Save soundscape and waypoints to localStorage
+     * @param {SoundScape} soundscape - Soundscape to save
+     * @param {Object[]} waypoints - Array of waypoint objects
+     */
+    static save(soundscape, waypoints) {
+        const data = {
+            version: '3.0',
+            updatedAt: new Date().toISOString(),
+            soundscape: soundscape.toJSON(),
+            waypoints: waypoints
+        };
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(data));
+        console.log('[SoundScapeStorage] Saved to localStorage:', soundscape.name);
+    }
+
+    /**
+     * Load soundscape and waypoints from localStorage
+     * @returns {{soundscape: SoundScape, waypoints: Object[]}|null}
+     */
+    static load() {
+        const json = localStorage.getItem(this.STORAGE_KEY);
+        if (!json) {
+            console.log('[SoundScapeStorage] No saved config found');
+            return null;
+        }
+
+        try {
+            const data = JSON.parse(json);
+            const soundscape = SoundScape.fromJSON(data.soundscape);
+            console.log('[SoundScapeStorage] Loaded from localStorage:', soundscape.name);
+            return {
+                soundscape: soundscape,
+                waypoints: data.waypoints || []
+            };
+        } catch (error) {
+            console.error('[SoundScapeStorage] Failed to load:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Check if config exists in localStorage
+     * @returns {boolean}
+     */
+    static exists() {
+        return !!localStorage.getItem(this.STORAGE_KEY);
+    }
+
+    /**
+     * Clear saved config from localStorage
+     */
+    static clear() {
+        localStorage.removeItem(this.STORAGE_KEY);
+        console.log('[SoundScapeStorage] Cleared localStorage');
+    }
+
+    /**
+     * Export soundscape as JSON file download
+     * @param {SoundScape} soundscape - Soundscape to export
+     * @param {Object[]} waypoints - Array of waypoint objects
+     * @param {string} filename - Optional custom filename
+     */
+    static export(soundscape, waypoints, filename = null) {
+        const data = {
+            version: '3.0',
+            exportedAt: new Date().toISOString(),
+            soundscape: soundscape.toJSON(),
+            waypoints: waypoints
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || `soundscape_${soundscape.id}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        console.log('[SoundScapeStorage] Exported:', a.download);
+    }
+
+    /**
+     * Import soundscape from JSON file
+     * @param {File} file - JSON file to import
+     * @param {function({soundscape: SoundScape, waypoints: Object[]})} callback - Callback with imported data
+     */
+    static import(file, callback) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                const soundscape = SoundScape.fromJSON(data.soundscape);
+                callback({
+                    soundscape: soundscape,
+                    waypoints: data.waypoints || []
+                });
+                console.log('[SoundScapeStorage] Imported:', soundscape.name);
+            } catch (error) {
+                console.error('[SoundScapeStorage] Import failed:', error);
+                callback(null, error);
+            }
+        };
+        reader.readAsText(file);
+    }
+}
+
+// Export storage helper
+window.SoundScapeStorage = SoundScapeStorage;
+
+console.log('[soundscape.js] ✅ Loaded - SoundScape architecture ready (v3.0 with persistence)');
