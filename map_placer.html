@@ -52,6 +52,31 @@
         .btn-danger:hover { background: #ff6b6b; }
         .btn-success { background: #00b894; }
         .btn-success:hover { background: #00cec9; }
+        .btn-warning { background: #f39c12; }
+        .btn-warning:hover { background: #e67e22; }
+        .sim-panel {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid #00ff88;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 10px;
+            font-size: 0.85em;
+        }
+        .sim-panel h3 {
+            color: #00ff88;
+            margin-bottom: 8px;
+            font-size: 1em;
+        }
+        .sim-panel .sim-stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+            color: #ccc;
+        }
+        .sim-panel .sim-value {
+            color: #00d9ff;
+            font-weight: bold;
+        }
         .version { font-size: 0.7em; color: #666; }
         .status-bar {
             padding: 10px;
@@ -94,11 +119,31 @@
                 <p class="subtitle">Place sounds on the map</p>
                 <button id="addWaypointBtn" class="btn btn-primary">+ Add Sound</button>
                 <button id="startBtn" class="btn btn-primary">▶️ Start</button>
+                <button id="simulateBtn" class="btn btn-warning">🎮 Simulate</button>
                 <button id="exportBtn" class="btn">📦 Export Config</button>
                 <button id="clearAllBtn" class="btn btn-danger">🗑️ Clear All</button>
             </div>
             <div id="waypointList"></div>
-            
+
+            <div id="simPanel" class="sim-panel" style="display: none;">
+                <h3>🎮 Simulation Mode</h3>
+                <div class="sim-stat">
+                    <span>📍 Distance:</span>
+                    <span class="sim-value" id="simDistance">--</span>
+                </div>
+                <div class="sim-stat">
+                    <span>🧭 Bearing:</span>
+                    <span class="sim-value" id="simBearing">--</span>
+                </div>
+                <div class="sim-stat">
+                    <span>🔊 Volume:</span>
+                    <span class="sim-value" id="simVolume">--</span>
+                </div>
+                <div style="margin-top: 8px; font-size: 0.9em; color: #888;">
+                    💡 Drag the avatar to preview
+                </div>
+            </div>
+
             <div id="debugConsole">Ready - tap Start to begin...</div>
             <button id="copyLogsBtn">📋 Copy Logs to Clipboard</button>
             
@@ -124,10 +169,10 @@
         <div id="map"></div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="spatial_audio.js?v=20260313121705"></script>
-    <script src="spatial_audio_app.js?v=20260313121705"></script>
-    <script src="soundscape.js?v=20260313121705"></script>
-    <script src="wake_lock_helper.js?v=20260313121705?v=20260312214329?v=20260312211614?v=20260312200000"></script>
-    <script src="map_placer.js?v=20260313121705?v=20260312214329?v=20260312211614?v=20260312200000"></script>
+    <script src="spatial_audio.js?v=20260313130000"></script>
+    <script src="spatial_audio_app.js?v=20260313130000"></script>
+    <script src="soundscape.js?v=20260313130000"></script>
+    <script src="wake_lock_helper.js?v=20260313130000"></script>
+    <script src="map_placer.js?v=20260313130000"></script>
 </body>
 </html>

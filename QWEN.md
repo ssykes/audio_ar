@@ -109,6 +109,27 @@ Runtime: BehaviorExecutor.create(spec) → Live coordination
 
 ---
 
+### Simulation Mode (Desktop Preview)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Draggable listener avatar** | ✅ Done | Drag 🚶 emoji around map to preview audio |
+| **Real-time audio updates** | ✅ Done | Audio position updates as you drag |
+| **Distance/bearing display** | ✅ Done | Shows nearest sound distance and direction |
+| **Volume indicator** | ✅ Done | Estimated volume based on distance |
+| **Waypoint lock during sim** | ✅ Done | Prevents editing while simulating |
+| **Zero GPS/compass required** | ✅ Done | Pure mouse-based simulation |
+
+**Implementation:** Added to `map_placer.html` and `map_placer.js` (250 lines)
+
+**Benefits:**
+- Test soundscapes at your desk (no field trip needed)
+- Debug behaviors without GPS
+- Client demos without traveling
+- Faster iteration on sound placements
+
+---
+
 ### Phase 1: Add SoundScape Class (NEXT TASK)
 
 **File to create:** `soundscape.js`

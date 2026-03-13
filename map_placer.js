@@ -46,6 +46,12 @@ class MapPlacerApp {
         this.lastCompassUpdate = 0;
         this.compassThrottleMs = 100;  // Max 10 compass updates/sec
         this.needsAudioEnable = false; // iOS DuckDuckGo workaround
+
+        // Simulation mode state
+        this.simulationMode = false;
+        this.simListenerMarker = null;
+        this.simListenerLat = null;
+        this.simListenerLon = null;
         
         // Debug console
         this.debugConsole = null;
@@ -116,6 +122,10 @@ class MapPlacerApp {
         const startBtn = document.getElementById('startBtn');
         if (startBtn) {
             startBtn.addEventListener('click', () => this._handleStartClick());
+        }
+        const simulateBtn = document.getElementById('simulateBtn');
+        if (simulateBtn) {
+            simulateBtn.addEventListener('click', () => this._handleSimulateClick());
         }
         const clearBtn = document.getElementById('clearAllBtn');
         if (clearBtn) {
@@ -483,6 +493,259 @@ class MapPlacerApp {
     }
     // =====================================================================
     // PLAYER MODE - END
+    // =====================================================================
+
+    // =====================================================================
+    // SIMULATION MODE - START
+    // =====================================================================
+    async _handleSimulateClick() {
+        if (this.simulationMode) {
+            this._stopSimulation();
+            return;
+        }
+
+        if (this.waypoints.length === 0) {
+            this._showToast('Add at least one waypoint first', 'warning');
+            return;
+        }
+
+        this._startSimulation();
+    }
+
+    _startSimulation() {
+        console.log('[MapPlacer] 🎮 Starting Simulation Mode...');
+
+        this.simulationMode = true;
+        this.state = 'simulator';
+
+        // Get map center for initial listener position
+        const center = this.map.getCenter();
+        this.simListenerLat = center.lat;
+        this.simListenerLon = center.lng;
+
+        // Create draggable listener marker
+        this._createSimListenerMarker();
+
+        // Start audio (no GPS, no compass)
+        this._startSimAudio();
+
+        // Show simulation panel
+        this._showSimPanel();
+
+        // Update button
+        const simulateBtn = document.getElementById('simulateBtn');
+        if (simulateBtn) {
+            simulateBtn.textContent = '❌ Exit Sim';
+            simulateBtn.className = 'btn btn-danger';
+        }
+
+        // Disable waypoint editing during simulation
+        this._setWaypointsInteractive(false);
+
+        this._showToast('🎮 Simulation Mode: Drag the avatar to preview', 'info');
+        console.log('[MapPlacer] ✅ Simulation Mode started');
+    }
+
+    _stopSimulation() {
+        console.log('[MapPlacer] ⏹ Stopping Simulation Mode...');
+
+        this.simulationMode = false;
+        this.state = 'editor';
+
+        // Remove listener marker
+        if (this.simListenerMarker) {
+            this.simListenerMarker.remove();
+            this.simListenerMarker = null;
+        }
+
+        // Stop audio
+        if (this.app) {
+            this.app.stop();
+            this.app = null;
+        }
+
+        // Hide simulation panel
+        this._hideSimPanel();
+
+        // Update button
+        const simulateBtn = document.getElementById('simulateBtn');
+        if (simulateBtn) {
+            simulateBtn.textContent = '🎮 Simulate';
+            simulateBtn.className = 'btn btn-warning';
+        }
+
+        // Re-enable waypoint editing
+        this._setWaypointsInteractive(true);
+
+        this._showToast('⏹ Simulation stopped', 'info');
+        console.log('[MapPlacer] ✅ Simulation Mode stopped');
+    }
+
+    _createSimListenerMarker() {
+        const icon = L.divIcon({
+            className: 'sim-listener-marker',
+            html: '<div style="font-size: 32px; cursor: grab;">🚶</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+
+        this.simListenerMarker = L.marker(
+            [this.simListenerLat, this.simListenerLon],
+            { icon: icon, draggable: true }
+        ).addTo(this.map);
+
+        // Update audio position on drag
+        this.simListenerMarker.on('drag', (e) => {
+            this.simListenerLat = e.latlng.lat;
+            this.simListenerLon = e.latlng.lng;
+            this._updateSimAudio();
+            this._updateSimDisplay();
+        });
+
+        // Update on drag end
+        this.simListenerMarker.on('dragend', () => {
+            this._updateSimDisplay();
+        });
+    }
+
+    _startSimAudio() {
+        console.log('[MapPlacer] 🔊 Starting simulation audio...');
+
+        const soundConfigs = this.waypoints.map(wp => ({
+            id: wp.id,
+            url: wp.soundUrl || this.soundConfig.soundUrl,
+            lat: wp.lat,
+            lon: wp.lon,
+            activationRadius: wp.activationRadius,
+            volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
+            loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
+        }));
+
+        // Create app with simulated position (no GPS tracking)
+        this.app = new SpatialAudioApp(soundConfigs, {
+            initialPosition: {
+                lat: this.simListenerLat,
+                lon: this.simListenerLon
+            },
+            gpsSmoothing: false,  // Instant response for simulation
+            autoLock: false,      // No GPS lock in simulation
+            reverbEnabled: true
+        });
+
+        // Set callbacks
+        this.app.onPositionUpdate = (data) => {
+            this._updateSimDisplay();
+        };
+
+        this.app.onStateChange = (state) => {
+            console.log('[MapPlacer] 📊 Sim audio state:', state);
+            if (state === 'running') {
+                this._updateSimDisplay();
+                this._showToast('✅ Simulation audio active! Drag the avatar', 'success');
+            }
+        };
+
+        this.app.onError = (error) => {
+            console.error('[MapPlacer] ❌ Sim audio error:', error);
+            this._showToast('❌ ' + error.message, 'error');
+        };
+
+        // Start the audio
+        this.app.start().then(() => {
+            console.log('[MapPlacer] ✅ Simulation audio started');
+            this._updateSimDisplay();
+        }).catch(err => {
+            console.error('[MapPlacer] ❌ Sim audio start failed:', err);
+            this._showToast('❌ Audio start failed: ' + err.message, 'error');
+        });
+    }
+
+    _updateSimAudio() {
+        if (!this.app || !this.app.listener) return;
+
+        // Update listener position (heading = 0, facing north)
+        this.app.listener.update(this.simListenerLat, this.simListenerLon, 0);
+
+        // Update sound positions
+        this.app._updateSoundPositions();
+    }
+
+    _updateSimDisplay() {
+        if (!this.app || !this.app.listener) return;
+
+        // Find nearest sound for display
+        let nearestSound = null;
+        let nearestDistance = Infinity;
+
+        this.waypoints.forEach(wp => {
+            const distance = this.app.getSoundDistance(wp.id);
+            if (distance !== null && distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestSound = wp;
+            }
+        });
+
+        // Update simulation panel
+        const distanceEl = document.getElementById('simDistance');
+        const bearingEl = document.getElementById('simBearing');
+        const volumeEl = document.getElementById('simVolume');
+
+        if (nearestSound && nearestDistance !== null) {
+            // Distance
+            if (distanceEl) {
+                distanceEl.textContent = nearestDistance.toFixed(1) + ' m';
+            }
+
+            // Bearing
+            const bearing = this.app.getSoundBearing(nearestSound.id);
+            if (bearingEl && bearing !== null) {
+                const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+                const index = Math.round(bearing / 45) % 8;
+                bearingEl.textContent = `${bearing.toFixed(0)}° ${directions[index]}`;
+            }
+
+            // Volume (estimate based on distance)
+            if (volumeEl) {
+                const ratio = Math.max(0, 1 - (nearestDistance / nearestSound.activationRadius));
+                const volumePercent = Math.round(ratio * 100);
+                volumeEl.textContent = volumePercent + '%';
+            }
+        } else {
+            if (distanceEl) distanceEl.textContent = '--';
+            if (bearingEl) bearingEl.textContent = '--';
+            if (volumeEl) volumeEl.textContent = '--';
+        }
+    }
+
+    _showSimPanel() {
+        const panel = document.getElementById('simPanel');
+        if (panel) {
+            panel.style.display = 'block';
+        }
+    }
+
+    _hideSimPanel() {
+        const panel = document.getElementById('simPanel');
+        if (panel) {
+            panel.style.display = 'none';
+        }
+    }
+
+    _setWaypointsInteractive(interactive) {
+        // Disable/enable waypoint markers during simulation
+        this.markers.forEach((marker, id) => {
+            if (interactive) {
+                // Re-enable dragging
+                marker.dragging.enable();
+            } else {
+                // Disable dragging
+                marker.dragging.disable();
+                marker.closePopup();
+            }
+        });
+    }
+    // =====================================================================
+    // SIMULATION MODE - END
     // =====================================================================
 
     _addWaypoint(lat, lon, config = {}) {
