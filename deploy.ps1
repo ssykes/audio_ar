@@ -66,6 +66,7 @@ $DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
 $APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
 $WAKE_LOCK_PATTERN = "wake_lock_helper\.js"
 $MAP_PLACER_PATTERN = "map_placer\.js"
+$SOUNDSCAPE_PATTERN = "soundscape\.js\?v=[\d]+"
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -106,6 +107,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (map_placer.js)" -ForegroundColor Green
         }
+
+        # Update soundscape.js version
+        if ($content -match $SOUNDSCAPE_PATTERN) {
+            $content = $content -replace $SOUNDSCAPE_PATTERN, "soundscape.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (soundscape.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -128,6 +136,7 @@ $ALL_FILES = @(
     "deploy.ps1",
     "map_placer.html",
     "map_placer.js",
+    "soundscape.js",
     "wake_lock_helper.js"
 )
 
