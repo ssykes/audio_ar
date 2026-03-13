@@ -2,9 +2,10 @@
  * SoundScape Architecture
  * Core classes for managing spatial audio experiences
  *
- * @version 1.0 - Initial implementation (Phase 1)
+ * @version 3.0 - SoundScape Persistence Support
  * @changelog
  *   v1.0 - SoundScape, SoundBehavior, BehaviorExecutor classes
+ *   v3.0 - Added waypointData persistence, SoundScapeStorage
  *
  * Architecture:
  * - SoundScape: Persisted container with soundIds and behaviors
@@ -15,7 +16,7 @@
  *   PC Editor → SoundScape → localStorage → Phone Player → BehaviorExecutor → Audio
  */
 
-console.log('[soundscape.js] Loading v1.0...');
+console.log('[soundscape.js] Loading v3.0...');
 
 /**
  * SoundBehavior - Stored specification for coordinating sounds
