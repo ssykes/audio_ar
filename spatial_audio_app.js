@@ -1,4 +1,18 @@
 /**
+ * Spatial Audio App
+ * High-level application orchestration for spatial audio GPS system
+ * 
+ * @version 2.5 (Z-Axis Fix Support)
+ * @depends spatial_audio.js v5.1+
+ * 
+ * Manages:
+ * - GPS tracking with auto-lock when stationary
+ * - Compass integration for device orientation
+ * - Sound source lifecycle (create, start, stop, update)
+ * - UI callbacks for position/state updates
+ */
+
+/**
  * Listener - Represents a listener in the audio experience
  * Immutable from UI - engine owns and updates
  */
@@ -46,14 +60,30 @@ class Listener {
 
 /**
  * Sound - Represents a sound source in the audio experience
- * Immutable from UI - engine owns and manages
+ * 
+ * ARCHITECTURE NOTE: GPS Position Redundancy
+ * ===========================================
+ * This class stores `lat` and `lon`, and GpsSoundSource (in spatial_audio.js) 
+ * also stores `gpsLat` and `gpsLon`. This is INTENTIONAL redundancy:
+ * 
+ * - Sound (app layer): Source of truth for UI, config export, and distance/bearing
+ *   calculations. Allows app to work without audio engine initialized.
+ * 
+ * - GpsSoundSource (audio layer): Cached GPS position for high-frequency audio
+ *   updates (60fps panner positioning) without requiring app layer involvement.
+ * 
+ * This separation allows:
+ * - Clean decoupling between app logic and audio rendering
+ * - App can query distance/bearing even when audio is stopped
+ * - Audio engine can update positions independently once started
+ * - No tight coupling - either layer can be modified independently
  */
 class Sound {
     constructor(config) {
         if (!config.url) {
             throw new Error('Sound config must have url');
         }
-        
+
         // Accept either lat/lon OR distance/direction (direction will be converted by SpatialAudioApp)
         // For now, just validate url - lat/lon will be set by SpatialAudioApp if using distance/direction
         if (config.lat === undefined && config.distance === undefined) {
@@ -67,7 +97,7 @@ class Sound {
         this.activationRadius = config.activationRadius || 30;
         this.volume = config.volume !== undefined ? config.volume : 1.0;
         this.loop = config.loop || false;
-        
+
         // Runtime state (managed by engine)
         this.sourceNode = null;
         this.isPlaying = false;
@@ -166,6 +196,7 @@ class SpatialAudioApp {
         this.onPositionUpdate = null;
         this.onStateChange = null;
         this.onError = null;
+        this.onGPSUpdate = null;  // GPS position updates (for map marker)
     }
 
     /**
@@ -212,11 +243,13 @@ class SpatialAudioApp {
             // Initialize GPS tracker (tuned for walking + stopping)
             console.log('[SpatialAudioApp] Creating GPS tracker...');
             this.gpsTracker = new GPSTracker({
-                historySize: 5,           // TODO: Auto-adjust (2-10 based on speed)
-                minMovement: 0.5,         // TODO: Auto-adjust (0.2-5.0 based on speed)
-                stationaryTime: 3000      // TODO: Auto-adjust (1000-10000 based on speed)
+                historySize: 3,           // Was: 5 (less lag: ~1.5s vs ~2.5s)
+                minMovement: 0.3,         // Was: 0.5 (more sensitive: 30cm vs 50cm)
+                stationaryTime: 1500,     // Was: 3000 (locks faster: 1.5s vs 3s)
+                stationaryThreshold: 0.3  // Match minMovement
+                // unlockThreshold: 2x internally (0.6m to unlock vs 1.5m)
             });
-            console.log('[SpatialAudioApp] GPS tracker created');
+            console.log('[SpatialAudioApp] GPS tracker created (walking tune: 3 samples, 0.3m, 1.5s)');
 
             // Create listener (will be updated with GPS)
             console.log('[SpatialAudioApp] Creating listener...');
@@ -529,6 +562,11 @@ class SpatialAudioApp {
                 // Update listener position (keep compass heading!)
                 this.listener.update(pos.lat, pos.lon, this.listener.heading);
 
+                // Notify UI of GPS update (for map marker)
+                if (this.onGPSUpdate) {
+                    this.onGPSUpdate(pos.lat, pos.lon, pos.locked);
+                }
+
                 // Debug: Log GPS updates with heading
                 if (Math.random() < 0.1) {
                     console.log(`[GPS] ${pos.locked ? '🔒' : '🔓'} pos=${pos.lat.toFixed(6)},${pos.lon.toFixed(6)} heading=${this.listener.heading.toFixed(0)}°`);
@@ -606,10 +644,15 @@ class SpatialAudioApp {
     _updateSoundPositions() {
         if (!this.engine || !this.listener) return;
 
+        // Debug: Log what heading we're using
+        if (Math.random() < 0.05) {
+            console.log(`[AudioApp] _updateSoundPositions: lat=${this.listener.lat.toFixed(6)}, lon=${this.listener.lon.toFixed(6)}, heading=${this.listener.heading.toFixed(0)}°`);
+        }
+
         // Always use compass for orientation (heading), GPS for position (lat/lon)
         // This prevents snapping when GPS transitions between locked/live
         // Compass provides smooth, continuous heading regardless of movement
-        
+
         // Update engine's listener position and orientation
         // Uses compass heading for smooth rotation even while walking
         this.engine.updateListenerPosition(
@@ -618,16 +661,13 @@ class SpatialAudioApp {
             this.listener.heading  // ← Always compass heading
         );
 
-        // Update source positions when GPS changes (walking/moving)
-        // Sources are positioned in world space, listener rotation handles orientation
-        // When stationary (GPS locked), positions don't change, skip the update
-        if (!this.gpsTracker || !this.gpsTracker.isLocked) {
-            this.engine.updateAllGpsSources(
-                this.listener.lat,
-                this.listener.lon,
-                0  // ← Heading ignored by updatePosition now
-            );
-        }
+        // Update all sound positions based on current listener position
+        // This recalculates x,z from GPS coordinates (no accumulation drift)
+        this.engine.updateAllGpsSources(
+            this.listener.lat,
+            this.listener.lon,
+            this.listener.heading
+        );
 
         // Update gain/volume based on distance (fade in/out as you approach)
         this.sounds.forEach(sound => {

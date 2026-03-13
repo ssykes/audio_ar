@@ -2,10 +2,13 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 5.0 (Reverb Zones - distance-based wet/dry mix)
+ * @version 5.1 (Z-Axis Coordinate Fix - GPS to Web Audio conversion)
+ * @changelog
+ *   v5.1 - Fixed Z-axis flip for correct GPS to Web Audio coordinate conversion
+ *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v5.0...');
+console.log('[spatial_audio.js] Loading v5.1...');
 
 /**
  * GPS Utility Functions
@@ -238,6 +241,18 @@ class OscillatorSource extends SoundSource {
 
 /**
  * GpsSoundSource - Sound source fixed at GPS coordinates
+ * 
+ * ARCHITECTURE NOTE: GPS Position Redundancy
+ * ===========================================
+ * This class stores `gpsLat` and `gpsLon`, and Sound (in spatial_audio_app.js)
+ * also stores `lat` and `lon`. This is INTENTIONAL redundancy:
+ * 
+ * See Sound class documentation for full rationale. In summary:
+ * - Sound (app layer): Source of truth for UI, config, distance/bearing queries
+ * - GpsSoundSource (audio layer): Cached position for 60fps audio rendering
+ * 
+ * This allows the audio engine to update panner positions independently
+ * without requiring the app layer to pass coordinates on every update.
  */
 class GpsSoundSource extends OscillatorSource {
     constructor(engine, id, options = {}) {
@@ -251,19 +266,58 @@ class GpsSoundSource extends OscillatorSource {
     /**
      * Update position based on listener movement (NOT heading)
      * Heading rotation is handled by AudioContext listener
-     * @param {number} listenerLat 
-     * @param {number} listenerLon 
+     * 
+     * =============================================================================
+     * COORDINATE SYSTEM CONVERSION (CRITICAL!)
+     * =============================================================================
+     * 
+     * GPS Coordinates (lat/lon):
+     *   - +lat = North, -lat = South
+     *   - +lon = East, -lon = West
+     * 
+     * GPSUtils.toMeters() returns:
+     *   - +x = East, -x = West
+     *   - +z = North, -z = South
+     * 
+     * Web Audio API PannerNode expects:
+     *   - +x = Right, -x = Left
+     *   - +y = Up, -y = Down
+     *   - +z = Behind listener, -z = In front of listener
+     *   - Listener faces toward -Z direction
+     * 
+     * CONVERSION:
+     *   - x stays the same (East = Right when facing North)
+     *   - z is FLIPPED: North (+z GPS) becomes Front (-z Web Audio)
+     *   - this.setPosition(x, -z) ← Z-axis flip is critical!
+     * 
+     * EXAMPLE:
+     *   Sound is 10m North of listener
+     *   GPSUtils returns: x=0, z=10 (10m North)
+     *   Web Audio needs: x=0, z=-10 (10m in front)
+     *   Result: this.setPosition(0, -10)
+     * 
+     * BUG HISTORY:
+     *   v5.0: Sounds were 180° flipped (North sounded like South)
+     *   v5.1: Fixed with Z-axis flip: this.setPosition(x, -z)
+     * =============================================================================
+     * 
+     * @param {number} listenerLat
+     * @param {number} listenerLon
      * @param {number} listenerHeading - Ignored for position, used for logging
      */
     updatePosition(listenerLat, listenerLon, listenerHeading) {
         // Convert GPS to local coordinates (x, z)
-        // No rotation - let AudioContext listener handle orientation
+        // GPSUtils returns: +x=East, +z=North
+        // Web Audio expects: +x=Right, +z=Behind, -z=Front
+        // So we need: x stays same, z needs to be flipped for proper orientation
         const { x, z } = GPSUtils.toMeters(this.gpsLat, this.gpsLon, listenerLat, listenerLon);
-        this.setPosition(x, z);
+        
+        // Flip Z axis: North should be -Z (front), South should be +Z (back)
+        this.setPosition(x, -z);
 
-        // Debug: Log position updates (throttled)
+        // Debug: Log position updates (throttled to 5%)
         if (Math.random() < 0.05) {
-            console.log(`[Audio] Panner: x=${x.toFixed(1)}m, z=${z.toFixed(1)}m (listener heading=${listenerHeading.toFixed(0)}°)`);
+            console.log(`[Audio] Panner: x=${x.toFixed(1)}m, z=${(-z).toFixed(1)}m (listener heading=${listenerHeading.toFixed(0)}°)`);
         }
     }
 
@@ -950,12 +1004,9 @@ class SpatialAudioEngine {
             this._updateListenerOrientation();
             return;
         }
-        const { dx, dz } = this.listener.getDelta();
-        this.sources.forEach((source) => {
-            if (source.fixed) {
-                source.setPosition(source.x - dx, source.z - dz);
-            }
-        });
+        // Delta-based position updates removed - causes accumulation drift
+        // Sound positions are now updated directly in updateAllGpsSources()
+        // using GPSUtils.toMeters() for accurate fixed positioning
         this._updateListenerOrientation();
     }
 
@@ -963,22 +1014,25 @@ class SpatialAudioEngine {
         if (!this.ctx) return;
         const rad = this.listener.getHeadingRad();
         const listener = this.ctx.listener;
-        
+
         // Store old values for debug logging
         const oldForwardX = listener.forwardX.value;
         const oldForwardZ = listener.forwardZ.value;
-        
+
         listener.forwardX.value = Math.sin(rad);
         listener.forwardY.value = 0;
         listener.forwardZ.value = -Math.cos(rad);
         listener.upX.value = 0;
         listener.upY.value = 1;
         listener.upZ.value = 0;
-        
+
         // Debug: Log listener orientation changes (throttled)
         if (Math.random() < 0.1) {
             console.log(`[Audio] Listener: heading=${this.listener.heading.toFixed(0)}°, forwardX=${listener.forwardX.value.toFixed(2)}, forwardZ=${listener.forwardZ.value.toFixed(2)}`);
         }
+        
+        // Verbose debug: Log every orientation update (uncomment for debugging)
+        console.log(`[Audio] Listener UPDATE: heading=${this.listener.heading.toFixed(1)}°, rad=${rad.toFixed(3)}, forwardX=${listener.forwardX.value.toFixed(3)}, forwardZ=${listener.forwardZ.value.toFixed(3)}`);
     }
 
     getState() { return this.ctx ? this.ctx.state : 'not-initialized'; }
@@ -1001,33 +1055,45 @@ class SpatialAudioEngine {
 /**
  * GPS Tracker - Smooths GPS coordinates and auto-locks when stationary
  * Reduces GPS drift/jitter for more stable audio positioning
- * 
- * Current Tuning (optimized for walking + stopping):
- *   - historySize: 5 samples (~2.5s smoothing)
- *   - minMovement: 0.5m (ignores small drift)
- *   - stationaryTime: 3000ms (locks after 3s still)
- *   - unlockThreshold: 3x (1.5m to unlock)
- * 
- * TODO: Future Enhancements
- *   - Auto-switch smoothing based on GPS speed (walk vs drive)
- *   - Speed thresholds: Standing <0.5m/s, Walking 0.5-2m/s, Driving >5m/s
- *   - Add hysteresis to prevent rapid mode switching at boundaries
- *   - Handle null GPS speed (fallback to distance/time estimate)
- *   - Make configurable via UI preset selector
- *   - Add presets: Walking, Casual, Standing, Running, Driving
- *   - Store preset in localStorage to remember user preference
- *   - Add UI slider for fine-tuning: historySize (2-10), minMovement (0.2-5.0m)
- *   - Add "Lock enabled" toggle for standing vs walking modes
- *   - Show current settings: "X samples, ~Ys lag, ±Zm drift"
+ *
+ * =============================================================================
+ * CURRENT TUNING: Optimized for WALKING (1-2 m/s)
+ * =============================================================================
+ *   - historySize: 3 samples (~1.5s smoothing at 2Hz GPS)
+ *   - minMovement: 0.3m (ignores drift < 30cm)
+ *   - stationaryTime: 1500ms (locks after 1.5s still)
+ *   - unlockThreshold: 2x (0.6m to unlock)
+ *
+ * Expected behavior:
+ *   - Locks in ~1.5s when you stop (vs 3s before)
+ *   - Unlocks immediately when you walk (vs 0.5m threshold before)
+ *   - Less lag when walking (1.5s vs 2.5s smoothing)
+ *   - Smaller position jumps between locked/live modes
+ *
+ * =============================================================================
+ * TODO: FUTURE - Dynamic Profile Switching for Multiple Speeds
+ * =============================================================================
+ * When we support cycling/driving (15-35 m/s), add auto-detection:
+ *
+ *   - standing: <0.3 m/s  → 10 samples, 0.2m, 1s lock
+ *   - walking:  0.3-2 m/s → 3 samples,  0.3m, 1.5s lock (CURRENT)
+ *   - running:  2-6 m/s   → 2 samples,  1.0m, never lock
+ *   - cycling:  6-15 m/s  → 1 sample,   2.0m, never lock
+ *   - driving:  15+ m/s   → 1 sample,   5.0m, never lock
+ *
+ * Implementation: Use GPS speed property to auto-switch profiles.
+ * See architecture notes for full profile specifications.
+ * =============================================================================
  */
 class GPSTracker {
     constructor(options = {}) {
+        // Walking-optimized defaults (can be overridden via options)
         this.history = [];
-        this.historySize = options.historySize || 10;      // Track last N readings
-        this.minMovement = options.minMovement || 0.5;     // Meters - ignore smaller movements
-        this.stationaryThreshold = options.stationaryThreshold || 0.3; // Meters variance
-        this.stationaryTime = options.stationaryTime || 3000; // ms to lock
-        // TODO: Add this.lockEnabled = options.lockEnabled !== false;
+        this.historySize = options.historySize || 3;           // ~1.5s smoothing
+        this.minMovement = options.minMovement || 0.3;         // 30cm threshold
+        this.stationaryThreshold = options.stationaryThreshold || 0.3;
+        this.stationaryTime = options.stationaryTime || 1500;  // 1.5s to lock
+        this.unlockThreshold = options.unlockThreshold || 2;   // 2x minMovement to unlock
 
         // Lock state
         this.isLocked = false;
@@ -1098,18 +1164,47 @@ class GPSTracker {
         }
 
         // If locked, check if we should unlock (user moved from locked position)
-        // Use 3x threshold for unlock to prevent rapid lock/unlock from GPS drift
-        // TODO: Make multiplier configurable (current: 3x = 1.5m unlock for walking)
-        // Walking: 2-3x (1.0-1.5m), Driving: 5-6x (2.5-3.0m)
+        // Uses configurable unlockThreshold to prevent rapid lock/unlock from GPS drift
         if (this.isLocked) {
             const distFromLock = GPSUtils.distance(this.lockedLat, this.lockedLon, lat, lon);
-            if (distFromLock > this.minMovement * 3) {
+            if (distFromLock > this.minMovement * this.unlockThreshold) {
                 // User moved significantly from locked position - unlock
+                
+                // =============================================================
+                // FIX: Reset history to locked position to prevent position jump
+                // =============================================================
+                // PROBLEM: When transitioning from locked → live, the first few
+                // GPS readings include movement jitter, causing smoothed position
+                // to differ from locked position → sound "teleports"
+                //
+                // SOLUTION: Reset history to locked position, so smoothing starts
+                // from the stable locked position rather than jittery first reading
+                //
+                // PREVIOUS BEHAVIOR (before fix):
+                //   this.isLocked = false;
+                //   this.stationarySince = null;
+                //   this.lastMoveTime = now;
+                //   // History kept accumulating → first movement reading contaminated smoothing
+                //
+                // NEW BEHAVIOR (after fix):
+                //   this.isLocked = false;
+                //   this.stationarySince = null;
+                //   this.lastMoveTime = now;
+                //   this.history = [{ lat: this.lockedLat, lon: this.lockedLon, time: now }];
+                //   // History reset → smoothing starts from stable locked position
+                // =============================================================
+                
                 this.isLocked = false;
                 this.stationarySince = null;
                 this.lastMoveTime = now;
-                console.log(`[GPS] ${timeSinceLast}ms, ${distFromLock.toFixed(2)}m, 🔓 Unlocked`);
-                // Fall through to return smoothed position
+                
+                // Reset history to locked position to prevent jump on unlock
+                this.history = [{ lat: this.lockedLat, lon: this.lockedLon, time: now }];
+                
+                console.log(`[GPS] ${timeSinceLast}ms, ${distFromLock.toFixed(2)}m, 🔓 Unlocked (>${(this.minMovement * this.unlockThreshold).toFixed(2)}m, history reset)`);
+                
+                // Return locked position (now also in history for smooth transition)
+                return { lat: this.lockedLat, lon: this.lockedLon, locked: false };
             } else {
                 // Still locked - return locked position
                 console.log(`[GPS] ${timeSinceLast}ms, ${distFromLock.toFixed(2)}m, 🔒 Locked`);

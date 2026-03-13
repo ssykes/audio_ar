@@ -1,23 +1,19 @@
 /**
  * Map Placer App
  * Visual map interface for placing sound waypoints
- * @version 1.0 - Editor Mode Only
+ * @version 2.5 - Player Mode with Debug Logging
  *
- * TODO Session_2: Add Player Mode (audio integration)
- * TODO Session_2: Add Start/Stop toggle with wake lock
- * TODO Session_2: Add GPS tracking in player mode
- * TODO Session_2: Add compass tracking in player mode (use DeviceOrientationHelper - see single_sound_v2.html)
- * TODO Session_2: Add SpatialAudioApp initialization for playing sounds
- * TODO Session_2: Implement _handleStartClick() full flow:
- *                  1. Get GPS position (getCurrentPosition)
- *                  2. Initialize AudioContext (satisfy iOS user gesture requirement)
- *                  3. Request wake lock
- *                  4. Request compass permission (DeviceOrientationHelper.start in click handler!)
- *                  5. Create SpatialAudioApp with waypoints as sound sources
- *                  6. Set up callbacks (onPositionUpdate, onStateChange, onError)
- *                  7. Call app.start()
- * TODO Session_3: Add JSON export/import for configs
- * TODO Session_3: Add sound preview on click (editor mode)
+ * Session 2 Implementation:
+ * - Player mode with GPS tracking and compass rotation
+ * - SpatialAudioApp integration for audio playback
+ * - Wake lock, compass, and GPS permission handling
+ * - Debug console with auto-copy for field testing
+ *
+ * Debug Logging:
+ * - Auto-captures [Audio], [GPS], [Compass], [MapPlacer] messages
+ * - Auto-copies to clipboard after 3s of stillness (hands-free testing)
+ * - 1000-line buffer captures ~50-100 seconds of testing
+ * - To disable: set this.autoCopyLogs = false in constructor
  */
 
 class MapPlacerApp {
@@ -28,10 +24,38 @@ class MapPlacerApp {
         this.markers = new Map();
         this.listenerLat = null;
         this.listenerLon = null;
+        this.listenerHeading = 0;
         this.listenerMarker = null;
         this.isDragging = false;
+
+        // Default activation radius (meters)
         this.defaultActivationRadius = 20;
         this.nextId = 1;
+
+        // Global sound configuration (applies to all waypoints)
+        this.soundConfig = {
+            soundUrl: '/sounds/BoxingBell.mp3',  // Default sound file
+            volume: 0.8,                          // 0.0 - 1.0
+            loop: true                            // Loop playback
+        };
+
+        // Player mode state
+        this.app = null;              // SpatialAudioApp instance
+        this.gpsWatchId = null;
+        this.wakeLock = null;
+        this.lastCompassUpdate = 0;
+        this.compassThrottleMs = 100;  // Max 10 compass updates/sec
+        this.needsAudioEnable = false; // iOS DuckDuckGo workaround
+        
+        // Debug console
+        this.debugConsole = null;
+        this.maxDebugLines = 1000;  // Capture full walking test for analysis
+        
+        // Auto-copy logs when user stops (for easy debugging while walking)
+        this.autoCopyLogs = true;
+        this.lastMoveTime = 0;
+        this.copyAfterSeconds = 3;  // Auto-copy 3 seconds after last movement
+        this.autoCopyTimer = null;
     }
 
     async init() {
@@ -41,6 +65,7 @@ class MapPlacerApp {
         }
         this._initMap();
         this._setupEventListeners();
+        this._initDebugConsole();
         await this._getInitialGPS();
         console.log('Map Placer ready (Editor Mode)');
     }
@@ -71,7 +96,7 @@ class MapPlacerApp {
                 this.listenerLat = pos.coords.latitude;
                 this.listenerLon = pos.coords.longitude;
                 this.map.setView([this.listenerLat, this.listenerLon], 17);
-                this._updateListenerMarker();
+                this._updateListenerMarker(this.listenerLat, this.listenerLon, false);  // Not locked yet
                 resolve(true);
             }, (err) => {
                 console.warn('GPS unavailable: ' + err.message);
@@ -105,42 +130,360 @@ class MapPlacerApp {
         }
     }
 
+    // =====================================================================
+    // PLAYER MODE - START
+    // =====================================================================
     async _handleStartClick() {
+        if (this.state === 'player') {
+            // Already in player mode - stop
+            await this.stopPlayerMode();
+            return;
+        }
+
         if (this.waypoints.length === 0) {
             this._showToast('Add at least one waypoint first', 'warning');
             return;
         }
-        
-        // Request compass permission FIRST (must be in user gesture for iOS)
-        // TODO Session_2: Full player mode initialization should follow single_sound_v2.html pattern:
-        //                  1. Get GPS position first (getCurrentPosition with timeout)
-        //                  2. Initialize AudioContext (create + resume + close, satisfies iOS gesture)
-        //                  3. Request wake lock
-        //                  4. Request compass permission (DeviceOrientationHelper.start - HERE)
-        //                  5. Create SpatialAudioApp with waypoints as sound sources
-        //                  6. Set up callbacks (onPositionUpdate, onStateChange, onError)
-        //                  7. Call app.start() and handle state changes
-        console.log('[MapPlacer] 🧭 Requesting compass permission...');
-        if (typeof DeviceOrientationHelper !== 'undefined') {
-            console.log('[MapPlacer] 🧭 DeviceOrientationHelper available:', 
-                DeviceOrientationHelper.isAvailable, 
-                'permissionRequired:', DeviceOrientationHelper.isPermissionRequired);
-            
-            const compassGranted = await DeviceOrientationHelper.start((heading) => {
-                // Update listener heading if we have one
-                if (this.listener && this.listener.setHeading) {
-                    this.listener.setHeading(heading);
-                }
-                console.log('[MapPlacer] 🧭 Compass:', heading.toFixed(0) + '°');
+
+        const startBtn = document.getElementById('startBtn');
+        startBtn.disabled = true;
+        startBtn.textContent = 'Starting...';
+
+        try {
+            console.log('[MapPlacer] 🎮 Starting Player Mode...');
+
+            // =====================================================================
+            // ⚠️ CRITICAL iOS PERMISSION ORDER - DO NOT REORDER ⚠️
+            // =====================================================================
+            // 1. Compass (BEFORE any await - must be synchronous in user gesture)
+            // 2. Wake lock (in user gesture context)
+            // 3. GPS (before other awaits for iOS permission)
+            // 4. AudioContext (initialize + resume + close to satisfy iOS)
+            // =====================================================================
+
+            // ---------------------------------------------------------------------
+            // STEP 1: Request compass permission (BEFORE ANY AWAIT)
+            // ---------------------------------------------------------------------
+            console.log('[MapPlacer] 🧭 Requesting compass permission...');
+            if (typeof DeviceOrientationHelper !== 'undefined') {
+                console.log('[MapPlacer] 🧭 DeviceOrientationHelper available:',
+                    DeviceOrientationHelper.isAvailable,
+                    'permissionRequired:', DeviceOrientationHelper.isPermissionRequired);
+
+                // Call start() synchronously - promise resolves asynchronously
+                DeviceOrientationHelper.start((heading) => {
+                    if (this.state !== 'player' || !this.app || !this.app.listener) return;
+
+                    // Throttle compass updates
+                    const now = Date.now();
+                    if (now - this.lastCompassUpdate < this.compassThrottleMs) return;
+                    this.lastCompassUpdate = now;
+
+                    // Update listener heading
+                    const oldHeading = this.listenerHeading;
+                    this.listenerHeading = heading;
+                    this.app.listener.setHeading(heading);
+
+                    // Update status bar with new heading
+                    this._updateStatusBar();
+
+                    // Log significant changes
+                    const headingChange = Math.abs(heading - oldHeading);
+                    if (headingChange > 5) {
+                        console.log(`[MapPlacer] 🧭 Compass: ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}° (Δ${headingChange.toFixed(0)}°)`);
+                    }
+
+                    // Update sound positions based on heading
+                    this.app._updateSoundPositions();
+                });
+                console.log('[MapPlacer] 🧭 Compass permission requested (will resolve asynchronously)');
+            } else {
+                console.warn('[MapPlacer] ⚠️ DeviceOrientationHelper not loaded!');
+            }
+
+            // ---------------------------------------------------------------------
+            // STEP 2: Request wake lock (must be in user gesture)
+            // ---------------------------------------------------------------------
+            await this._requestWakeLock();
+
+            // ---------------------------------------------------------------------
+            // STEP 3: Get GPS position (before other awaits for iOS)
+            // ---------------------------------------------------------------------
+            console.log('[MapPlacer] 📍 Requesting GPS...');
+            let gpsResolved = false;
+            const initialGPS = await new Promise((resolve) => {
+                const timeoutId = setTimeout(() => {
+                    if (!gpsResolved) {
+                        console.warn('[MapPlacer] ⚠️ GPS timeout - using fallback');
+                        resolve({ lat: 0, lon: 0 });
+                    }
+                }, 12000);
+
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        gpsResolved = true;
+                        clearTimeout(timeoutId);
+                        console.log(`[MapPlacer] 📍 GPS GRANTED ✅ (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}, accuracy: ${pos.coords.accuracy.toFixed(1)}m)`);
+                        resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+                    },
+                    (err) => {
+                        gpsResolved = true;
+                        clearTimeout(timeoutId);
+                        console.warn(`[MapPlacer] 📍 GPS ERROR ❌: ${err.message}`);
+                        resolve({ lat: 0, lon: 0 });
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
             });
-            console.log('[MapPlacer] 🧭 Compass:', compassGranted ? 'GRANTED ✅' : 'DENIED ❌');
-        } else {
-            console.warn('[MapPlacer] ⚠️ DeviceOrientationHelper not loaded!');
+
+            // ---------------------------------------------------------------------
+            // STEP 4: Initialize AudioContext (satisfy iOS gesture requirement)
+            // ---------------------------------------------------------------------
+            console.log('[MapPlacer] 🔊 Initializing audio context...');
+            const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const resumePromise = tempAudioCtx.resume();
+            const audioTimeout = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Audio resume timeout')), 3000)
+            );
+
+            try {
+                await Promise.race([resumePromise, audioTimeout]);
+                console.log('[MapPlacer] ✅ Audio context initialized');
+            } catch (audioErr) {
+                console.warn(`[MapPlacer] ⚠️ Audio context issue: ${audioErr.message} (continuing)`);
+            }
+            tempAudioCtx.close();
+
+            // ---------------------------------------------------------------------
+            // STEP 5: Create SpatialAudioApp with waypoints as sound sources
+            // ---------------------------------------------------------------------
+            console.log('[MapPlacer] 🎵 Creating sound configs from waypoints...');
+            const soundConfigs = this.waypoints.map(wp => ({
+                id: wp.id,
+                url: wp.soundUrl || this.soundConfig.soundUrl,
+                lat: wp.lat,
+                lon: wp.lon,
+                activationRadius: wp.activationRadius,
+                volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
+                loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
+            }));
+
+            console.log('[MapPlacer] 🎵 Created', soundConfigs.length, 'sound configs');
+
+            // Create app with initial GPS position
+            this.app = new SpatialAudioApp(soundConfigs, {
+                initialPosition: initialGPS,
+                gpsSmoothing: true,
+                autoLock: true,
+                reverbEnabled: true
+            });
+
+            // ---------------------------------------------------------------------
+            // STEP 6: Set up callbacks
+            // ---------------------------------------------------------------------
+            this.app.onPositionUpdate = (data) => {
+                this._updateWaypointDistances();
+            };
+
+            this.app.onGPSUpdate = (lat, lon, locked) => {
+                this._updateListenerMarker(lat, lon, locked);
+            };
+
+            this.app.onStateChange = (state) => {
+                console.log('[MapPlacer] 📊 State changed to:', state);
+                this._updateStartButton(state);
+
+                if (state === 'running') {
+                    const audioWorks = this.app.engine && this.app.engine.getState() === 'running';
+
+                    if (!audioWorks) {
+                        // iOS DuckDuckGo workaround - needs second tap
+                        this.needsAudioEnable = true;
+                        this._showToast('👆 Tap Start to enable audio', 'info');
+                    } else {
+                        this.needsAudioEnable = false;
+                        this._showToast('✅ Player mode active! Walk toward the sounds', 'success');
+                    }
+                }
+            };
+
+            this.app.onError = (error) => {
+                console.error('[MapPlacer] ❌ Error:', error);
+                this._showToast('❌ ' + error.message, 'error');
+                this._updateStartButton('error');
+            };
+
+            // ---------------------------------------------------------------------
+            // STEP 7: Start the experience
+            // ---------------------------------------------------------------------
+            console.log('[MapPlacer] 🚀 Calling app.start()...');
+            await this.app.start();
+            console.log('[MapPlacer] ✅ app.start() completed');
+
+            // Update state
+            this.state = 'player';
+            this._updateStartButton('starting');
+            
+            // Refresh waypoint list to show distance placeholders
+            this._updateWaypointList();
+
+        } catch (error) {
+            console.error('[MapPlacer] ❌ Start failed:', error);
+            this._showToast('❌ ' + error.message, 'error');
+            this._updateStartButton('error');
         }
-        
-        // TODO Session_2: Transition to player mode
-        this._showToast('Player mode coming in Session 2', 'info');
     }
+
+    async stopPlayerMode() {
+        console.log('[MapPlacer] ⏹ Stopping Player Mode...');
+
+        // Stop SpatialAudioApp
+        if (this.app) {
+            this.app.stop();
+            this.app = null;
+        }
+
+        // Release wake lock
+        await this._releaseWakeLock();
+
+        // Clear GPS watch
+        if (this.gpsWatchId) {
+            navigator.geolocation.clearWatch(this.gpsWatchId);
+            this.gpsWatchId = null;
+        }
+
+        // Reset state
+        this.state = 'editor';
+        this.needsAudioEnable = false;
+        this.listenerHeading = 0;
+
+        // Update UI
+        this._updateStartButton('stopped');
+        this._showToast('⏹ Player mode stopped', 'info');
+    }
+
+    async _requestWakeLock() {
+        try {
+            if ('wakeLock' in navigator) {
+                this.wakeLock = await navigator.wakeLock.request('screen');
+                console.log('[MapPlacer] 🔒 Wake lock acquired');
+
+                this.wakeLock.addEventListener('release', () => {
+                    console.log('[MapPlacer] 🔒 Wake lock released');
+                    this.wakeLock = null;
+                });
+            } else {
+                console.warn('[MapPlacer] ⚠️ Wake Lock API not supported');
+            }
+        } catch (err) {
+            console.warn(`[MapPlacer] ⚠️ Wake lock failed: ${err.message}`);
+        }
+    }
+
+    async _releaseWakeLock() {
+        if (this.wakeLock) {
+            await this.wakeLock.release();
+            this.wakeLock = null;
+            console.log('[MapPlacer] 🔒 Wake lock released');
+        }
+    }
+
+    _updateStartButton(state) {
+        const startBtn = document.getElementById('startBtn');
+        if (!startBtn) return;
+
+        startBtn.disabled = false;
+
+        switch (state) {
+            case 'starting':
+                startBtn.textContent = 'Starting...';
+                startBtn.className = 'btn btn-primary';
+                break;
+            case 'running':
+                startBtn.textContent = '⏹ Stop';
+                startBtn.className = 'btn btn-danger';
+                // Initialize status bar
+                this._updateStatusBar();
+                break;
+            case 'stopped':
+                startBtn.textContent = '▶️ Start';
+                startBtn.className = 'btn btn-primary';
+                // Reset status bar
+                this._resetStatusBar();
+                break;
+            case 'error':
+                startBtn.textContent = '▶️ Start Over';
+                startBtn.className = 'btn btn-primary';
+                break;
+            default:
+                startBtn.textContent = '▶️ Start';
+                startBtn.className = 'btn btn-primary';
+        }
+    }
+
+    _resetStatusBar() {
+        const gpsStatusEl = document.getElementById('gpsStatus');
+        const headingStatusEl = document.getElementById('headingStatus');
+        const statusBarEl = document.getElementById('statusBar');
+        
+        if (gpsStatusEl) gpsStatusEl.textContent = '--';
+        if (headingStatusEl) headingStatusEl.textContent = '--';
+        if (statusBarEl) statusBarEl.classList.remove('gps-locked');
+    }
+
+    _updateWaypointDistances() {
+        if (!this.app) return;
+
+        this.waypoints.forEach(wp => {
+            const distanceEl = document.getElementById(`dist_${wp.id}`);
+            if (distanceEl && this.app) {
+                const distance = this.app.getSoundDistance(wp.id);
+                if (distance !== null) {
+                    distanceEl.textContent = distance.toFixed(1) + ' m';
+                }
+            }
+        });
+
+        // Update status bar
+        this._updateStatusBar();
+    }
+
+    _updateStatusBar() {
+        const gpsStatusEl = document.getElementById('gpsStatus');
+        const headingStatusEl = document.getElementById('headingStatus');
+        const soundsStatusEl = document.getElementById('soundsStatus');
+        const statusBarEl = document.getElementById('statusBar');
+
+        if (!gpsStatusEl || !headingStatusEl || !soundsStatusEl) return;
+
+        // GPS status
+        if (this.app && this.app.gpsTracker) {
+            if (this.app.gpsTracker.isLocked) {
+                gpsStatusEl.textContent = '🔒 Locked';
+                statusBarEl.classList.add('gps-locked');
+            } else {
+                gpsStatusEl.textContent = '🔓 Live';
+                statusBarEl.classList.remove('gps-locked');
+            }
+        } else {
+            gpsStatusEl.textContent = '--';
+        }
+
+        // Heading status
+        if (this.listenerHeading !== null) {
+            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+            const index = Math.round(this.listenerHeading / 45) % 8;
+            headingStatusEl.textContent = `${this.listenerHeading.toFixed(0)}° ${directions[index]}`;
+        } else {
+            headingStatusEl.textContent = '--';
+        }
+
+        // Sounds status
+        soundsStatusEl.textContent = this.waypoints.length;
+    }
+    // =====================================================================
+    // PLAYER MODE - END
+    // =====================================================================
 
     _addWaypoint(lat, lon, config = {}) {
         const waypoint = {
@@ -148,10 +491,15 @@ class MapPlacerApp {
             lat: lat,
             lon: lon,
             name: config.name || 'Sound ' + (this.waypoints.length + 1),
-            type: config.type || 'oscillator',
+            type: config.type || 'sample',
             icon: config.icon || '🎵',
             color: config.color || '#00d9ff',
             activationRadius: config.activationRadius || this.defaultActivationRadius,
+            // Player mode sound settings
+            soundUrl: config.soundUrl || this.soundConfig.soundUrl,
+            volume: config.volume !== undefined ? config.volume : this.soundConfig.volume,
+            loop: config.loop !== undefined ? config.loop : this.soundConfig.loop,
+            // Legacy (for future oscillator support)
             soundConfig: config.soundConfig || { freq: 440, wave: 'sine', gain: 0.3 }
         };
         this.waypoints.push(waypoint);
@@ -168,7 +516,7 @@ class MapPlacerApp {
             iconAnchor: [16, 16]
         });
         const marker = L.marker([waypoint.lat, waypoint.lon], { icon: icon, draggable: true }).addTo(this.map);
-        marker.bindPopup('<div><h3>' + waypoint.icon + ' ' + waypoint.name + '</h3><button onclick="app._deleteWaypoint(\\'' + waypoint.id + '\\')" style="margin-top:8px;padding:4px 8px;background:#e94560;color:white;border:none;border-radius:4px;cursor:pointer;">Delete</button></div>');
+        marker.bindPopup(this._createPopupContent(waypoint));
         marker.on('dragstart', () => { this.isDragging = true; marker.closePopup(); });
         marker.on('dragend', (e) => {
             this.isDragging = false;
@@ -178,6 +526,60 @@ class MapPlacerApp {
         });
         this.markers.set(waypoint.id, marker);
         this._updateRadiusCircle(waypoint);
+    }
+
+    _createPopupContent(waypoint) {
+        return `
+            <div style="min-width: 200px;">
+                <h3 style="margin: 0 0 10px 0;">${waypoint.icon} ${waypoint.name}</h3>
+                <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
+                    <div>📍 ${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}</div>
+                    <div>🔊 Radius: ${waypoint.activationRadius}m</div>
+                    <div>🎵 Sound: ${waypoint.soundUrl.split('/').pop()}</div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <button onclick="app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
+                    <button onclick="app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
+                </div>
+            </div>
+        `;
+    }
+
+    _editWaypoint(waypointId) {
+        if (this.state !== 'editor') return;
+        const waypoint = this.waypoints.find(wp => wp.id === waypointId);
+        if (!waypoint) return;
+
+        const newSoundUrl = prompt('Sound file URL:', waypoint.soundUrl);
+        if (newSoundUrl === null) return; // Cancelled
+        if (newSoundUrl) waypoint.soundUrl = newSoundUrl;
+
+        const newVolume = prompt('Volume (0.0 - 1.0):', waypoint.volume);
+        if (newVolume === null) return;
+        const vol = parseFloat(newVolume);
+        if (!isNaN(vol) && vol >= 0 && vol <= 1) waypoint.volume = vol;
+
+        const newLoop = confirm('Loop sound? (OK=Yes, Cancel=No)');
+        waypoint.loop = newLoop;
+
+        const newRadius = prompt('Activation radius (meters):', waypoint.activationRadius);
+        if (newRadius === null) return;
+        const radius = parseInt(newRadius);
+        if (!isNaN(radius) && radius > 0) {
+            waypoint.activationRadius = radius;
+            this._updateRadiusCircle(waypoint);
+        }
+
+        // Close and reopen popup to show updated info
+        const marker = this.markers.get(waypointId);
+        if (marker) {
+            marker.closePopup();
+            marker.bindPopup(this._createPopupContent(waypoint));
+            marker.openPopup();
+        }
+
+        this._updateWaypointList();
+        this._showToast('✅ Waypoint updated', 'success');
     }
 
     _updateRadiusCircle(waypoint) {
@@ -219,22 +621,47 @@ class MapPlacerApp {
             listEl.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">No waypoints yet.</p>';
             return;
         }
-        listEl.innerHTML = this.waypoints.map(wp => 
-            '<div style="display:flex;align-items:center;padding:8px;margin:4px 0;background:rgba(255,255,255,0.05);border-radius:6px;">' +
-            '<span style="font-size:20px;margin-right:8px;">' + wp.icon + '</span>' +
-            '<div style="flex:1;"><div style="font-weight:bold;">' + wp.name + '</div>' +
-            '<div style="font-size:0.8em;color:#888;">' + wp.type + ' • ' + wp.activationRadius + 'm</div></div>' +
-            '<button onclick="app._deleteWaypoint(\\'' + wp.id + '\\')" style="background:transparent;border:1px solid #e94560;color:#e94560;padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button></div>'
-        ).join('');
+        
+        // Show distance field in player mode, hide in editor mode
+        const showDistance = this.state === 'player';
+        
+        listEl.innerHTML = this.waypoints.map(wp => `
+            <div style="display:flex;align-items:center;padding:8px;margin:4px 0;background:rgba(255,255,255,0.05);border-radius:6px;">
+                <span style="font-size:20px;margin-right:8px;">${wp.icon}</span>
+                <div style="flex:1;">
+                    <div style="font-weight:bold;">${wp.name}</div>
+                    <div style="font-size:0.8em;color:#888;">
+                        ${wp.activationRadius}m${showDistance ? ` • <span id="dist_${wp.id}">-- m</span>` : ''}
+                    </div>
+                </div>
+                ${this.state === 'editor' ? `<button onclick="app._deleteWaypoint('${wp.id}')" style="background:transparent;border:1px solid #e94560;color:#e94560;padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button>` : ''}
+            </div>
+        `).join('');
     }
 
-    _updateListenerMarker() {
-        if (this.listenerLat === null) return;
+    _updateListenerMarker(lat, lon, locked) {
+        if (lat === null) return;
+        
+        // Update stored listener position
+        this.listenerLat = lat;
+        this.listenerLon = lon;
+        
+        // Update or create marker
         if (this.listenerMarker) {
-            this.listenerMarker.setLatLng([this.listenerLat, this.listenerLon]);
+            this.listenerMarker.setLatLng([lat, lon]);
+            // Update color based on lock state
+            const newColor = locked ? '#00ff88' : '#00d9ff';
+            this.listenerMarker.setStyle({
+                color: newColor,
+                fillColor: newColor
+            });
         } else {
-            this.listenerMarker = L.circleMarker([this.listenerLat, this.listenerLon], {
-                radius: 8, color: '#00ff88', fillColor: '#00ff88', fillOpacity: 0.8, weight: 2
+            this.listenerMarker = L.circleMarker([lat, lon], {
+                radius: 8,
+                color: locked ? '#00ff88' : '#00d9ff',  // Green if locked, blue if live
+                fillColor: locked ? '#00ff88' : '#00d9ff',
+                fillOpacity: 0.8,
+                weight: 2
             }).addTo(this.map);
         }
     }
@@ -251,11 +678,22 @@ class MapPlacerApp {
 
     exportConfig() {
         const config = {
-            version: '1.0',
+            version: '2.0',
             createdAt: new Date().toISOString(),
+            soundConfig: this.soundConfig,
             waypoints: this.waypoints.map(wp => ({
-                id: wp.id, lat: wp.lat, lon: wp.lon, name: wp.name, type: wp.type,
-                icon: wp.icon, color: wp.color, activationRadius: wp.activationRadius, soundConfig: wp.soundConfig
+                id: wp.id,
+                lat: wp.lat,
+                lon: wp.lon,
+                name: wp.name,
+                type: wp.type,
+                icon: wp.icon,
+                color: wp.color,
+                activationRadius: wp.activationRadius,
+                soundUrl: wp.soundUrl,
+                volume: wp.volume,
+                loop: wp.loop,
+                soundConfig: wp.soundConfig
             }))
         };
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -266,9 +704,81 @@ class MapPlacerApp {
         a.click();
         URL.revokeObjectURL(url);
     }
+    
+    _initDebugConsole() {
+        this.debugConsole = document.getElementById('debugConsole');
+        if (this.debugConsole) {
+            this.debugLog('🗺️ Map Placer v2.5 ready');
+            this.debugLog('📍 Waiting for GPS...');
+            this.debugLog('🎯 Auto-copy: 1000 lines, copies 3s after you stop');
+            
+            // Wire up copy button
+            const copyBtn = document.getElementById('copyLogsBtn');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => this._copyLogs());
+            }
+            
+            // Override console.log to capture audio debug logs
+            const originalLog = console.log;
+            const self = this;
+            console.log = function(...args) {
+                originalLog.apply(console, args);
+                // Capture audio/debug logs
+                const msg = args.join(' ');
+                if (msg.includes('[Audio]') || msg.includes('[GPS]') || msg.includes('[Compass]') || msg.includes('[MapPlacer]')) {
+                    self.debugLog(msg);
+                }
+            };
+        }
+    }
 
-    async startPlayerMode() { /* TODO Session_2 */ }
-    async stopPlayerMode() { /* TODO Session_2 */ }
+    _onMovement() {
+        if (!this.autoCopyLogs || this.state !== 'player') return;
+        this.lastMoveTime = Date.now();
+        if (this.autoCopyTimer) clearTimeout(this.autoCopyTimer);
+        this.autoCopyTimer = setTimeout(() => this._autoCopyLogs(), this.copyAfterSeconds * 1000);
+    }
+
+    _autoCopyLogs() {
+        if (!this.debugConsole || (Date.now() - this.lastMoveTime < this.copyAfterSeconds * 1000)) return;
+        this._copyLogs(true);
+    }
+
+    debugLog(message) {
+        if (!this.debugConsole) return;
+        
+        const timestamp = new Date().toLocaleTimeString();
+        const line = `[${timestamp}] ${message}\n`;
+        
+        this.debugConsole.textContent = line + this.debugConsole.textContent;
+        
+        // Limit lines
+        const lines = this.debugConsole.textContent.split('\n');
+        if (lines.length > this.maxDebugLines) {
+            this.debugConsole.textContent = lines.slice(0, this.maxDebugLines).join('\n');
+        }
+    }
+    
+    _copyLogs(isAutoCopy = false) {
+        if (!this.debugConsole) return;
+
+        const text = this.debugConsole.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('copyLogsBtn');
+            if (btn) {
+                const originalText = btn.textContent;
+                btn.textContent = isAutoCopy ? '✅ Auto-copied!' : '✅ Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            }
+            if (isAutoCopy) {
+                this.debugLog('📋 Logs auto-copied to clipboard!');
+            }
+        }).catch(err => {
+            this.debugLog(`❌ Copy failed: ${err.message}`);
+        });
+    }
 }
 
 const app = new MapPlacerApp();

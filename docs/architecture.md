@@ -319,46 +319,122 @@ wifi_midi_player/
 
 ---
 
+## Known Issues & Fixes
+
+### v5.1 (2026-03-12) - Z-Axis Coordinate Fix
+
+**Bug:** Sounds appeared 180° flipped from their GPS position (North sounded like South)
+
+**Root Cause:** GPS coordinate system (+Z=North) was not converted to Web Audio coordinate system (+Z=Behind). The Z-axis needs to be flipped when converting GPS positions to Web Audio panner positions.
+
+**Fix:** Flip Z-axis when converting GPS to Web Audio positions:
+```javascript
+// In GpsSoundSource.updatePosition()
+const { x, z } = GPSUtils.toMeters(this.gpsLat, this.gpsLon, listenerLat, listenerLon);
+this.setPosition(x, -z);  // ← Flip Z: North (+Z GPS) → Front (-Z Web Audio)
+```
+
+**Files Changed:**
+- `spatial_audio.js` v5.1 - Added Z-axis flip in `GpsSoundSource.updatePosition()`
+- `spatial_audio_app.js` - Updated debug logging to verify fix
+
+**Testing:** Walk in an arc around a sound waypoint. Sound should stay fixed at GPS position and sweep correctly as you turn.
+
+---
+
+### Debug Logging (v2.5+)
+
+Map Placer includes auto-capture debug logging for field testing:
+- Captures `[Audio]`, `[GPS]`, `[Compass]`, `[MapPlacer]` messages
+- Auto-copies to clipboard after 3 seconds of stillness (hands-free operation)
+- 1000-line buffer captures ~50-100 seconds of testing
+- To disable: set `this.autoCopyLogs = false` in `MapPlacerApp` constructor
+
+---
+
 ## Success Criteria
 
-### Phase 2 (Current)
-- [ ] Code is modular and reusable
-- [ ] Same functionality as v1.11
-- [ ] Easy to add new sound source types
+### Phase 2 ✅
+- [x] Code is modular and reusable
+- [x] Same functionality as v1.11
+- [x] Easy to add new sound source types
+
+**Deliverables:**
+- `spatial_audio.js` v5.0 - Reusable classes (`SpatialAudioEngine`, `SoundSource`, `OscillatorSource`, `GpsSoundSource`, `SampleSource`, `MultiOscillatorSource`)
+- `spatial_audio_app.js` - High-level app orchestration (`SpatialAudioApp`, `Listener`, `Sound`)
+- Helper classes: `GPSUtils`, `GPSTracker`, `HeadingManager`, `DeviceOrientationHelper`
 
 ### Phase 3
 - [ ] 4 sound types working concurrently
 - [ ] Each type can be positioned independently
 - [ ] Clean API for creating/configuring sources
 
-### Phase 4
-- [ ] GPS positions audio correctly
-- [ ] Can walk toward a sound and hear it get louder/closer
-- [ ] Works on both iOS and Android
+### Phase 4 ✅
+- [x] GPS positions audio correctly
+- [x] Can walk toward a sound and hear it get louder/closer
+- [x] Works on both iOS and Android
 
-### Phase 5
-- [ ] Sound stays fixed as you walk past
-- [ ] Sound rotates as you turn
-- [ ] Moving sources sweep smoothly
+**Deliverables:**
+- `single_sound_v2.html` - Single GPS sound source test
+- `spatial_audio_app.js` - GPS tracking with auto-lock when stationary
 
-### Phase 6
-- [ ] Visual map interface
-- [ ] Click to place sounds
-- [ ] Save/load configurations
+### Phase 5 ✅
+- [x] Sound stays fixed as you walk past
+- [x] Sound rotates as you turn
+- [x] Moving sources sweep smoothly
+
+**Deliverables:**
+- `auto_rotate.html` - Rotating sound field with compass integration
+- `HeadingManager` - Hybrid GPS + compass heading fusion
+- `GPSTracker` - Auto-lock when stationary, smooth when moving
+
+**GPS Tuning (Current - Walking Optimized):**
+- `historySize: 3` (~1.5s smoothing)
+- `minMovement: 0.3m` (30cm threshold)
+- `stationaryTime: 1500ms` (locks in 1.5s)
+- `unlockThreshold: 2x` (0.6m to unlock)
+
+**TODO: Future Enhancement - Dynamic Profiles**
+- Support cycling (6-15 m/s) and driving (15-35 m/s)
+- Auto-detect speed from GPS and switch profiles
+- Profiles: standing, walking, running, cycling, driving
+
+### Phase 6 ✅ (Partial - Editor Complete, Player Mode Complete)
+- [x] Visual map interface
+- [x] Click to place sounds
+- [x] Save/load configurations (Export implemented, Import TODO)
+- [x] Player mode - hear placed sounds at GPS positions
+
+**Deliverables:**
+- `map_placer.html` v2.0 - Visual waypoint editor with Player Mode
+- `map_placer.js` - Map-based sound placement with audio playback
+
+**TODO:**
+- [ ] JSON import (load configs)
+- [ ] Per-waypoint sound editing UI
+- [ ] Sound preview in editor mode
 
 ---
 
 ## Getting Started
 
 ```bash
-# Current state
-index.html          # v1.11 - Working panning demo
-audio_ar_app.html   # v6.4 - GPS audio AR (needs refactor)
+# Current state - All phases implemented!
 
-# After Phase 2
-index.html          # Uses spatial_audio.js library
-spatial_audio.js    # Reusable classes
-audio_ar_app.html   # Refactored to use spatial_audio.js
+# Phase 1-2: Audio panning test bench
+index.html          # v3.66 - Multiple concurrent sounds with smooth panning
+spatial_audio.js    # v5.0 - Reusable engine classes
+
+# Phase 3-5: GPS audio AR experience
+single_sound_v2.html    # v2.71 - Single GPS sound with full player mode
+auto_rotate.html        # v3.0 - Multiple sounds with compass rotation
+
+# Phase 6: Map-based waypoint editor + player
+map_placer.html         # v2.0 - Visual map editor with Player Mode
+map_placer.js           # v2.0 - Player mode implementation
+
+# Future: Multi-sound GPS experience
+audio_ar_app.html   # v10.17 - Multi-source GPS audio (backup - needs update)
 ```
 
 ---
