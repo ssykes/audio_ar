@@ -241,8 +241,11 @@ $API_FILES = @(
     "database/index.js",
     "database/schema.sql",
     "middleware/auth.js",
+    "middleware/rateLimiter.js",
     "routes/auth.js",
-    "routes/soundscapes.js"
+    "routes/soundscapes.js",
+    "scripts/cleanup-users.js",
+    "SECURITY.md"
 )
 
 $apiPath = Join-Path $LOCAL_PATH "api"
@@ -279,31 +282,31 @@ if (Test-Path $apiPath) {
     }
     
     Write-Host ""
-    Write-Host "After deploy, restart the API server:" -ForegroundColor Cyan
-    Write-Host "   SSH to server: ssh ${SERVER_USER}@${SERVER_HOST}" -ForegroundColor White
-    Write-Host "   Then run these commands on the server:" -ForegroundColor White
-    Write-Host "     pkill -f 'node server.js'" -ForegroundColor Gray
-    Write-Host "     cd ${SERVER_PATH}/api && nohup node server.js > api.log 2>&1 &" -ForegroundColor Gray
+    Write-Host "Installing dependencies and restarting API server..." -ForegroundColor Cyan
+    
+    # Install dependencies
+    Write-Host "   Installing npm packages..." -NoNewline
+    & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && npm install 2>&1" | ForEach-Object {
+        Write-Host "     $_" -ForegroundColor Gray
+    }
+    
+    # Restart API server
+    Write-Host "   Restarting API server..." -NoNewline
+    & ssh $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1; cd ${SERVER_PATH}/api && nohup node server.js > api.log 2>&1 &" 2>$null
+    Write-Host " [OK]" -ForegroundColor Green
+    
+    Write-Host "   API server restarted successfully!" -ForegroundColor Green
     Write-Host ""
 } else {
     Write-Host "API folder not found at: `$apiPath" -ForegroundColor Yellow
 }
 
 Write-Host ""
-
-if ($failedCount -eq 0) {
-    Write-Host "========================================" -ForegroundColor Green
-    Write-Host "  Deploy Complete!" -ForegroundColor Green
-    Write-Host "========================================" -ForegroundColor Green
-} else {
-    Write-Host "========================================" -ForegroundColor Yellow
-    Write-Host "  Deploy Partially Complete" -ForegroundColor Yellow
-    Write-Host "========================================" -ForegroundColor Yellow
-}
-
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "  Deploy Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
-Write-Host "  (HTML files updated with new version numbers)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
 Write-Host "   Main App:      http://ssykes.net/audio_ar_app.html" -ForegroundColor White
@@ -320,21 +323,16 @@ Write-Host "   4. Auto-saves to server every 2 seconds" -ForegroundColor White
 Write-Host "   5. Open on phone, login, tap 'Sync from Server'" -ForegroundColor White
 Write-Host ""
 Write-Host "Sound Files:" -ForegroundColor Cyan
-Write-Host "   Upload MP3/WAV/M4A files to /sounds/ folder"
-Write-Host "   Set USE_SAMPLES = true in audio_ar_app.html"
+Write-Host "   Upload MP3/WAV/M4A files to /sounds/ folder" -ForegroundColor White
+Write-Host "   Set USE_SAMPLES = true in audio_ar_app.html" -ForegroundColor White
+Write-Host ""
+Write-Host "Security:" -ForegroundColor Cyan
+Write-Host "   Rate limiting enabled (5 auth requests/15min, 30 soundscape/min)" -ForegroundColor White
+Write-Host "   Email validation + password minimum length enforced" -ForegroundColor White
 Write-Host ""
 Write-Host "Git Status:" -ForegroundColor Cyan
 Write-Host "  Version numbers in HTML files are NOT committed to Git" -ForegroundColor Gray
 Write-Host "  (They are updated locally before each deploy)" -ForegroundColor Gray
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Restart API Server (after deploy)" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  SSH to server and run these commands:" -ForegroundColor White
-Write-Host ""
-Write-Host "  ssh ssykes@macminiwebsever" -ForegroundColor Gray
-Write-Host "  pkill -f 'node server.js'" -ForegroundColor Gray
-Write-Host "  cd /var/www/html/api && nohup node server.js > api.log 2>&1 &" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press Enter to close..."
 Read-Host
