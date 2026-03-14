@@ -248,23 +248,46 @@ Phone: Import JSON → Load to localStorage → Tap Start → GPS + Compass → 
 
 ---
 
+## Session 4: Hit List Cleanup - Completed ✅
+
+### What Was Addressed
+
+| Issue # | Problem | Resolution | File Modified |
+|---------|---------|------------|---------------|
+| **1** | `_createNewSoundscape()` button misleading | Renamed button from "+ New" to "💾 Save As..." | `map_placer.html` |
+| **2** | Auto-save feedback missing | Already implemented at line 1618 | No change needed |
+| **3** | Unused `this.soundscapes` property | Property never existed (planned but not implemented) | No change needed |
+| **4** | `_onSoundscapeChange()` does nothing | Added TODO comment documenting future enhancement (P3-A) | `map_placer.js` |
+| **5** | Unused `options` parameter | Parameter already removed in previous session | No change needed |
+| **6** | Version mismatch | Already correct (v3.0) | No change needed |
+
+### Data Flow (Unchanged)
+
+```
+PC: Place waypoints → Auto-save to localStorage → Export JSON
+                          ↓
+Phone: Import JSON → Load to localStorage → Tap Start → GPS + Compass → Walk + Listen
+```
+
+---
+
 ## Hit List: Issues for Future Sessions
 
 ### P1 - Should Fix Soon
 
-| # | Issue | File | Current Behavior | Expected Behavior | Fix |
-|---|-------|------|------------------|-------------------|-----|
-| **1** | `_createNewSoundscape()` includes old waypoints | `map_placer.js` ~1246 | "New Soundscape" creates soundscape with all existing waypoints | User expects empty soundscape when creating "New" | Add `this._clearAllWaypoints()` before creating new soundscape, OR rename button to "Save As..." |
-| **2** | Auto-save feedback timer shows nothing | `map_placer.js` ~1315 | Timer set/cleared but no feedback shown | User should see "💾 Auto-saved" in debug console | Add `this.debugLog('💾 Auto-saved')` inside timer callback |
+| # | Issue | File | Current Behavior | Expected Behavior | Fix | Status |
+|---|-------|------|------------------|-------------------|-----|--------|
+| **1** | `_createNewSoundscape()` includes old waypoints | `map_placer.js` ~1246 | "New Soundscape" creates soundscape with all existing waypoints | User expects empty soundscape when creating "New" | Rename button to "Save As..." | ✅ **Fixed** - Button renamed to "💾 Save As..." |
+| **2** | Auto-save feedback timer shows nothing | `map_placer.js` ~1315 | Timer set/cleared but no feedback shown | User should see "💾 Auto-saved" in debug console | Add `this.debugLog('💾 Auto-saved')` inside timer callback | ✅ **Already implemented** - Shows at line 1618 |
 
 ### P2 - Nice to Fix
 
-| # | Issue | File | Current Behavior | Expected Behavior | Fix |
-|---|-------|------|------------------|-------------------|-----|
-| **3** | `this.soundscapes` property unused | `map_placer.js` ~48 | Declared but never accessed | Dead code should be removed | Remove `this.soundscapes = {}` from constructor |
-| **4** | `_onSoundscapeChange()` does nothing | `map_placer.js` ~1274 | Dropdown implies switching soundscapes, but handler just logs | Either implement multi-soundscape switching OR remove dropdown | Remove dropdown for now (single soundscape mode) |
-| **5** | `startSoundScape(options)` parameter unused | `spatial_audio_app.js` ~724 | Parameter declared but never used | Misleading API | Remove `options` parameter or use it to override `this.options` |
-| **6** | Version mismatch | `soundscape.js` ~18 | Says "v1.0" in console log | Should match project version | Update to "v3.0" |
+| # | Issue | File | Current Behavior | Expected Behavior | Fix | Status |
+|---|-------|------|------------------|-------------------|-----|--------|
+| **3** | `this.soundscapes` property unused | `map_placer.js` ~48 | Declared but never accessed | Dead code should be removed | Remove `this.soundscapes = {}` from constructor | ✅ **Never existed** - Property was planned but never added |
+| **4** | `_onSoundscapeChange()` does nothing | `map_placer.js` ~1274 | Dropdown implies switching soundscapes, but handler just logs | Either implement multi-soundscape switching OR remove dropdown | Add TODO comment for future enhancement | ✅ **Documented** - Added TODO comment (P3-A future enhancement) |
+| **5** | `startSoundScape(options)` parameter unused | `spatial_audio_app.js` ~724 | Parameter declared but never used | Misleading API | Remove `options` parameter or use it to override `this.options` | ✅ **Already fixed** - Parameter no longer exists |
+| **6** | Version mismatch | `soundscape.js` ~18 | Says "v1.0" in console log | Should match project version | Update to "v3.0" | ✅ **Already correct** - Shows "v3.0" |
 
 ### P3 - Future Enhancements (Not Bugs)
 

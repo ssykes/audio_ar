@@ -117,7 +117,7 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Placer <span class="version">v4.5</span></h1>
+                <h1>🗺️ Map Placer <span class="version">v4.15</span></h1>
                 <p class="subtitle">Place sounds on the map</p>
 
                 <!-- Login UI -->
@@ -145,7 +145,7 @@
                         <option value="">Select Soundscape...</option>
                     </select>
                     <div style="display: flex; gap: 5px; margin: 10px 0;">
-                        <button id="newSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">+ New</button>
+                        <button id="newSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">💾 Save As...</button>
                         <button id="editSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">✏️ Edit</button>
                         <button id="deleteSoundscapeBtn" class="btn btn-danger" style="flex: 1; padding: 6px; font-size: 0.85em;">🗑️</button>
                     </div>
@@ -156,9 +156,12 @@
                 <button id="syncFromServerBtn" class="btn btn-success" style="display: none;">🔄 Sync from Server</button>
                 <button id="simulateBtn" class="btn btn-warning">🎮 Simulate</button>
                 <div style="display: flex; gap: 5px;">
-                    <button id="exportBtn" class="btn" style="flex: 1;">📦 Export</button>
-                    <button id="importBtn" class="btn" style="flex: 1;">📥 Import</button>
+                    <button id="exportBtn" class="btn" style="flex: 1;" title="Download backup file">📦 Export</button>
+                    <button id="importBtn" class="btn" style="flex: 1;" title="Restore from backup file">📥 Import</button>
                 </div>
+                <p style="font-size: 0.75em; color: #888; margin-top: 8px; text-align: center;">
+                    💡 Use <strong>Sync from Server</strong> when logged in, or <strong>Export/Import</strong> for offline sharing
+                </p>
                 <button id="clearAllBtn" class="btn btn-danger">🗑️ Clear All</button>
             </div>
             <div id="waypointList"></div>
@@ -215,11 +218,11 @@
         // API configuration - uses relative path (proxied by Apache)
         window.API_BASE_URL = 'http://macminiwebsever:3000/api';
     </script>
-    <script src="api-client.js?v=20260313174930"></script>
-    <script src="soundscape.js?v=20260313174930"></script>
-    <script src="spatial_audio.js?v=20260313174930"></script>
-    <script src="spatial_audio_app.js?v=20260313174930"></script>
-    <script src="wake_lock_helper.js?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
-    <script src="map_placer.js?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
+    <script src="api-client.js?v=20260314000411"></script>
+    <script src="soundscape.js?v=20260314000411"></script>
+    <script src="spatial_audio.js?v=20260314000411"></script>
+    <script src="spatial_audio_app.js?v=20260314000411"></script>
+    <script src="wake_lock_helper.js?v=20260314000411?v=20260313235635?v=20260313235408?v=20260313235118?v=20260313234617?v=20260313234321?v=20260313233448?v=20260313232251?v=20260313230602?v=20260313230429?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
+    <script src="map_placer.js?v=20260314000411?v=20260313235635?v=20260313235408?v=20260313235118?v=20260313234617?v=20260313234321?v=20260313233448?v=20260313232251?v=20260313230602?v=20260313230429?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
 </body>
 </html>

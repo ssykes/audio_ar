@@ -251,18 +251,27 @@ if (Test-Path $apiPath) {
     Write-Host "  API Server Files" -ForegroundColor Cyan
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
-    
+
     foreach ($file in $API_FILES) {
         $localFile = Join-Path $apiPath $file
-        $remotePath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/api/${file}"
-        
+        $remoteDir = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/api/$(Split-Path $file -Parent)"
+        $remotePath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/api/$file"
+
         if (Test-Path $localFile) {
+            # Create remote directory if needed
+            $dirName = Split-Path $file -Parent
+            if ($dirName) {
+                Write-Host "   Ensuring directory: api/$dirName" -ForegroundColor Gray
+                & ssh $SERVER_USER@$SERVER_HOST "mkdir -p ${SERVER_PATH}/api/$dirName" 2>$null
+            }
+
             Write-Host "   Uploading: api/$file" -NoNewline
             & scp $localFile $remotePath 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host " [OK]" -ForegroundColor Green
             } else {
                 Write-Host " [FAILED]" -ForegroundColor Red
+                $failedCount++
             }
         } else {
             Write-Host "   Skipping: api/$file (not found)" -ForegroundColor Yellow
@@ -270,10 +279,11 @@ if (Test-Path $apiPath) {
     }
     
     Write-Host ""
-    Write-Host "📌 After deploy, restart the API server:" -ForegroundColor Cyan
+    Write-Host "After deploy, restart the API server:" -ForegroundColor Cyan
     Write-Host "   SSH to server: ssh ${SERVER_USER}@${SERVER_HOST}" -ForegroundColor White
-    Write-Host "   Kill old process: pkill -f 'node server.js'" -ForegroundColor White
-    Write-Host "   Start new: cd ${SERVER_PATH}/api; nohup node server.js > api.log 2>`&1 `" -ForegroundColor White
+    Write-Host "   Then run these commands on the server:" -ForegroundColor White
+    Write-Host "     pkill -f 'node server.js'" -ForegroundColor Gray
+    Write-Host "     cd ${SERVER_PATH}/api && nohup node server.js > api.log 2>&1 &" -ForegroundColor Gray
     Write-Host ""
 } else {
     Write-Host "API folder not found at: `$apiPath" -ForegroundColor Yellow
@@ -317,5 +327,15 @@ Write-Host "Git Status:" -ForegroundColor Cyan
 Write-Host "  Version numbers in HTML files are NOT committed to Git" -ForegroundColor Gray
 Write-Host "  (They are updated locally before each deploy)" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Press Enter to close..." -NoNewline
-$null = $Host.UI.RawUI.ReadKey("NoEcho`&IncludeKeyDown")
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Restart API Server (after deploy)" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  SSH to server and run these commands:" -ForegroundColor White
+Write-Host ""
+Write-Host "  ssh ssykes@macminiwebsever" -ForegroundColor Gray
+Write-Host "  pkill -f 'node server.js'" -ForegroundColor Gray
+Write-Host "  cd /var/www/html/api && nohup node server.js > api.log 2>&1 &" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Press Enter to close..."
+Read-Host
+

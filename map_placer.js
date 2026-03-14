@@ -439,6 +439,13 @@ class MapPlacerApp {
     /**
      * Handle soundscape selector change
      * @private
+     * 
+     * TODO: Multi-soundscape support (P3-A - Low priority future enhancement)
+     * Currently this only loads the most recent soundscape from server.
+     * To implement proper switching:
+     *   - Modify _loadSoundscapeFromServer() to accept a soundscapeId parameter
+     *   - Load the specific selected soundscape instead of soundscapes[0]
+     *   - Update UI to show which soundscape is active
      */
     async _onSoundscapeChange() {
         const selector = document.getElementById('soundscapeSelector');
@@ -450,7 +457,7 @@ class MapPlacerApp {
             return; // Already loaded
         }
 
-        this.debugLog('🔄 Switching soundscape...');
+        this.debugLog('🔄 Switching soundscape... (TODO: implement multi-soundscape switching)');
         this.serverSoundscapeId = selectedId;
         await this._loadSoundscapeFromServer();
     }
