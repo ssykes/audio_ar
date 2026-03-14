@@ -82,8 +82,8 @@ $HTML_FILES = @(
 $JS_VERSION_PATTERN = "spatial_audio\.js\?v=[\d]+"
 $DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
 $APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
-$WAKE_LOCK_PATTERN = "wake_lock_helper\.js"
-$MAP_PLACER_PATTERN = "map_placer\.js"
+$WAKE_LOCK_PATTERN = "wake_lock_helper\.js\?v=[\d]+"
+$MAP_PLACER_PATTERN = "map_placer\.js\?v=[\d]+"
 $SOUNDSCAPE_PATTERN = "soundscape\.js\?v=[\d]+"
 
 foreach ($htmlFile in $HTML_FILES) {
