@@ -8,4 +8,35 @@
 # Enable CORS for local testing
 <IfModule mod_headers.c>
     Header set Access-Control-Allow-Origin "*"
+    
+    # Security Headers
+    
+    # Content Security Policy (CSP)
+    # Allows scripts/styles from same origin, data: for images (base64), and necessary AR APIs
+    # Updated 2026-03-14: Added tile.openstreetmap.org to img-src and connect-src for map tiles
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf https://tile.openstreetmap.org https://*.tile.openstreetmap.org;"
+    
+    # Strict Transport Security (HSTS) - 1 year
+    Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    
+    # X-Content-Type-Options - Prevent MIME type sniffing
+    Header set X-Content-Type-Options "nosniff"
+    
+    # X-Frame-Options - Prevent clickjacking (also covered by CSP frame-ancestors)
+    Header set X-Frame-Options "SAMEORIGIN"
+    
+    # Referrer Policy - Control referrer information
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    
+    # Cross-Origin Opener Policy
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    
+    # Cross-Origin Embedder Policy
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+    
+    # Cross-Origin Resource Policy
+    Header set Cross-Origin-Resource-Policy "same-origin"
+    
+    # Permissions Policy (formerly Feature-Policy)
+    Header set Permissions-Policy "geolocation=(self), microphone=(self), camera=(), accelerometer=(), gyroscope=(self)"
 </IfModule>
