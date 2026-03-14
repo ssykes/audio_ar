@@ -1,15 +1,15 @@
 /**
  * Map Placer App
  * Visual map interface for placing sound waypoints
- * @version 3.0 - SoundScape Persistence Support
+ * @version 4.0 - Multi-user Server Sync
  *
- * Session 3 Implementation:
- * - SoundScape persistence with localStorage
- * - SoundScape ↔ Waypoint linkage
- * - Export/Import soundscape JSON
+ * Session 4 Implementation:
+ * - User authentication (login/register/logout)
+ * - Server-side soundscape persistence via API
+ * - Auto-sync on waypoint changes
  * - Phone mode detection (edit controls hidden on mobile)
  *
- * Previous Features (v2.5):
+ * Previous Features (v3.0):
  * - Player mode with GPS tracking and compass rotation
  * - SpatialAudioApp integration for audio playback
  * - Wake lock, compass, and GPS permission handling
@@ -32,8 +32,12 @@ class MapPlacerApp {
         this.defaultActivationRadius = 20;
         this.nextId = 1;
 
+        // API Client for server sync
+        this.api = new ApiClient('/api');
+
         // SoundScape management
         this.currentSoundscape = null;  // Current SoundScape instance
+        this.serverSoundscapeId = null; // Server-side soundscape ID (UUID)
 
         // Global sound configuration (applies to all waypoints)
         this.soundConfig = {
@@ -71,6 +75,10 @@ class MapPlacerApp {
 
         // Auto-save feedback
         this.saveFeedbackTimer = null;
+        this.saveDebounceTimer = null;
+
+        // Login state
+        this.isLoggedIn = false;
     }
 
     async init() {
@@ -78,12 +86,74 @@ class MapPlacerApp {
         if (document.readyState === 'loading') {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
         }
+        
+        // Check login status first
+        await this._checkLoginStatus();
+        
         this._initMap();
         this._setupEventListeners();
         this._initDebugConsole();
         await this._getInitialGPS();
-        this._loadSoundscapeFromStorage();  // Load saved soundscape
+        
+        // Load soundscape from server if logged in, otherwise from localStorage
+        if (this.isLoggedIn) {
+            await this._loadSoundscapeFromServer();
+        } else {
+            this._loadSoundscapeFromStorage();  // Fallback to localStorage
+        }
+        
         console.log('Map Placer ready (Editor Mode)');
+    }
+
+    /**
+     * Check if user is logged in and update UI
+     * @private
+     */
+    async _checkLoginStatus() {
+        const loginForm = document.getElementById('loginForm');
+        const userPanel = document.getElementById('userPanel');
+        const userEmail = document.getElementById('userEmail');
+        const soundscapeControls = document.getElementById('soundscapeControls');
+        const addWaypointBtn = document.getElementById('addWaypointBtn');
+
+        if (this.api.isLoggedIn()) {
+            // Verify token is still valid
+            const valid = await this.api.verifyToken();
+            if (valid) {
+                this.isLoggedIn = true;
+                if (loginForm) loginForm.style.display = 'none';
+                if (userPanel) userPanel.style.display = 'block';
+                if (userEmail) userEmail.textContent = this.api.user.email;
+                if (soundscapeControls) soundscapeControls.style.display = 'block';
+                if (addWaypointBtn) addWaypointBtn.style.display = 'block';
+                this.debugLog('🔐 Logged in as ' + this.api.user.email);
+                
+                // Load soundscape list
+                await this._loadSoundscapeList();
+            } else {
+                this._showLoginForm();
+            }
+        } else {
+            this._showLoginForm();
+        }
+    }
+
+    /**
+     * Show login form
+     * @private
+     */
+    _showLoginForm() {
+        const loginForm = document.getElementById('loginForm');
+        const userPanel = document.getElementById('userPanel');
+        const soundscapeControls = document.getElementById('soundscapeControls');
+        const addWaypointBtn = document.getElementById('addWaypointBtn');
+
+        if (loginForm) loginForm.style.display = 'block';
+        if (userPanel) userPanel.style.display = 'none';
+        if (soundscapeControls) soundscapeControls.style.display = 'none';
+        if (addWaypointBtn) addWaypointBtn.style.display = 'none';
+        
+        this.debugLog('🔓 Not logged in - please login or register');
     }
 
     /**
@@ -111,17 +181,17 @@ class MapPlacerApp {
      */
     _applyPhoneModeRestrictions() {
         console.log('[MapPlacer] 📱 Phone mode detected - hiding edit controls');
-        
+
         // Hide edit buttons
         const addBtn = document.getElementById('addWaypointBtn');
         if (addBtn) addBtn.style.display = 'none';
-        
+
         const clearBtn = document.getElementById('clearAllBtn');
         if (clearBtn) clearBtn.style.display = 'none';
-        
+
         const newSoundscapeBtn = document.getElementById('newSoundscapeBtn');
         if (newSoundscapeBtn) newSoundscapeBtn.style.display = 'none';
-        
+
         const editSoundscapeBtn = document.getElementById('editSoundscapeBtn');
         if (editSoundscapeBtn) editSoundscapeBtn.style.display = 'none';
 
@@ -131,6 +201,16 @@ class MapPlacerApp {
         // Hide soundscape controls (just use saved soundscape)
         const soundscapeControls = document.getElementById('soundscapeControls');
         if (soundscapeControls) soundscapeControls.style.display = 'none';
+
+        // Show sync button if logged in
+        const syncBtn = document.getElementById('syncFromServerBtn');
+        if (syncBtn) {
+            if (this.isLoggedIn) {
+                syncBtn.style.display = 'block';
+            } else {
+                syncBtn.style.display = 'none';
+            }
+        }
 
         // Update subtitle
         const subtitle = document.querySelector('.subtitle');
@@ -275,10 +355,206 @@ class MapPlacerApp {
             importFileInput.addEventListener('change', (e) => this._handleImportFile(e.target.files[0]));
         }
 
+        // Login/Logout handlers
+        const loginBtn = document.getElementById('loginBtn');
+        if (loginBtn) {
+            loginBtn.addEventListener('click', () => this._handleLogin());
+        }
+        const registerBtn = document.getElementById('registerBtn');
+        if (registerBtn) {
+            registerBtn.addEventListener('click', () => this._handleRegister());
+        }
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this._handleLogout());
+        }
+
+        // Sync from server button (phone mode)
+        const syncFromServerBtn = document.getElementById('syncFromServerBtn');
+        if (syncFromServerBtn) {
+            syncFromServerBtn.addEventListener('click', () => this._handleSyncFromServer());
+        }
+
+        // Soundscape selector
+        const soundscapeSelector = document.getElementById('soundscapeSelector');
+        if (soundscapeSelector) {
+            soundscapeSelector.addEventListener('change', () => this._onSoundscapeChange());
+        }
+
         // Apply phone mode restrictions
         if (this.isPhoneMode) {
             this._applyPhoneModeRestrictions();
         }
+    }
+
+    /**
+     * Handle sync from server (phone mode)
+     * @private
+     */
+    async _handleSyncFromServer() {
+        if (!this.isLoggedIn) {
+            this._showToast('⚠️ Please login first', 'warning');
+            return;
+        }
+
+        this.debugLog('🔄 Syncing from server...');
+        this._showToast('🔄 Syncing from server...', 'info');
+        await this._loadSoundscapeFromServer();
+        this._showToast('✅ Sync complete', 'success');
+    }
+
+    /**
+     * Load soundscape list into selector
+     * @private
+     */
+    async _loadSoundscapeList() {
+        if (!this.isLoggedIn) return;
+
+        try {
+            const soundscapes = await this.api.getSoundscapes();
+            const selector = document.getElementById('soundscapeSelector');
+            
+            if (!selector) return;
+
+            // Clear existing options (keep first)
+            selector.innerHTML = '<option value="">Select Soundscape...</option>';
+
+            // Add soundscapes
+            soundscapes.forEach(ss => {
+                const option = document.createElement('option');
+                option.value = ss.id;
+                option.textContent = ss.name;
+                if (ss.id === this.serverSoundscapeId) {
+                    option.selected = true;
+                }
+                selector.appendChild(option);
+            });
+
+            this.debugLog(`📋 Loaded ${soundscapes.length} soundscape(s)`);
+        } catch (error) {
+            this.debugLog('❌ Failed to load soundscapes: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle soundscape selector change
+     * @private
+     */
+    async _onSoundscapeChange() {
+        const selector = document.getElementById('soundscapeSelector');
+        const selectedId = selector?.value;
+
+        if (!selectedId) return;
+
+        if (selectedId === this.serverSoundscapeId) {
+            return; // Already loaded
+        }
+
+        this.debugLog('🔄 Switching soundscape...');
+        this.serverSoundscapeId = selectedId;
+        await this._loadSoundscapeFromServer();
+    }
+
+    /**
+     * Handle login
+     * @private
+     */
+    async _handleLogin() {
+        const emailInput = document.getElementById('loginEmail');
+        const passwordInput = document.getElementById('loginPassword');
+        const email = emailInput?.value?.trim();
+        const password = passwordInput?.value?.trim();
+
+        if (!email || !password) {
+            this._showToast('⚠️ Please enter email and password', 'warning');
+            return;
+        }
+
+        try {
+            this.debugLog('🔐 Logging in...');
+            await this.api.login(email, password);
+            this.isLoggedIn = true;
+            await this._checkLoginStatus();
+            this._showToast('✅ Logged in successfully', 'success');
+            this.debugLog('🔐 Logged in as ' + email);
+            
+            // Clear password
+            if (passwordInput) passwordInput.value = '';
+            
+            // Load soundscape from server
+            await this._loadSoundscapeFromServer();
+        } catch (error) {
+            this._showToast('❌ Login failed: ' + error.message, 'error');
+            this.debugLog('❌ Login failed: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle register
+     * @private
+     */
+    async _handleRegister() {
+        const emailInput = document.getElementById('loginEmail');
+        const passwordInput = document.getElementById('loginPassword');
+        const email = emailInput?.value?.trim();
+        const password = passwordInput?.value?.trim();
+
+        if (!email || !password) {
+            this._showToast('⚠️ Please enter email and password', 'warning');
+            return;
+        }
+
+        if (password.length < 6) {
+            this._showToast('⚠️ Password must be at least 6 characters', 'warning');
+            return;
+        }
+
+        try {
+            this.debugLog('📝 Registering...');
+            await this.api.register(email, password);
+            this.isLoggedIn = true;
+            await this._checkLoginStatus();
+            this._showToast('✅ Registration successful', 'success');
+            this.debugLog('📝 Registered as ' + email);
+            
+            // Clear password
+            if (passwordInput) passwordInput.value = '';
+            
+            // Create first soundscape
+            await this._createNewSoundscape();
+        } catch (error) {
+            this._showToast('❌ Registration failed: ' + error.message, 'error');
+            this.debugLog('❌ Registration failed: ' + error.message);
+        }
+    }
+
+    /**
+     * Handle logout
+     * @private
+     */
+    _handleLogout() {
+        if (!confirm('Are you sure you want to logout? Unsaved changes will be lost.')) {
+            return;
+        }
+
+        // Save current soundscape before logout
+        this._saveSoundscapeToStorage();
+        
+        this.api.logout();
+        this.isLoggedIn = false;
+        this.serverSoundscapeId = null;
+        this.currentSoundscape = null;
+        this.waypoints = [];
+        this.nextId = 1;
+        
+        // Clear map markers
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+        this._updateWaypointList();
+        
+        this._showLoginForm();
+        this._showToast('🚪 Logged out successfully', 'info');
+        this.debugLog('🚪 Logged out');
     }
 
     // =====================================================================
@@ -1262,34 +1538,56 @@ class MapPlacerApp {
      * Edit current soundscape (rename, add behaviors)
      * @private
      */
-    _editSoundscape() {
+    async _editSoundscape() {
         if (!this.currentSoundscape) return;
 
         const newName = prompt('Edit soundscape name:', this.currentSoundscape.name);
-        if (newName) {
+        if (!newName) return;
+
+        if (this.isLoggedIn && this.serverSoundscapeId) {
+            // Update on server
+            try {
+                await this.api.updateSoundscape(this.serverSoundscapeId, newName);
+                this.currentSoundscape.name = newName;
+                this.debugLog('✏️ Soundscape updated on server');
+            } catch (error) {
+                this.debugLog('❌ Failed to update on server: ' + error.message);
+            }
+        } else {
             this.currentSoundscape.name = newName;
-            this._updateSoundscapeSelector();
-            this._saveSoundscapeToStorage();
-            this._showToast('✅ Soundscape updated', 'success');
         }
+
+        this._saveSoundscapeToStorage();
+        this._showToast('✅ Soundscape updated', 'success');
     }
 
     /**
      * Delete current soundscape
      * @private
      */
-    _deleteSoundscape() {
+    async _deleteSoundscape() {
         if (!confirm('Delete current soundscape? This cannot be undone.')) return;
+
+        if (this.isLoggedIn && this.serverSoundscapeId) {
+            // Delete from server
+            try {
+                await this.api.deleteSoundscape(this.serverSoundscapeId);
+                this.debugLog('🗑️ Soundscape deleted from server');
+            } catch (error) {
+                this.debugLog('❌ Failed to delete from server: ' + error.message);
+            }
+        }
 
         SoundScapeStorage.clear();
         this.currentSoundscape = null;
+        this.serverSoundscapeId = null;
         this._clearAllWaypoints();
         this._createDefaultSoundscape();
         this._showToast('🗑️ Soundscape deleted', 'info');
     }
 
     /**
-     * Save current soundscape to localStorage
+     * Save current soundscape to localStorage (and server if logged in)
      * @private
      */
     _saveSoundscapeToStorage() {
@@ -1299,15 +1597,176 @@ class MapPlacerApp {
         this.currentSoundscape.soundIds = this.waypoints.map(wp => wp.id);
         this.currentSoundscape.waypointData = this.waypoints;
 
+        // Always save to localStorage (backup)
         SoundScapeStorage.save(this.currentSoundscape, this.waypoints);
+
+        // If logged in, also save to server (debounced)
+        if (this.isLoggedIn && this.serverSoundscapeId) {
+            // Debounce server saves (wait for user to stop editing)
+            if (this.saveDebounceTimer) clearTimeout(this.saveDebounceTimer);
+            
+            this.saveDebounceTimer = setTimeout(async () => {
+                await this._saveSoundscapeToServer();
+            }, 2000);
+        }
 
         // Show brief feedback (debounced - don't spam user)
         if (!this.saveFeedbackTimer) {
             this.saveFeedbackTimer = setTimeout(() => {
-                this.debugLog('💾 Auto-saved');
+                const status = this.isLoggedIn ? '💾 Auto-saved to server' : '💾 Auto-saved';
+                this.debugLog(status);
+                this._updateSyncStatus(this.isLoggedIn);
                 this.saveFeedbackTimer = null;
             }, 2000);
         }
+    }
+
+    /**
+     * Update sync status indicator
+     * @private
+     */
+    _updateSyncStatus(isSynced) {
+        const syncStatus = document.getElementById('syncStatus');
+        if (syncStatus) {
+            syncStatus.textContent = isSynced ? '🟢 Synced to server' : '🟡 Local only';
+            syncStatus.style.color = isSynced ? '#00ff88' : '#f39c12';
+        }
+    }
+
+    /**
+     * Load soundscape from server
+     * @private
+     */
+    async _loadSoundscapeFromServer() {
+        if (!this.isLoggedIn) {
+            this.debugLog('⚠️ Not logged in - cannot load from server');
+            return;
+        }
+
+        try {
+            this.debugLog('☁️ Loading soundscapes from server...');
+            
+            // Get list of soundscapes
+            const soundscapes = await this.api.getSoundscapes();
+            
+            if (soundscapes.length === 0) {
+                this.debugLog('📭 No soundscapes on server - creating default');
+                await this._createNewSoundscape();
+                return;
+            }
+
+            // Load most recent soundscape
+            const latest = soundscapes[0];
+            this.debugLog(`🎼 Found soundscape: ${latest.name}`);
+            
+            const data = await this.api.loadSoundscape(latest.id);
+            
+            this.serverSoundscapeId = latest.id;
+            this.currentSoundscape = data.soundscape;
+            this.waypoints = data.waypoints;
+
+            // Restore nextId from waypoints
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
+            }
+
+            // Clear and render waypoints
+            this.markers.forEach(marker => marker.remove());
+            this.markers.clear();
+            this.waypoints.forEach(wp => this._createMarker(wp));
+            this._updateWaypointList();
+
+            this.debugLog(`✅ Loaded ${this.waypoints.length} waypoints from server`);
+            this._updateSyncStatus(true);
+        } catch (error) {
+            this.debugLog('❌ Failed to load from server: ' + error.message);
+            this._showToast('⚠️ Using local data (server sync failed)', 'warning');
+            // Fallback to localStorage
+            this._loadSoundscapeFromStorage();
+        }
+    }
+
+    /**
+     * Save soundscape to server
+     * @private
+     */
+    async _saveSoundscapeToServer() {
+        if (!this.isLoggedIn || !this.serverSoundscapeId) {
+            this.debugLog('⚠️ Cannot save to server - not logged in or no soundscape');
+            return;
+        }
+
+        try {
+            this.debugLog('☁️ Saving to server...');
+            
+            await this.api.saveSoundscape(
+                this.serverSoundscapeId,
+                this.waypoints.map(wp => this.api.wpToServer(wp)),
+                this.currentSoundscape.behaviors || []
+            );
+            
+            this.debugLog('✅ Saved to server');
+            this._updateSyncStatus(true);
+        } catch (error) {
+            this.debugLog('❌ Server save failed: ' + error.message);
+            this._showToast('⚠️ Server sync failed - saved locally', 'warning');
+            this._updateSyncStatus(false);
+        }
+    }
+
+    /**
+     * Create new soundscape on server
+     * @private
+     */
+    async _createNewSoundscape() {
+        const name = prompt('Enter soundscape name:', 'New Soundscape');
+        if (!name) return;
+
+        // Save current soundscape first (if any)
+        this._saveSoundscapeToStorage();
+
+        // Clear all waypoints for the new soundscape
+        this._clearAllWaypoints();
+
+        if (this.isLoggedIn) {
+            // Create on server
+            try {
+                const result = await this.api.createSoundscape(name);
+                this.serverSoundscapeId = result.soundscape.id;
+                this.currentSoundscape = new SoundScape(
+                    result.soundscape.id,
+                    name,
+                    [],
+                    [],
+                    []
+                );
+                this.debugLog(`🎼 Created on server: ${name}`);
+                
+                // Refresh soundscape list
+                await this._loadSoundscapeList();
+                
+                // Select the new soundscape
+                const selector = document.getElementById('soundscapeSelector');
+                if (selector) selector.value = this.serverSoundscapeId;
+            } catch (error) {
+                this.debugLog('❌ Failed to create on server: ' + error.message);
+                // Fallback to local
+                this.currentSoundscape = new SoundScape('local_' + Date.now(), name, [], [], []);
+            }
+        } else {
+            // Create locally only
+            this.currentSoundscape = new SoundScape(
+                'local_' + Date.now(),
+                name,
+                [],
+                [],
+                []
+            );
+        }
+
+        this._saveSoundscapeToStorage();
+        this._showToast(`✅ Created: ${this.currentSoundscape.name}`, 'success');
     }
     
     _initDebugConsole() {

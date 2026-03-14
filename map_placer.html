@@ -48,6 +48,8 @@
         .btn:hover { background: #5a5a7a; }
         .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); }
         .btn-primary:hover { opacity: 0.9; }
+        select.btn { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23fff' d='M6 9L1 4h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px; padding-right: 36px; }
+        select.btn option { background: #1a1a2e; color: #fff; }
         .btn-danger { background: #e94560; }
         .btn-danger:hover { background: #ff6b6b; }
         .btn-success { background: #00b894; }
@@ -115,20 +117,43 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Placer <span class="version">v3.2</span></h1>
+                <h1>🗺️ Map Placer <span class="version">v4.5</span></h1>
                 <p class="subtitle">Place sounds on the map</p>
-                
+
+                <!-- Login UI -->
+                <div id="loginPanel" style="margin: 10px 0;">
+                    <div id="loginForm" style="display: none;">
+                        <input type="email" id="loginEmail" placeholder="Email" class="btn" style="text-align: left; margin-bottom: 5px;" />
+                        <input type="password" id="loginPassword" placeholder="Password" class="btn" style="text-align: left; margin-bottom: 5px;" />
+                        <button id="loginBtn" class="btn btn-primary">🔐 Login</button>
+                        <button id="registerBtn" class="btn btn-success">📝 Register</button>
+                    </div>
+                    <div id="userPanel" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin: 10px 0;">
+                            <span id="userEmail" style="color: #00ff88; font-size: 0.9em;"></span>
+                            <button id="logoutBtn" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85em;">🚪 Logout</button>
+                        </div>
+                        <div id="syncStatus" style="font-size: 0.8em; color: #888; margin: 5px 0;">
+                            🟢 Synced to server
+                        </div>
+                    </div>
+                </div>
+
                 <!-- SoundScape Management -->
-                <div id="soundscapeControls" style="margin: 10px 0;">
+                <div id="soundscapeControls" style="margin: 10px 0; display: none;">
+                    <select id="soundscapeSelector" class="btn" style="text-align: left; margin: 10px 0; cursor: pointer;">
+                        <option value="">Select Soundscape...</option>
+                    </select>
                     <div style="display: flex; gap: 5px; margin: 10px 0;">
                         <button id="newSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">+ New</button>
                         <button id="editSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">✏️ Edit</button>
                         <button id="deleteSoundscapeBtn" class="btn btn-danger" style="flex: 1; padding: 6px; font-size: 0.85em;">🗑️</button>
                     </div>
                 </div>
-                
-                <button id="addWaypointBtn" class="btn btn-primary">+ Add Sound</button>
+
+                <button id="addWaypointBtn" class="btn btn-primary" style="display: none;">+ Add Sound</button>
                 <button id="startBtn" class="btn btn-primary">▶️ Start</button>
+                <button id="syncFromServerBtn" class="btn btn-success" style="display: none;">🔄 Sync from Server</button>
                 <button id="simulateBtn" class="btn btn-warning">🎮 Simulate</button>
                 <div style="display: flex; gap: 5px;">
                     <button id="exportBtn" class="btn" style="flex: 1;">📦 Export</button>
@@ -186,10 +211,15 @@
     <input type="file" id="importFileInput" accept=".json,application/json" style="display: none;">
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="soundscape.js?v=20260313152428"></script>
-    <script src="spatial_audio.js?v=20260313152428"></script>
-    <script src="spatial_audio_app.js?v=20260313152428"></script>
-    <script src="wake_lock_helper.js?v=20260313152428?v=20260313133912?v=20260313133000"></script>
-    <script src="map_placer.js?v=20260313152428?v=20260313133912?v=20260313133000"></script>
+    <script>
+        // API configuration - uses relative path (proxied by Apache)
+        window.API_BASE_URL = 'http://macminiwebsever:3000/api';
+    </script>
+    <script src="api-client.js?v=20260313174930"></script>
+    <script src="soundscape.js?v=20260313174930"></script>
+    <script src="spatial_audio.js?v=20260313174930"></script>
+    <script src="spatial_audio_app.js?v=20260313174930"></script>
+    <script src="wake_lock_helper.js?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
+    <script src="map_placer.js?v=20260313174930?v=20260313174854?v=20260313164216?v=20260313164053?v=20260313164025?v=20260313152428?v=20260313133912?v=20260313133000"></script>
 </body>
 </html>

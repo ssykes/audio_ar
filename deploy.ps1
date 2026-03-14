@@ -50,6 +50,24 @@ foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
 
 Write-Host ""
 
+# Update API URL in map_placer.html to use server hostname
+Write-Host "Updating API URL..." -ForegroundColor Yellow
+$mapPlacerPath = Join-Path $LOCAL_PATH "map_placer.html"
+if (Test-Path $mapPlacerPath) {
+    $content = Get-Content $mapPlacerPath -Raw
+    $serverUrl = "http://${SERVER_HOST}:3000/api"
+    
+    # Update API_BASE_URL
+    if ($content -match "window\.API_BASE_URL = '[^']*'") {
+        $content = $content -replace "window\.API_BASE_URL = '[^']*'", "window.API_BASE_URL = '${serverUrl}'"
+        Set-Content $mapPlacerPath $content -NoNewline
+        Write-Host "  API URL set to: ${serverUrl}" -ForegroundColor Green
+    } else {
+        Write-Host "  API_BASE_URL not found in map_placer.html" -ForegroundColor Yellow
+    }
+}
+Write-Host ""
+
 # Update HTML files with new version numbers (cache-busting)
 Write-Host "Updating cache-busting version numbers..." -ForegroundColor Yellow
 
@@ -114,6 +132,14 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (soundscape.js)" -ForegroundColor Green
         }
+
+        # Update api-client.js version
+        $API_CLIENT_PATTERN = "api-client\.js\?v=[\d]+"
+        if ($content -match $API_CLIENT_PATTERN) {
+            $content = $content -replace $API_CLIENT_PATTERN, "api-client.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (api-client.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -137,7 +163,8 @@ $ALL_FILES = @(
     "map_placer.html",
     "map_placer.js",
     "soundscape.js",
-    "wake_lock_helper.js"
+    "wake_lock_helper.js",
+    "api-client.js"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow
@@ -205,6 +232,55 @@ if (Test-Path $soundsPath) {
 
 Write-Host ""
 
+# Deploy API server files
+$API_FILES = @(
+    "package.json",
+    "package-lock.json",
+    "server.js",
+    ".env",
+    "database/index.js",
+    "database/schema.sql",
+    "middleware/auth.js",
+    "routes/auth.js",
+    "routes/soundscapes.js"
+)
+
+$apiPath = Join-Path $LOCAL_PATH "api"
+if (Test-Path $apiPath) {
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  API Server Files" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    foreach ($file in $API_FILES) {
+        $localFile = Join-Path $apiPath $file
+        $remotePath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/api/${file}"
+        
+        if (Test-Path $localFile) {
+            Write-Host "   Uploading: api/$file" -NoNewline
+            & scp $localFile $remotePath 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host " [OK]" -ForegroundColor Green
+            } else {
+                Write-Host " [FAILED]" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "   Skipping: api/$file (not found)" -ForegroundColor Yellow
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "📌 After deploy, restart the API server:" -ForegroundColor Cyan
+    Write-Host "   SSH to server: ssh ${SERVER_USER}@${SERVER_HOST}" -ForegroundColor White
+    Write-Host "   Kill old process: pkill -f 'node server.js'" -ForegroundColor White
+    Write-Host "   Start new: cd ${SERVER_PATH}/api; nohup node server.js > api.log 2>`&1 `" -ForegroundColor White
+    Write-Host ""
+} else {
+    Write-Host "API folder not found at: `$apiPath" -ForegroundColor Yellow
+}
+
+Write-Host ""
+
 if ($failedCount -eq 0) {
     Write-Host "========================================" -ForegroundColor Green
     Write-Host "  Deploy Complete!" -ForegroundColor Green
@@ -216,14 +292,22 @@ if ($failedCount -eq 0) {
 }
 
 Write-Host ""
-Write-Host "Cache-Requestionusting Version: $VERSION" -ForegroundColor Cyan
+Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
 Write-Host "  (HTML files updated with new version numbers)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
-Write-Host "   Main App:    http://ssykes.net/audio_ar_app.html" -ForegroundColor White
-Write-Host "   Test Page:   http://ssykes.net/index.html" -ForegroundColor White
-Write-Host "   Rotate Test: http://ssykes.net/auto_rotate.html" -ForegroundColor White
-Write-Host "   Single Sound: http://ssykes.net/single_sound_v2.html" -ForegroundColor White
+Write-Host "   Main App:      http://ssykes.net/audio_ar_app.html" -ForegroundColor White
+Write-Host "   Map Placer:    http://ssykes.net/map_placer.html" -ForegroundColor White
+Write-Host "   Test Page:     http://ssykes.net/index.html" -ForegroundColor White
+Write-Host "   Rotate Test:   http://ssykes.net/auto_rotate.html" -ForegroundColor White
+Write-Host "   Single Sound:  http://ssykes.net/single_sound_v2.html" -ForegroundColor White
+Write-Host ""
+Write-Host "Multi-User Features:" -ForegroundColor Cyan
+Write-Host "   1. Open Map Placer in browser" -ForegroundColor White
+Write-Host "   2. Register/Login with email and password" -ForegroundColor White
+Write-Host "   3. Create soundscape and add waypoints" -ForegroundColor White
+Write-Host "   4. Auto-saves to server every 2 seconds" -ForegroundColor White
+Write-Host "   5. Open on phone, login, tap 'Sync from Server'" -ForegroundColor White
 Write-Host ""
 Write-Host "Sound Files:" -ForegroundColor Cyan
 Write-Host "   Upload MP3/WAV/M4A files to /sounds/ folder"
@@ -231,7 +315,7 @@ Write-Host "   Set USE_SAMPLES = true in audio_ar_app.html"
 Write-Host ""
 Write-Host "Git Status:" -ForegroundColor Cyan
 Write-Host "  Version numbers in HTML files are NOT committed to Git" -ForegroundColor Gray
-Write-Host "  (They're updated locally before each deploy)" -ForegroundColor Gray
+Write-Host "  (They are updated locally before each deploy)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press Enter to close..." -NoNewline
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+$null = $Host.UI.RawUI.ReadKey("NoEcho`&IncludeKeyDown")
