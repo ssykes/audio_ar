@@ -1,0 +1,12 @@
+name = "security-headers-ssykes"
+main = "cloudflare-worker.js"
+compatibility_date = "2024-01-01"
+
+# Routes - add your domains here
+[[routes]]
+pattern = "ssykes.net/*"
+zone_name = "ssykes.net"
+
+[[routes]]
+pattern = "spoot.wtf/*"
+zone_name = "spoot.wtf"
