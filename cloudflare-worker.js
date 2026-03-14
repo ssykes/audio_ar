@@ -53,15 +53,15 @@ async function handleRequest(request) {
   // Content Security Policy (CSP)
   // Allows: same-origin scripts, CDN resources (unpkg, jsdelivr), Google Fonts,
   // data: images, blob: media, and necessary APIs
-  // Updated 2026-03-14: Added tile.openstreetmap.org for map tiles
+  // Updated 2026-03-14: Added tile.openstreetmap.org for map tiles + unpkg for Leaflet CSS
   newResponse.headers.set('Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: blob: https: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; " +
     "media-src 'self' blob:; " +
-    "connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf http://macminiwebsever:3000 https://tile.openstreetmap.org https://*.tile.openstreetmap.org; " +
+    "connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf http://macminiwebsever:3000 https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com; " +
     "frame-ancestors 'self';"
   )
   
@@ -81,10 +81,10 @@ async function handleRequest(request) {
   
   // Cross-Origin Opener Policy - Isolate browsing context
   newResponse.headers.set('Cross-Origin-Opener-Policy', 'same-origin')
-  
-  // Cross-Origin Embedder Policy - Require CORS for cross-origin resources
-  newResponse.headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
-  
+
+  // Cross-Origin Embedder Policy - REMOVED: Blocks cross-origin images (Leaflet tiles)
+  // newResponse.headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
+
   // Cross-Origin Resource Policy - Restrict resource loading to same origin
   newResponse.headers.set('Cross-Origin-Resource-Policy', 'same-origin')
   
