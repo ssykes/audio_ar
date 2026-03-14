@@ -1,7 +1,11 @@
 const express = require('express');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { soundscapeLimiter } = require('../middleware/rateLimiter');
 const router = express.Router();
+
+// Rate limit soundscape operations
+router.use(soundscapeLimiter);
 
 // Get all soundscapes for user
 router.get('/', authenticateToken, async (req, res) => {

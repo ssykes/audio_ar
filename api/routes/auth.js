@@ -3,7 +3,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../database');
 const authenticateToken = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimiter');
 const router = express.Router();
+
+// Rate limit all auth endpoints
+router.use(authLimiter);
 
 // Register
 router.post('/register', async (req, res) => {
@@ -12,6 +16,17 @@ router.post('/register', async (req, res) => {
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Password strength check (minimum 6 chars)
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     // Check if user exists
