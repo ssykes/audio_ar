@@ -307,7 +307,7 @@ if (Test-Path $apiPath) {
             $dirName = Split-Path $file -Parent
             if ($dirName) {
                 Write-Host "   Ensuring directory: api/$dirName" -ForegroundColor Gray
-                & ssh $SERVER_USER@$SERVER_HOST "mkdir -p ${SERVER_PATH}/api/$dirName" 2>$null
+                & ssh -n $SERVER_USER@$SERVER_HOST "mkdir -p ${SERVER_PATH}/api/$dirName" 2>$null
             }
 
             Write-Host "   Uploading: api/$file" -NoNewline
@@ -328,7 +328,7 @@ if (Test-Path $apiPath) {
 
     # Install dependencies
     Write-Host "   Installing npm packages..." -NoNewline
-    $npmResult = & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && npm install 2>&1"
+    $npmResult = & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && npm install 2>&1"
     if ($LASTEXITCODE -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green
     } else {
@@ -338,25 +338,26 @@ if (Test-Path $apiPath) {
 
     # Stop existing server gracefully
     Write-Host "   Stopping existing API server..." -NoNewline
-    & ssh $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1" | Out-Null
+    & ssh -n $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1" | Out-Null
     Start-Sleep -Seconds 2  # Give it time to stop
     Write-Host " [OK]" -ForegroundColor Green
 
     # Start new server in background (simple approach)
     Write-Host "   Starting API server..." -NoNewline
     # Run server start in background - don't wait for it to complete
-    & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && nohup node server.js > /dev/null 2>&1 &" 2>$null
+    # Use -n to redirect stdin (prevents SSH from waiting)
+    & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && nohup node server.js > /dev/null 2>&1 &" 2>$null
     Start-Sleep -Seconds 3  # Wait for process to start
-    
+
     # Check if it's running
-    $checkResult = & ssh $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js'" 2>$null
+    $checkResult = & ssh -n $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js'" 2>$null
     if ($checkResult -and $checkResult.Trim() -ne "") {
         Write-Host " [OK] (PID: $checkResult)" -ForegroundColor Green
         Write-Host "   ✅ API server is running!" -ForegroundColor Green
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
         Write-Host "   ⚠️ Server may have failed to start - check api.log" -ForegroundColor Yellow
-        $logContent = & ssh $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log"
+        $logContent = & ssh -n $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log" 2>$null
         if ($logContent) {
             $logContent | ForEach-Object {
                 Write-Host "     $_" -ForegroundColor Gray
