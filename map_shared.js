@@ -394,11 +394,13 @@ class MapAppShared {
      * @protected
      */
     _createDefaultSoundscape() {
-        const soundscape = new SoundScape('default', 'Default Soundscape', [], []);
-        this.soundscapes.set('default', soundscape);
-        this.activeSoundscapeId = 'default';
+        // Generate a proper UUID-like ID instead of using 'default' (which isn't a valid UUID)
+        const id = 'soundscape_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
+        const soundscape = new SoundScape(id, 'Default Soundscape', [], []);
+        this.soundscapes.set(id, soundscape);
+        this.activeSoundscapeId = id;
         this._updateSoundscapeSelector();
-        this.debugLog('🎼 Created default soundscape');
+        this.debugLog('🎼 Created default soundscape: ' + id);
     }
 
     /**

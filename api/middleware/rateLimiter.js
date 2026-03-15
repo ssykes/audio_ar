@@ -7,6 +7,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  trustProxy: true, // Required when behind Apache/nginx reverse proxy
 });
 
 // Rate limiter for soundscape operations
@@ -16,6 +17,7 @@ const soundscapeLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  trustProxy: true, // Required when behind Apache/nginx reverse proxy
 });
 
 module.exports = { authLimiter, soundscapeLimiter };

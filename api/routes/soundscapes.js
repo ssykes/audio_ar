@@ -172,4 +172,25 @@ router.post('/:id/save', authenticateToken, async (req, res) => {
   }
 });
 
+// Get soundscape last modified timestamp (Session 5E: Lightweight sync check)
+router.get('/:id/modified', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await db.query(
+      'SELECT updated_at FROM soundscapes WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Soundscape not found' });
+    }
+
+    res.json({ lastModified: result.rows[0].updated_at.toISOString() });
+  } catch (error) {
+    console.error('[Soundscapes] Get modified error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 module.exports = router;

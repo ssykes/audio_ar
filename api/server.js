@@ -8,6 +8,9 @@ const soundscapeRoutes = require('./routes/soundscapes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy (required when behind Apache/nginx reverse proxy)
+app.set('trust proxy', true);
+
 app.use(cors());
 app.use(express.json());
 

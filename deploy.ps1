@@ -349,15 +349,15 @@ if (Test-Path $apiPath) {
     & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && nohup node server.js > /dev/null 2>&1 &" 2>$null
     Start-Sleep -Seconds 3  # Wait for process to start
 
-    # Check if it's running
-    $checkResult = & ssh -n $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js'" 2>$null
+    # Check if it's running (use head -1 to get single PID, timeout after 5s)
+    $checkResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js' | head -1" 2>$null
     if ($checkResult -and $checkResult.Trim() -ne "") {
         Write-Host " [OK] (PID: $checkResult)" -ForegroundColor Green
         Write-Host "   ✅ API server is running!" -ForegroundColor Green
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
         Write-Host "   ⚠️ Server may have failed to start - check api.log" -ForegroundColor Yellow
-        $logContent = & ssh -n $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log" 2>$null
+        $logContent = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log" 2>$null
         if ($logContent) {
             $logContent | ForEach-Object {
                 Write-Host "     $_" -ForegroundColor Gray

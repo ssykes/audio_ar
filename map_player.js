@@ -128,11 +128,17 @@ class MapPlayerApp extends MapAppShared {
             return;
         }
 
+        // Skip if no valid soundscape ID (don't pass 'default' to server)
+        if (!this.activeSoundscapeId || this.activeSoundscapeId === 'default') {
+            this.debugLog('ℹ️ No server soundscape selected - using local data');
+            return;
+        }
+
         try {
             this.debugLog('☁️ Loading soundscape from server...');
 
             // Get soundscape data
-            const data = await this.api.loadSoundscape(this.activeSoundscapeId || 'default');
+            const data = await this.api.loadSoundscape(this.activeSoundscapeId);
             const soundscape = SoundScape.fromJSON(data.soundscape);
 
             // Clear existing
