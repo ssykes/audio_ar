@@ -154,7 +154,7 @@ class SoundScape {
      * @returns {SoundScape}
      */
     static fromJSON(data) {
-        const behaviors = data.behaviors.map(b => SoundBehavior.fromJSON(b));
+        const behaviors = (data.behaviors || []).map(b => SoundBehavior.fromJSON(b));
         return new SoundScape(data.id, data.name, data.soundIds, behaviors, data.waypointData || []);
     }
 }
@@ -567,15 +567,21 @@ window.FilterGroupExecutor = FilterGroupExecutor;
 
 /**
  * SoundScapeStorage - localStorage persistence for soundscapes
- * 
+ *
  * Usage:
  *   SoundScapeStorage.save(soundscape, waypoints);
  *   const data = SoundScapeStorage.load();
  *   SoundScapeStorage.export(soundscape, waypoints, filename);
  *   SoundScapeStorage.import(file, callback);
+ *
+ * Session 5A: Multi-Soundscape Support
+ *   SoundScapeStorage.getAll();
+ *   SoundScapeStorage.saveAll(soundscapes, activeId);
+ *   SoundScapeStorage.createDefault();
  */
 class SoundScapeStorage {
-    static STORAGE_KEY = 'soundscape_config';
+    static STORAGE_KEY = 'soundscape_config';  // Legacy: single soundscape
+    static MULTI_STORAGE_KEY = 'soundscapes';  // Session 5A: multiple soundscapes
 
     /**
      * Save soundscape and waypoints to localStorage
@@ -681,9 +687,197 @@ class SoundScapeStorage {
         };
         reader.readAsText(file);
     }
+
+    // =============================================================================
+    // Session 5A: Multi-Soundscape Storage Methods
+    // =============================================================================
+
+    /**
+     * Get all soundscapes and active selection from localStorage
+     * Session 5B: Added migration from single-soundscape format
+     * @returns {{activeId: string|null, soundscapes: SoundScape[]}|null}
+     */
+    static getAll() {
+        // Try multi-soundscape format first
+        let json = localStorage.getItem(this.MULTI_STORAGE_KEY);
+
+        if (!json) {
+            // Migration: Check for old single-soundscape format
+            const oldJson = localStorage.getItem(this.STORAGE_KEY);
+            if (oldJson) {
+                console.log('[SoundScapeStorage] Migrating from single-soundscape format...');
+                try {
+                    const oldData = JSON.parse(oldJson);
+                    if (oldData.soundscape && oldData.waypoints) {
+                        const soundscape = SoundScape.fromJSON(oldData.soundscape);
+                        // Migrate to multi-soundscape format
+                        this.saveAll([soundscape], soundscape.id);
+                        // Clear old format
+                        localStorage.removeItem(this.STORAGE_KEY);
+                        console.log('[SoundScapeStorage] Migration complete');
+                        return {
+                            activeId: soundscape.id,
+                            soundscapes: [soundscape]
+                        };
+                    }
+                } catch (error) {
+                    console.error('[SoundScapeStorage] Migration failed:', error);
+                }
+            }
+            console.log('[SoundScapeStorage] No multi-soundscape config found');
+            return null;
+        }
+
+        try {
+            const data = JSON.parse(json);
+            console.log('[SoundScapeStorage] Raw loaded data:', data);
+            const soundscapes = (data.soundscapes || []).map(s => {
+                console.log('[SoundScapeStorage] Converting soundscape:', s);
+                const converted = SoundScape.fromJSON(s);
+                console.log('[SoundScapeStorage] Converted to SoundScape:', converted, 'has addSound:', typeof converted.addSound);
+                return converted;
+            });
+            console.log(`[SoundScapeStorage] Loaded ${soundscapes.length} soundscapes`);
+            return {
+                activeId: data.activeId || null,
+                soundscapes: soundscapes
+            };
+        } catch (error) {
+            console.error('[SoundScapeStorage] Failed to load all:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Save all soundscapes and active selection to localStorage
+     * @param {SoundScape[]} soundscapes - Array of all soundscapes
+     * @param {string} activeId - ID of currently selected soundscape
+     */
+    static saveAll(soundscapes, activeId) {
+        console.log('[SoundScapeStorage] saveAll called with:', soundscapes);
+        soundscapes.forEach((s, i) => {
+            console.log(`[SoundScapeStorage] soundscape[${i}]:`, s, 'has toJSON:', typeof s.toJSON);
+        });
+        
+        const data = {
+            version: '5.0',
+            updatedAt: new Date().toISOString(),
+            activeId: activeId,
+            soundscapes: soundscapes.map(s => {
+                if (typeof s.toJSON !== 'function') {
+                    console.error('[SoundScapeStorage] Invalid soundscape - no toJSON method:', s);
+                    // If it's already a plain object, use it directly
+                    return s;
+                }
+                return s.toJSON();
+            })
+        };
+        localStorage.setItem(this.MULTI_STORAGE_KEY, JSON.stringify(data));
+        console.log(`[SoundScapeStorage] Saved ${soundscapes.length} soundscapes (active: ${activeId})`);
+    }
+
+    /**
+     * Create default empty soundscape on fresh install
+     * @returns {{soundscape: SoundScape, activeId: string}}
+     */
+    static createDefault() {
+        const id = 'soundscape_' + Date.now();
+        const soundscape = new SoundScape(id, 'My Soundscape', [], [], []);
+        
+        const data = {
+            version: '5.0',
+            updatedAt: new Date().toISOString(),
+            activeId: id,
+            soundscapes: [soundscape.toJSON()]
+        };
+        localStorage.setItem(this.MULTI_STORAGE_KEY, JSON.stringify(data));
+        console.log('[SoundScapeStorage] Created default soundscape:', id);
+        
+        return {
+            soundscape: soundscape,
+            activeId: id
+        };
+    }
+
+    /**
+     * Check if multi-soundscape config exists in localStorage
+     * @returns {boolean}
+     */
+    static exists() {
+        return !!localStorage.getItem(this.MULTI_STORAGE_KEY);
+    }
+
+    /**
+     * Get the active soundscape ID
+     * @returns {string|null}
+     */
+    static getActiveId() {
+        const json = localStorage.getItem(this.MULTI_STORAGE_KEY);
+        if (!json) return null;
+        try {
+            const data = JSON.parse(json);
+            return data.activeId || null;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    /**
+     * Set the active soundscape ID
+     * @param {string} activeId - ID to set as active
+     */
+    static setActiveId(activeId) {
+        const json = localStorage.getItem(this.MULTI_STORAGE_KEY);
+        if (!json) return;
+        
+        try {
+            const data = JSON.parse(json);
+            data.activeId = activeId;
+            data.updatedAt = new Date().toISOString();
+            localStorage.setItem(this.MULTI_STORAGE_KEY, JSON.stringify(data));
+            console.log('[SoundScapeStorage] Set active soundscape:', activeId);
+        } catch (error) {
+            console.error('[SoundScapeStorage] Failed to set active:', error);
+        }
+    }
+
+    /**
+     * Delete a soundscape by ID
+     * @param {string} id - ID of soundscape to delete
+     * @returns {boolean} - True if deleted, false if not found
+     */
+    static delete(id) {
+        const data = this.getAll();
+        if (!data) return false;
+
+        const beforeCount = data.soundscapes.length;
+        data.soundscapes = data.soundscapes.filter(s => s.id !== id);
+        
+        if (data.soundscapes.length === beforeCount) {
+            console.log('[SoundScapeStorage] Soundscape not found:', id);
+            return false;
+        }
+
+        // If deleted active, set new active
+        if (data.activeId === id) {
+            data.activeId = data.soundscapes.length > 0 ? data.soundscapes[0].id : null;
+        }
+
+        this.saveAll(data.soundscapes, data.activeId);
+        console.log('[SoundScapeStorage] Deleted soundscape:', id);
+        return true;
+    }
+
+    /**
+     * Clear all multi-soundscape data from localStorage
+     */
+    static clearAll() {
+        localStorage.removeItem(this.MULTI_STORAGE_KEY);
+        console.log('[SoundScapeStorage] Cleared all multi-soundscape data');
+    }
 }
 
 // Export storage helper
 window.SoundScapeStorage = SoundScapeStorage;
 
-console.log('[soundscape.js] ✅ Loaded - SoundScape architecture ready (v3.0 with persistence)');
+console.log('[soundscape.js] ✅ Loaded - SoundScape architecture ready (v5.0 with multi-soundscape support)');

@@ -301,12 +301,154 @@ Phone: Import JSON → Load to localStorage → Tap Start → GPS + Compass → 
 
 ---
 
+## Session 5: Multi-Soundscape Support (PLANNED)
+
+**Goal:** Enable creating, switching, and managing multiple soundscapes
+
+**Context:** Single user, no existing data to migrate (can delete current dummy soundscape)
+
+### Implementation Sessions (Divided for Manageability)
+
+| Session | Phase | Task | Files | Est. Lines | Status |
+|---------|-------|------|-------|------------|--------|
+| **5A** | 1 | Storage layer: `SoundScapeStorage.getAll()`, `saveAll()` | `soundscape.js` | ~50 | ✅ Done |
+| **5B** | 2 | MapPlacerApp refactor: Replace `currentSoundscape` with `soundscapes` Map | `map_placer.js` | ~200 | ✅ Done |
+| **5C** | 3 | UI: New button, soundscape switching, map centering | `map_placer.html`, `map_placer.js` | ~100 | ⏳ Next |
+| **5D** | 4 | Server sync: Fetch/save multiple soundscapes | `api-client.js`, `map_placer.js` | ~50 | ⏳ Pending |
+
+**Total Effort:** ~450 lines across 4 sessions
+
+### Session 5A: Storage Layer (NEXT)
+
+**Changes:**
+```javascript
+// soundscape.js - Add multi-soundscape storage
+class SoundScapeStorage {
+    static STORAGE_KEY = 'soundscapes';  // plural
+
+    static getAll() {
+        // Returns: { activeId, soundscapes: [...] }
+    }
+
+    static saveAll(soundscapes, activeId) {
+        // Saves all soundscapes + active selection
+    }
+
+    static createDefault() {
+        // Creates first empty soundscape on fresh install
+    }
+}
+```
+
+**Testing:**
+- Open `map_placer.html` → verify empty soundscape created
+- Console: `[SoundScapeStorage] Initialized with 1 soundscape`
+
+**Status:** ✅ **Completed** - Session 5A implemented
+
+**New Methods Added:**
+- `SoundScapeStorage.getAll()` - Load all soundscapes + active ID
+- `SoundScapeStorage.saveAll(soundscapes, activeId)` - Save all
+- `SoundScapeStorage.createDefault()` - Create first empty soundscape
+- `SoundScapeStorage.getActiveId()` - Get active soundscape ID
+- `SoundScapeStorage.setActiveId(id)` - Set active soundscape ID
+- `SoundScapeStorage.delete(id)` - Delete soundscape by ID
+- `SoundScapeStorage.clearAll()` - Clear all multi-soundscape data
+- `SoundScapeStorage.exists()` - Check if multi-soundscape config exists
+
+**Testing Instructions:**
+1. Open `http://localhost:8000/map_placer.html`
+2. Open browser DevTools console
+3. Run: `SoundScapeStorage.createDefault()` - creates empty soundscape
+4. Run: `const data = SoundScapeStorage.getAll()` - verify 1 soundscape
+5. Run: `console.log(data.soundscapes[0].name)` - should show "My Soundscape"
+
+### Session 5B: MapPlacerApp Refactor - Completed ✅
+
+**What Was Implemented:**
+- Replaced `this.currentSoundscape` with `this.soundscapes` Map + `this.activeSoundscapeId`
+- Added `this.serverSoundscapeIds` Map for server sync tracking
+- New helper methods: `getActiveSoundscape()`, `switchSoundscape()`, `deleteSoundscape()`
+- Updated all waypoint operations to use active soundscape
+- Fixed server sync to load all soundscapes into local map
+- Fixed localStorage to store clean waypoint data (no Leaflet circular refs)
+- Map centering when switching soundscapes
+- Migration from old single-soundscape format
+
+**Files Modified:**
+- `map_placer.js` - ~400 lines changed
+- `soundscape.js` - ~50 lines (migration fix, debug logging)
+
+**Status:** ✅ **Completed** - Multi-soundscape support working
+
+**Known Issues (for 5C):**
+- "💾 Save As..." button creates duplicate soundscapes on every click
+- No clear concept of "current working soundscape"
+- User accidentally creates multiple soundscapes with same name
+
+---
+
+### Session 5C: UX Fixes - NEXT
+
+**Goal:** Fix the "Save As..." confusion and improve soundscape management UX
+
+**Problem:**
+- Current "💾 Save As..." creates a NEW soundscape every time
+- User clicks it thinking it saves, but creates duplicates
+- No visual feedback about which soundscape is active
+
+**Solution (Option A - Simple Fix):**
+1. Rename button from "💾 Save As..." → "➕ New"
+2. "New" creates empty soundscape and switches to it (one-time action)
+3. After creating, all edits auto-save to current soundscape
+4. Dropdown switches between soundscapes + centers map
+5. No Rename/Delete buttons yet (future enhancement)
+
+**Changes:**
+```javascript
+// map_placer.js
+_createNewSoundscape() {
+    // Create new, switch to it, user is now "in" that soundscape
+    // Subsequent waypoint adds auto-save to this soundscape
+}
+
+// Auto-save always goes to activeSoundscapeId
+_saveSoundscapeToStorage() {
+    const soundscape = this.getActiveSoundscape();
+    // ... save to server if serverSoundscapeIds.has(activeSoundscapeId)
+}
+```
+
+```html
+<!-- map_placer.html -->
+<button id="newSoundscapeBtn" class="btn">➕ New</button>
+<!-- Remove "Save As..." text - it's confusing -->
+```
+
+**Testing:**
+1. Login → existing soundscapes load into dropdown
+2. Click "➕ New" → creates empty soundscape, switches to it
+3. Add waypoints → auto-saves to current soundscape (no duplicates)
+4. Switch dropdown → map centers on new soundcape's waypoints
+5. Refresh → waypoints persist
+
+---
+
+### Session 5D: Server Sync (Future)
+
+**Changes:**
+- Load ALL user's soundscapes on login (not just most recent)
+- Populate dropdown from server
+- Switch loads from server if not cached locally
+- Independent save per soundscape
+
+---
+
 ## Known Limitations
 
 1. **No behavior editing UI** - Behaviors can be defined in code but not edited via UI
-2. **Single soundscape mode** - Dropdown exists but only one soundscape supported at a time
-3. **No soundscape list view** - Can't see all saved soundscapes, only current one
-4. **Import overwrites without backup** - Confirm dialog exists, but no "export before overwrite" option
+2. **No Rename/Delete** - Can't rename or delete soundscapes via UI (Session 5C+)
+3. **Import overwrites without backup** - Confirm dialog exists, but no "export before overwrite" option
 
 ---
 
