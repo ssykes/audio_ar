@@ -434,6 +434,72 @@ class MapAppShared {
         this.debugLog('💾 Saved to localStorage');
     }
 
+    /**
+     * Mark soundscape as dirty (has unsaved changes)
+     * @protected
+     */
+    _markSoundscapeDirty() {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return;
+
+        soundscape.isDirty = true;
+        this.debugLog('📝 Soundscape marked dirty');
+        this._updateSyncStatus(false);  // Show "Not synced" indicator
+    }
+
+    /**
+     * Schedule auto-save to server (debounced)
+     * @protected
+     */
+    _scheduleAutoSave() {
+        // Clear any pending timer
+        if (this.saveDebounceTimer) {
+            clearTimeout(this.saveDebounceTimer);
+            this.saveDebounceTimer = null;
+        }
+
+        // Schedule save after 2 seconds (resets on each call)
+        this.saveDebounceTimer = setTimeout(() => {
+            this._executeAutoSave();
+        }, 2000);
+    }
+
+    /**
+     * Execute auto-save to server (called by timer)
+     * Only saves if soundscape is dirty
+     * @private
+     */
+    _executeAutoSave() {
+        if (!this.isLoggedIn) return;
+
+        const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
+        if (!serverId) return;
+
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape || !soundscape.isDirty) {
+            this.debugLog('✅ No changes - skipping save');
+            return;
+        }
+
+        this.debugLog('☁️ Auto-saving to server...');
+        this.api.saveSoundscape(
+            serverId,
+            this.waypoints.map(wp => this.api.wpToServer(wp)),
+            soundscape.behaviors || []
+        )
+        .then(() => {
+            soundscape.isDirty = false;
+            this.debugLog('✅ Auto-saved to server');
+            this._updateSyncStatus(true);
+        })
+        .catch((error) => {
+            this.debugLog('❌ Server save failed: ' + error.message);
+            this._showToast('⚠️ Server sync failed - saved locally', 'warning');
+            this._updateSyncStatus(false);
+            // Keep isDirty = true so it will retry later
+        });
+    }
+
     // =====================================================================
     // WAYPOINT MANAGEMENT (Shared)
     // =====================================================================
@@ -465,7 +531,7 @@ class MapAppShared {
         this._createMarker(waypoint);
         this._updateWaypointList();
 
-        // Add to soundscape and auto-save
+        // Add to soundscape and mark dirty
         const soundscape = this.getActiveSoundscape();
         if (soundscape) {
             const cleanWaypoint = {
@@ -483,7 +549,8 @@ class MapAppShared {
                 soundConfig: waypoint.soundConfig
             };
             soundscape.addSound(waypoint.id, cleanWaypoint);
-            this._saveSoundscapeToStorage();
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
         }
 
         return waypoint;
@@ -520,7 +587,8 @@ class MapAppShared {
             waypoint.lat = e.target.getLatLng().lat;
             waypoint.lon = e.target.getLatLng().lng;
             this._updateRadiusCircle(waypoint);
-            this._saveSoundscapeToStorage();  // Auto-save new position
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();  // Debounced save after drag
         });
         
         this.markers.set(waypoint.id, marker);
@@ -593,6 +661,8 @@ class MapAppShared {
         }
 
         this._updateWaypointList();
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();  // Debounced save after edit
         this._showToast('✅ Waypoint updated', 'success');
     }
 
@@ -628,11 +698,12 @@ class MapAppShared {
         this.waypoints.splice(index, 1);
         this._updateWaypointList();
 
-        // Remove from soundscape and auto-save
+        // Remove from soundscape and mark dirty
         const soundscape = this.getActiveSoundscape();
         if (soundscape) {
             soundscape.removeSound(waypoint.id);
-            this._saveSoundscapeToStorage();
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
         }
     }
 
@@ -648,12 +719,13 @@ class MapAppShared {
         this.nextId = 1;
         this._updateWaypointList();
 
-        // Clear soundscape and auto-save
+        // Clear soundscape and mark dirty
         const soundscape = this.getActiveSoundscape();
         if (soundscape) {
             soundscape.soundIds = [];
             soundscape.waypointData = [];
-            this._saveSoundscapeToStorage();
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
         }
     }
 

@@ -87,6 +87,9 @@ class SoundScape {
         this.soundIds = soundIds;
         this.behaviors = behaviors;
         this.waypointData = waypointData;  // Full waypoint data for persistence
+        
+        // === Dirty Flag (Session 6: Auto-save with dirty tracking) ===
+        this.isDirty = false;  // Tracks unsaved changes
     }
 
     /**

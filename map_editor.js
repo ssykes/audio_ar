@@ -45,6 +45,16 @@ class MapEditorApp extends MapAppShared {
             this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
 
+        // Warn before closing page with unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape?.isDirty) {
+                e.preventDefault();
+                e.returnValue = '';  // Browser shows "Leave site?" dialog
+                return '';
+            }
+        });
+
         console.log('Map Editor ready');
     }
 
@@ -703,13 +713,28 @@ class MapEditorApp extends MapAppShared {
 
     /**
      * Update sync status indicator
+     * @param {boolean} isSynced - Whether server is in sync
      * @private
      */
     _updateSyncStatus(isSynced) {
         const syncStatus = document.getElementById('syncStatus');
-        if (syncStatus) {
-            syncStatus.textContent = isSynced ? '🟢 Synced to server' : '🟡 Local only';
-            syncStatus.style.color = isSynced ? '#00ff88' : '#f39c12';
+        if (!syncStatus) return;
+
+        const soundscape = this.getActiveSoundscape();
+        const isDirty = soundscape?.isDirty || false;
+
+        if (!this.isLoggedIn) {
+            syncStatus.textContent = '🔓 Not logged in';
+            syncStatus.style.color = '#888';
+        } else if (isDirty) {
+            syncStatus.textContent = '⚠️ Unsaved changes...';
+            syncStatus.style.color = '#f39c12';
+        } else if (isSynced) {
+            syncStatus.textContent = '🟢 Synced to server';
+            syncStatus.style.color = '#00ff88';
+        } else {
+            syncStatus.textContent = '🟡 Local only';
+            syncStatus.style.color = '#f39c12';
         }
     }
 
