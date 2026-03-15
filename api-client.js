@@ -213,6 +213,14 @@ class ApiClient {
     }
 
     /**
+     * Get soundscape modified timestamp (Session 5E: Auto-sync)
+     */
+    async getSoundscapeModified(id) {
+        const data = await this.request(`/soundscapes/${id}/modified`);
+        return data.lastModified;
+    }
+
+    /**
      * Convert app waypoint to server format
      */
     wpToServer(wp) {

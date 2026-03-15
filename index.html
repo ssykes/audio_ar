@@ -4,424 +4,401 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1a1a2e">
-    <title>Audio Panning Test v3.3</title>
+    <title>Spatial Audio AR - Landing</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 800px;
-            margin: 40px auto;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            background: #1a1a2e;
-            color: #eee;
+        }
+        .container {
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
         }
         h1 {
-            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 1.1em;
+            margin-bottom: 40px;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 30px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .card h2 {
+            font-size: 1.5em;
+            margin-bottom: 20px;
             color: #00d9ff;
         }
-        .controls {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin: 30px 0;
-            flex-wrap: wrap;
+        .input-group {
+            margin-bottom: 15px;
         }
-        #toggleBtn, .panBtn {
-            padding: 15px 25px;
-            font-size: 16px;
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 14px 18px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #fff;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        input[type="email"]:focus,
+        input[type="password"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
             border: none;
             border-radius: 8px;
+            font-size: 1em;
             cursor: pointer;
-            background: #4a4a6a;
-            color: #fff;
             transition: all 0.3s;
+            font-weight: 600;
         }
-        #toggleBtn.active, .panBtn.active {
-            background: #e94560;
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
         }
-        #toggleBtn:hover, .panBtn:hover {
-            opacity: 0.8;
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
         }
-        .panBtn.active {
-            background: #00d9ff;
-            color: #000;
+        .btn-success {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: #fff;
         }
-        .compass {
-            width: 200px;
-            height: 200px;
-            margin: 30px auto;
-            position: relative;
-            border: 2px solid #00d9ff;
-            border-radius: 50%;
+        .btn-success:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
         }
-        .compass::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            background: #00d9ff;
-            transform: translateY(-50%);
+        .btn-device {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            margin-bottom: 15px;
+            text-align: left;
+            padding: 18px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
-        .compass::after {
-            content: '';
-            position: absolute;
-            left: 50%;
-            top: 0;
-            width: 1px;
-            height: 100%;
-            background: #00d9ff;
-            transform: translateX(-50%);
+        .btn-device:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: #667eea;
+            transform: translateY(-2px);
         }
-        .compass-point {
-            position: absolute;
-            width: 16px;
-            height: 16px;
-            background: #4a4a6a;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            transition: all 0.1s;
-            z-index: 10;
+        .btn-device .icon {
+            font-size: 2em;
         }
-        .compass-point.active {
-            background: #00d9ff;
-            box-shadow: 0 0 15px #00d9ff;
-            width: 20px;
-            height: 20px;
+        .btn-device .label {
+            flex: 1;
         }
-        .compass-point span {
-            position: absolute;
-            font-size: 10px;
+        .btn-device .label strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+        .btn-device .label small {
             color: #888;
-            white-space: nowrap;
+            font-size: 0.85em;
+            font-weight: normal;
         }
-        .point-n span { top: -20px; left: 50%; transform: translateX(-50%); }
-        .point-ne span { top: 15px; right: -25px; }
-        .point-e span { top: 50%; right: -25px; transform: translateY(-50%); }
-        .point-se span { bottom: 15px; right: -25px; }
-        .point-s span { bottom: -20px; left: 50%; transform: translateX(-50%); }
-        .point-sw span { bottom: 15px; left: -25px; }
-        .point-w span { top: 50%; left: -25px; transform: translateY(-50%); }
-        .point-nw span { top: 15px; left: -25px; }
-        #debugConsole {
-            background: #0d0d1a;
-            border: 1px solid #333;
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 25px 0;
+            color: #666;
+        }
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .divider span {
+            padding: 0 15px;
+            font-size: 0.9em;
+        }
+        .error-msg {
+            background: rgba(233, 69, 96, 0.2);
+            border: 1px solid #e94560;
+            color: #ff6b6b;
+            padding: 12px;
             border-radius: 8px;
-            padding: 15px;
-            margin-top: 30px;
-            height: 300px;
-            overflow-y: auto;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 12px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
         }
-        .log-entry {
-            margin: 3px 0;
-            padding: 2px 5px;
-            border-radius: 3px;
+        .success-msg {
+            background: rgba(0, 184, 148, 0.2);
+            border: 1px solid #00b894;
+            color: #00ff88;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
         }
-        .log-info { color: #00d9ff; }
-        .log-success { color: #00ff88; }
-        .log-error { color: #e94560; }
+        .hidden {
+            display: none !important;
+        }
+        .version {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #444;
+            font-size: 0.8em;
+        }
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 2em;
+            }
+            .card {
+                padding: 20px;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>🎵 Audio Panning Test <span style="font-size:0.5em; color:#666;">v3.98</span></h1>
-    
-    <div class="controls">
-        <button id="toggleBtn">🔄 Start</button>
-        <button id="nsBtn" class="panBtn">⬆️ N↔S</button>
-        <button id="ewBtn" class="panBtn">➡️ E↔W</button>
-    </div>
-    
-    <div class="compass" id="compass">
-        <div class="compass-point point-n" style="top: 0%; left: 50%;"><span>N</span></div>
-        <div class="compass-point point-ne" style="top: 15%; left: 85%;"><span>NE</span></div>
-        <div class="compass-point point-e" style="top: 50%; left: 100%;"><span>E</span></div>
-        <div class="compass-point point-se" style="top: 85%; left: 85%;"><span>SE</span></div>
-        <div class="compass-point point-s" style="top: 100%; left: 50%;"><span>S</span></div>
-        <div class="compass-point point-sw" style="top: 85%; left: 15%;"><span>SW</span></div>
-        <div class="compass-point point-w" style="top: 50%; left: 0%;"><span>W</span></div>
-        <div class="compass-point point-nw" style="top: 15%; left: 15%;"><span>NW</span></div>
-    </div>
-    
-    <div id="debugConsole"></div>
+    <div class="container">
+        <h1>🎧 Spatial Audio AR</h1>
+        <p class="subtitle">Create and experience location-based audio</p>
 
-    <script src="spatial_audio.js?v=20260314155205"></script>
-    <script>
-        // Register Service Worker for offline support
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then((registration) => {
-                        console.log('✅ Service Worker registered:', registration.scope);
-                    })
-                    .catch((error) => {
-                        console.error('❌ Service Worker registration failed:', error);
-                    });
-            });
-        }
-
-        // === Application Code using spatial_audio.js v3.0 ===
-        
-        let engine = null;
-        let currentMode = null;
-        let animationId = null;
-        let visualStartTime = 0;
-
-        // 8 compass points for visual highlighting
-        const compassPoints = [
-            { name: 'N',  angle: 0,     element: 'point-n' },
-            { name: 'NE', angle: 45,    element: 'point-ne' },
-            { name: 'E',  angle: 90,    element: 'point-e' },
-            { name: 'SE', angle: 135,   element: 'point-se' },
-            { name: 'S',  angle: 180,   element: 'point-s' },
-            { name: 'SW', angle: 225,   element: 'point-sw' },
-            { name: 'W',  angle: 270,   element: 'point-w' },
-            { name: 'NW', angle: 315,   element: 'point-nw' }
-        ];
-
-        function log(message, type = 'info') {
-            const console = document.getElementById('debugConsole');
-            const entry = document.createElement('div');
-            entry.className = `log-entry log-${type}`;
-            const time = new Date().toLocaleTimeString();
-            entry.textContent = `[${time}] ${message}`;
-            console.appendChild(entry);
-            console.scrollTop = console.scrollHeight;
-        }
-
-        async function initEngine() {
-            if (!engine) {
-                engine = new SpatialAudioEngine({
-                    keepAlive: true,
-                    keepAliveInterval: 3000
-                });
-                await engine.init();
-                engine.enableKeepAlive(3000);
-                engine.monitorAudioState(5000);
-                log('🔊 Spatial audio engine initialized (v3.0)', 'success');
-            }
-            await engine.resume();
-            log(`📊 Audio state: ${engine.getState()}`, 'info');
-            return true;
-        }
-
-        function stopAll() {
-            currentMode = null;
+        <!-- Login Card -->
+        <div id="loginCard" class="card">
+            <h2>🔐 Welcome Back</h2>
+            <div id="errorMsg" class="error-msg hidden"></div>
+            <div id="successMsg" class="success-msg hidden"></div>
             
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-                animationId = null;
+            <div class="input-group">
+                <input type="email" id="email" placeholder="Email" autocomplete="email" />
+            </div>
+            <div class="input-group">
+                <input type="password" id="password" placeholder="Password" autocomplete="current-password" />
+            </div>
+            
+            <button id="loginBtn" class="btn btn-primary">🔑 Login</button>
+            <div class="divider"><span>OR</span></div>
+            <button id="registerBtn" class="btn btn-success">📝 Create Account</button>
+        </div>
+
+        <!-- Device Selector Card -->
+        <div id="deviceCard" class="card hidden">
+            <h2>📱 Choose Your Device</h2>
+            <div id="welcomeMsg" class="success-msg hidden"></div>
+            
+            <button id="editorBtn" class="btn btn-device">
+                <span class="icon">🖥️</span>
+                <span class="label">
+                    <strong>Editor (PC)</strong>
+                    <small>Create and edit soundscapes on your computer</small>
+                </span>
+            </button>
+            
+            <button id="playerBtn" class="btn btn-device">
+                <span class="icon">🎧</span>
+                <span class="label">
+                    <strong>Player (Phone)</strong>
+                    <small>Walk and listen with GPS-based audio</small>
+                </span>
+            </button>
+            
+            <div class="divider"><span>OR</span></div>
+            
+            <button id="logoutBtn" class="btn" style="background: rgba(233, 69, 96, 0.3); color: #ff6b6b;">
+                🚪 Logout
+            </button>
+        </div>
+    </div>
+
+    <div class="version">v6.0</div>
+
+    <script>
+        // Use relative URL - Cloudflare will handle HTTPS
+        window.API_BASE_URL = '/api';
+    </script>
+    <script src="api-client.js"></script>
+    <script>
+        /**
+         * Landing Page Controller
+         * Handles login/registration and device selection
+         */
+        class LandingPage {
+            constructor() {
+                this.api = new ApiClient();
+                this.elements = {
+                    loginCard: document.getElementById('loginCard'),
+                    deviceCard: document.getElementById('deviceCard'),
+                    email: document.getElementById('email'),
+                    password: document.getElementById('password'),
+                    errorMsg: document.getElementById('errorMsg'),
+                    successMsg: document.getElementById('successMsg'),
+                    welcomeMsg: document.getElementById('welcomeMsg')
+                };
             }
 
-            if (engine) {
-                engine.removeAllSources();
+            async init() {
+                // Check if already logged in
+                if (this.api.isLoggedIn()) {
+                    try {
+                        const valid = await this.api.verifyToken();
+                        if (valid) {
+                            this.showDeviceSelector();
+                            return;
+                        }
+                    } catch (error) {
+                        // Check if rate limited
+                        if (error.message.includes('Too many requests')) {
+                            this.showError('⚠️ Too many login attempts. Please wait 15 minutes and try again.');
+                            return;
+                        }
+                        // Server offline - show login form anyway
+                        console.log('[Landing] Server offline, showing login form');
+                    }
+                }
+                this.showLoginForm();
             }
 
-            // Clear all button states
-            document.getElementById('toggleBtn').classList.remove('active');
-            document.getElementById('nsBtn').classList.remove('active');
-            document.getElementById('ewBtn').classList.remove('active');
-
-            // Clear all compass highlights
-            document.querySelectorAll('.compass-point').forEach(el => {
-                el.classList.remove('active');
-            });
-
-            log('⏹ Stopped', 'info');
-        }
-
-        function updateCompass(angleDeg) {
-            angleDeg = angleDeg % 360;
-            if (angleDeg < 0) angleDeg += 360;
-
-            let closest = null;
-            let minDiff = 90;
-
-            compassPoints.forEach((point, index) => {
-                let diff = Math.abs(angleDeg - point.angle);
-                if (diff > 180) diff = 360 - diff;
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closest = index;
-                }
-            });
-
-            document.querySelectorAll('.compass-point').forEach(el => {
-                el.classList.remove('active');
-            });
-            if (closest !== null) {
-                const el = document.getElementById(compassPoints[closest].element);
-                if (el) el.classList.add('active');
+            showLoginForm() {
+                this.elements.loginCard.classList.remove('hidden');
+                this.elements.deviceCard.classList.add('hidden');
             }
-        }
 
-        function startPattern(mode) {
-            stopAll();
-
-            currentMode = mode;
-            visualStartTime = performance.now();
-
-            document.getElementById('toggleBtn').classList.toggle('active', mode === 'circular');
-            document.getElementById('nsBtn').classList.toggle('active', mode === 'ns');
-            document.getElementById('ewBtn').classList.toggle('active', mode === 'ew');
-
-            const modeNames = { circular: 'circular', ns: 'N↔S', ew: 'E↔W' };
-            log(`🎵 Starting ${modeNames[mode]} panning...`, 'success');
-
-            engine.createOscillator('pan1', {
-                wave: 'square',
-                freq: 440,
-                gain: 0.3
-            });
-
-            const source = engine.getSource('pan1');
-            source.start();
-
-            const t0 = engine.getCurrentTime();
-            const points = 128;
-
-            if (mode === 'circular') {
-                // Use HRTF panner for circular motion around head
-                const duration = 5;
-                for (let rot = 0; rot < 10; rot++) {
-                    for (let i = 0; i <= points; i++) {
-                        const t = t0 + rot * duration + (i / points) * duration;
-                        const angleRad = (i / points) * Math.PI * 2;
-                        const x = Math.sin(angleRad) * 2;
-                        const z = -Math.cos(angleRad) * 2;
-                        source.panner.positionX.setValueAtTime(x, t);
-                        source.panner.positionZ.setValueAtTime(z, t);
-                    }
-                }
-            } else if (mode === 'ns') {
-                // Pre-schedule smooth front-back motion with many points
-                const halfDuration = 2.5; // 2.5s front-to-back, 2.5s back-to-front
-                for (let cycle = 0; cycle < 5; cycle++) {
-                    const base = t0 + cycle * halfDuration * 2;
-                    // Front to back
-                    for (let i = 0; i <= points; i++) {
-                        const t = base + (i / points) * halfDuration;
-                        const z = 2 - (i / points) * 4; // +2 (front) to -2 (back)
-                        source.panner.positionX.setValueAtTime(0, t);
-                        source.panner.positionZ.setValueAtTime(z, t);
-                    }
-                    // Back to front
-                    for (let i = 0; i <= points; i++) {
-                        const t = base + halfDuration + (i / points) * halfDuration;
-                        const z = -2 + (i / points) * 4; // -2 (back) to +2 (front)
-                        source.panner.positionX.setValueAtTime(0, t);
-                        source.panner.positionZ.setValueAtTime(z, t);
-                    }
-                }
-            } else if (mode === 'ew') {
-                // Use StereoPanner with pre-scheduled smooth left-right motion
-                const stereoPanner = engine.ctx.createStereoPanner();
-                stereoPanner.connect(engine.masterGain);
-                source.gain.disconnect();
-                source.gain.connect(stereoPanner);
+            showDeviceSelector() {
+                this.elements.loginCard.classList.add('hidden');
+                this.elements.deviceCard.classList.remove('hidden');
                 
-                const halfDuration = 2.5; // 2.5s left-to-right, 2.5s right-to-left
-                for (let cycle = 0; cycle < 5; cycle++) {
-                    const base = t0 + cycle * halfDuration * 2;
-                    // Left to right
-                    for (let i = 0; i <= points; i++) {
-                        const t = base + (i / points) * halfDuration;
-                        const pan = -1 + (i / points) * 2; // -1 (left) to +1 (right)
-                        stereoPanner.pan.setValueAtTime(pan, t);
-                    }
-                    // Right to left
-                    for (let i = 0; i <= points; i++) {
-                        const t = base + halfDuration + (i / points) * halfDuration;
-                        const pan = 1 - (i / points) * 2; // +1 (right) to -1 (left)
-                        stereoPanner.pan.setValueAtTime(pan, t);
-                    }
+                if (this.api.user?.email) {
+                    this.elements.welcomeMsg.textContent = `👋 Welcome, ${this.api.user.email}`;
+                    this.elements.welcomeMsg.classList.remove('hidden');
                 }
             }
 
-            function updateVisual() {
-                if (!currentMode) return;
-                const elapsed = performance.now() - visualStartTime;
+            showError(message) {
+                this.elements.errorMsg.textContent = message;
+                this.elements.errorMsg.classList.remove('hidden');
+                setTimeout(() => {
+                    this.elements.errorMsg.classList.add('hidden');
+                }, 5000);
+            }
 
-                if (mode === 'circular') {
-                    const duration = 5000;
-                    const angleDeg = ((elapsed % duration) / duration) * 360;
-                    updateCompass(angleDeg);
-                } else if (mode === 'ns') {
-                    // 10 second full cycle (5s front-to-back, 5s back-to-front)
-                    const cycleDuration = 10000;
-                    const t = (elapsed % cycleDuration) / cycleDuration;
-                    if (t < 0.5) {
-                        updateCompass(0); // Front (N)
-                    } else {
-                        updateCompass(180); // Back (S)
-                    }
-                } else if (mode === 'ew') {
-                    // 10 second full cycle (5s left-to-right, 5s right-to-left)
-                    const cycleDuration = 10000;
-                    const t = (elapsed % cycleDuration) / cycleDuration;
-                    if (t < 0.5) {
-                        updateCompass(270); // Left (W)
-                    } else {
-                        updateCompass(90); // Right (E)
-                    }
+            showSuccess(message) {
+                this.elements.successMsg.textContent = message;
+                this.elements.successMsg.classList.remove('hidden');
+                setTimeout(() => {
+                    this.elements.successMsg.classList.add('hidden');
+                }, 3000);
+            }
+
+            async handleLogin() {
+                const email = this.elements.email.value.trim();
+                const password = this.elements.password.value;
+
+                if (!email || !password) {
+                    this.showError('Please enter both email and password');
+                    return;
                 }
 
-                animationId = requestAnimationFrame(updateVisual);
+                try {
+                    await this.api.login(email, password);
+                    this.showSuccess('Login successful!');
+                    setTimeout(() => this.showDeviceSelector(), 500);
+                } catch (error) {
+                    this.showError(error.message || 'Login failed');
+                }
+            }
+
+            async handleRegister() {
+                const email = this.elements.email.value.trim();
+                const password = this.elements.password.value;
+
+                if (!email || !password) {
+                    this.showError('Please enter both email and password');
+                    return;
+                }
+
+                if (password.length < 6) {
+                    this.showError('Password must be at least 6 characters');
+                    return;
+                }
+
+                try {
+                    await this.api.register(email, password);
+                    this.showSuccess('Account created!');
+                    setTimeout(() => this.showDeviceSelector(), 500);
+                } catch (error) {
+                    this.showError(error.message || 'Registration failed');
+                }
+            }
+
+            handleLogout() {
+                this.api.logout();
+                this.elements.email.value = '';
+                this.elements.password.value = '';
+                this.showLoginForm();
+            }
+
+            selectDevice(deviceType) {
+                // Store device preference for redirect
+                localStorage.setItem('audio_ar_device_type', deviceType);
+                
+                if (deviceType === 'editor') {
+                    window.location.href = 'map_editor.html';
+                } else {
+                    window.location.href = 'map_player.html';
+                }
+            }
+
+            setupEventListeners() {
+                // Login/Register
+                document.getElementById('loginBtn')?.addEventListener('click', () => this.handleLogin());
+                document.getElementById('registerBtn')?.addEventListener('click', () => this.handleRegister());
+                
+                // Allow Enter key for login
+                this.elements.password?.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.handleLogin();
+                });
+
+                // Device selection
+                document.getElementById('editorBtn')?.addEventListener('click', () => this.selectDevice('editor'));
+                document.getElementById('playerBtn')?.addEventListener('click', () => this.selectDevice('player'));
+                
+                // Logout
+                document.getElementById('logoutBtn')?.addEventListener('click', () => this.handleLogout());
             }
         }
 
-        document.getElementById('toggleBtn').addEventListener('click', async () => {
-            log('🔘 Circular button clicked', 'info');
-            if (currentMode === 'circular') {
-                stopAll();
-            } else {
-                try {
-                    const ok = await initEngine();
-                    if (ok) {
-                        startPattern('circular');
-                    }
-                } catch (err) {
-                    log('❌ Error: ' + err.message, 'error');
-                }
-            }
-        });
-
-        document.getElementById('nsBtn').addEventListener('click', async () => {
-            log('🔘 N-S button clicked', 'info');
-            if (currentMode === 'ns') {
-                stopAll();
-            } else {
-                try {
-                    const ok = await initEngine();
-                    if (ok) {
-                        startPattern('ns');
-                    }
-                } catch (err) {
-                    log('❌ Error: ' + err.message, 'error');
-                }
-            }
-        });
-
-        document.getElementById('ewBtn').addEventListener('click', async () => {
-            log('🔘 E-W button clicked', 'info');
-            if (currentMode === 'ew') {
-                stopAll();
-            } else {
-                try {
-                    const ok = await initEngine();
-                    if (ok) {
-                        startPattern('ew');
-                    }
-                } catch (err) {
-                    log('❌ Error: ' + err.message, 'error');
-                }
-            }
-        });
-
-        log('🎵 Audio panning test v3.3 - Smooth back-and-forth panning', 'info');
+        // Initialize app
+        const app = new LandingPage();
+        app.init();
+        app.setupEventListeners();
     </script>
 </body>
 </html>

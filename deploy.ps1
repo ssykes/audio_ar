@@ -25,7 +25,9 @@ $DISPLAY_VERSION_FILES = @(
     "single_sound_v2.html",
     "index.html",
     "auto_rotate.html",
-    "map_placer.html"
+    "map_placer.html",
+    "map_editor.html",
+    "map_player.html"
 )
 
 foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
@@ -50,20 +52,29 @@ foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
 
 Write-Host ""
 
-# Update API URL in map_placer.html to use server hostname
-Write-Host "Updating API URL..." -ForegroundColor Yellow
-$mapPlacerPath = Join-Path $LOCAL_PATH "map_placer.html"
-if (Test-Path $mapPlacerPath) {
-    $content = Get-Content $mapPlacerPath -Raw
-    $serverUrl = "http://${SERVER_HOST}:3000/api"
-    
-    # Update API_BASE_URL
-    if ($content -match "window\.API_BASE_URL = '[^']*'") {
-        $content = $content -replace "window\.API_BASE_URL = '[^']*'", "window.API_BASE_URL = '${serverUrl}'"
-        Set-Content $mapPlacerPath $content -NoNewline
-        Write-Host "  API URL set to: ${serverUrl}" -ForegroundColor Green
-    } else {
-        Write-Host "  API_BASE_URL not found in map_placer.html" -ForegroundColor Yellow
+# Update API URL in HTML files to use relative path (Cloudflare handles HTTPS)
+Write-Host "Updating API URL to relative path..." -ForegroundColor Yellow
+
+$MAP_FILES = @(
+    "map_placer.html",
+    "map_editor.html",
+    "map_player.html",
+    "index.html"
+)
+
+foreach ($mapFile in $MAP_FILES) {
+    $mapPath = Join-Path $LOCAL_PATH $mapFile
+    if (Test-Path $mapPath) {
+        $content = Get-Content $mapPath -Raw
+
+        # Update API_BASE_URL to relative path
+        if ($content -match "window\.API_BASE_URL = '[^']*'") {
+            $content = $content -replace "window\.API_BASE_URL = '[^']*'", "window.API_BASE_URL = '/api'"
+            Set-Content $mapPath $content -NoNewline
+            Write-Host "  API URL set to: /api (in $mapFile)" -ForegroundColor Green
+        } else {
+            Write-Host "  API_BASE_URL not found in $mapFile" -ForegroundColor Yellow
+        }
     }
 }
 Write-Host ""
@@ -75,7 +86,9 @@ $HTML_FILES = @(
     "single_sound_v2.html",
     "index.html",
     "auto_rotate.html",
-    "map_placer.html"
+    "map_placer.html",
+    "map_editor.html",
+    "map_player.html"
 )
 
 # Patterns to match existing versioned script tags
@@ -84,7 +97,11 @@ $DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
 $APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
 $WAKE_LOCK_PATTERN = "wake_lock_helper\.js\?v=[\d]+"
 $MAP_PLACER_PATTERN = "map_placer\.js\?v=[\d]+"
+$MAP_SHARED_PATTERN = "map_shared\.js\?v=[\d]+"
+$MAP_EDITOR_PATTERN = "map_editor\.js\?v=[\d]+"
+$MAP_PLAYER_PATTERN = "map_player\.js\?v=[\d]+"
 $SOUNDSCAPE_PATTERN = "soundscape\.js\?v=[\d]+"
+$API_CLIENT_PATTERN = "api-client\.js\?v=[\d]+"
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -126,6 +143,27 @@ foreach ($htmlFile in $HTML_FILES) {
             Write-Host "  Updated: $htmlFile (map_placer.js)" -ForegroundColor Green
         }
 
+        # Update map_shared.js version
+        if ($content -match $MAP_SHARED_PATTERN) {
+            $content = $content -replace $MAP_SHARED_PATTERN, "map_shared.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_shared.js)" -ForegroundColor Green
+        }
+
+        # Update map_editor.js version
+        if ($content -match $MAP_EDITOR_PATTERN) {
+            $content = $content -replace $MAP_EDITOR_PATTERN, "map_editor.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_editor.js)" -ForegroundColor Green
+        }
+
+        # Update map_player.js version
+        if ($content -match $MAP_PLAYER_PATTERN) {
+            $content = $content -replace $MAP_PLAYER_PATTERN, "map_player.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_player.js)" -ForegroundColor Green
+        }
+
         # Update soundscape.js version
         if ($content -match $SOUNDSCAPE_PATTERN) {
             $content = $content -replace $SOUNDSCAPE_PATTERN, "soundscape.js?v=$VERSION"
@@ -134,7 +172,6 @@ foreach ($htmlFile in $HTML_FILES) {
         }
 
         # Update api-client.js version
-        $API_CLIENT_PATTERN = "api-client\.js\?v=[\d]+"
         if ($content -match $API_CLIENT_PATTERN) {
             $content = $content -replace $API_CLIENT_PATTERN, "api-client.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
@@ -162,6 +199,11 @@ $ALL_FILES = @(
     "deploy.ps1",
     "map_placer.html",
     "map_placer.js",
+    "map_editor.html",
+    "map_editor.js",
+    "map_player.html",
+    "map_player.js",
+    "map_shared.js",
     "soundscape.js",
     "wake_lock_helper.js",
     "api-client.js"
@@ -283,19 +325,45 @@ if (Test-Path $apiPath) {
     
     Write-Host ""
     Write-Host "Installing dependencies and restarting API server..." -ForegroundColor Cyan
-    
+
     # Install dependencies
     Write-Host "   Installing npm packages..." -NoNewline
-    & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && npm install 2>&1" | ForEach-Object {
-        Write-Host "     $_" -ForegroundColor Gray
+    $npmResult = & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && npm install 2>&1"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " [OK]" -ForegroundColor Green
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        $npmResult | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
     }
-    
-    # Restart API server
-    Write-Host "   Restarting API server..." -NoNewline
-    & ssh $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1; cd ${SERVER_PATH}/api && nohup node server.js > api.log 2>&1 &" 2>$null
+
+    # Stop existing server gracefully
+    Write-Host "   Stopping existing API server..." -NoNewline
+    & ssh $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1" | Out-Null
+    Start-Sleep -Seconds 2  # Give it time to stop
     Write-Host " [OK]" -ForegroundColor Green
+
+    # Start new server in background (simple approach)
+    Write-Host "   Starting API server..." -NoNewline
+    # Run server start in background - don't wait for it to complete
+    & ssh $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && nohup node server.js > /dev/null 2>&1 &" 2>$null
+    Start-Sleep -Seconds 3  # Wait for process to start
     
-    Write-Host "   API server restarted successfully!" -ForegroundColor Green
+    # Check if it's running
+    $checkResult = & ssh $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js'" 2>$null
+    if ($checkResult -and $checkResult.Trim() -ne "") {
+        Write-Host " [OK] (PID: $checkResult)" -ForegroundColor Green
+        Write-Host "   ✅ API server is running!" -ForegroundColor Green
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        Write-Host "   ⚠️ Server may have failed to start - check api.log" -ForegroundColor Yellow
+        $logContent = & ssh $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log"
+        if ($logContent) {
+            $logContent | ForEach-Object {
+                Write-Host "     $_" -ForegroundColor Gray
+            }
+        }
+    }
+
     Write-Host ""
 } else {
     Write-Host "API folder not found at: `$apiPath" -ForegroundColor Yellow
@@ -309,18 +377,18 @@ Write-Host ""
 Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
-Write-Host "   Main App:      http://ssykes.net/audio_ar_app.html" -ForegroundColor White
-Write-Host "   Map Placer:    http://ssykes.net/map_placer.html" -ForegroundColor White
-Write-Host "   Test Page:     http://ssykes.net/index.html" -ForegroundColor White
-Write-Host "   Rotate Test:   http://ssykes.net/auto_rotate.html" -ForegroundColor White
+Write-Host "   Landing Page:  http://ssykes.net/index.html" -ForegroundColor White
+Write-Host "   Map Editor:    http://ssykes.net/map_editor.html" -ForegroundColor White
+Write-Host "   Map Player:    http://ssykes.net/map_player.html" -ForegroundColor White
+Write-Host "   Map Placer:    http://ssykes.net/map_placer.html (legacy)" -ForegroundColor White
+Write-Host "   Test Page:     http://ssykes.net/auto_rotate.html" -ForegroundColor White
 Write-Host "   Single Sound:  http://ssykes.net/single_sound_v2.html" -ForegroundColor White
 Write-Host ""
 Write-Host "Multi-User Features:" -ForegroundColor Cyan
-Write-Host "   1. Open Map Placer in browser" -ForegroundColor White
-Write-Host "   2. Register/Login with email and password" -ForegroundColor White
-Write-Host "   3. Create soundscape and add waypoints" -ForegroundColor White
+Write-Host "   1. Open index.html - login and select device" -ForegroundColor White
+Write-Host "   2. Map Editor (PC): Create soundscapes, add waypoints" -ForegroundColor White
+Write-Host "   3. Map Player (Phone): Auto-sync, walk and listen" -ForegroundColor White
 Write-Host "   4. Auto-saves to server every 2 seconds" -ForegroundColor White
-Write-Host "   5. Open on phone, login, tap 'Sync from Server'" -ForegroundColor White
 Write-Host ""
 Write-Host "Sound Files:" -ForegroundColor Cyan
 Write-Host "   Upload MP3/WAV/M4A files to /sounds/ folder" -ForegroundColor White

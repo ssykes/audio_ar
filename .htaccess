@@ -1,3 +1,12 @@
+# Enable proxy for API requests (forward /api to Node.js server)
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+    
+    # Proxy all /api requests to Node.js server on port 3000
+    ProxyPass /api http://localhost:3000/api
+    ProxyPassReverse /api http://localhost:3000/api
+</IfModule>
+
 # Disable caching for HTML and JavaScript files
 <FilesMatch "\.(html|htm|js)$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
@@ -14,8 +23,8 @@
     # Content Security Policy (CSP)
     # Allows scripts/styles from same origin, data: for images (base64), and necessary AR APIs
     # Updated 2026-03-14: Added OSM tiles, unpkg for Leaflet, Cloudflare beacon
-    # Removed COEP to allow cross-origin map tiles
-    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf http://macminiwebsever:3000 https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com;"
+    # Updated 2026-03-15: Removed http://macminiwebsever:3000 (using relative /api)
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; media-src 'self' blob:; connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com;"
 
     # Strict Transport Security (HSTS) - 1 year
     Header set Strict-Transport-Security "max-age=31536000; includeSubDomains"

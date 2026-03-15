@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Map Placer - Sound Waypoint Editor</title>
+    <title>Map Editor - Sound Waypoint Editor</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -12,8 +12,8 @@
         #sidebar { width: 350px; background: rgba(0,0,0,0.3); padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; }
         #sidebar-header { flex-shrink: 0; }
         #waypointList { flex: 0 0 auto; max-height: 200px; overflow-y: auto; margin-top: 10px; }
-        #debugConsole { 
-            flex: 1; 
+        #debugConsole {
+            flex: 1;
             min-height: 0;
             margin-top: 15px;
             background: #0d0d1a;
@@ -117,8 +117,8 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Placer <span class="version">v4.41</span></h1>
-                <p class="subtitle">Place sounds on the map</p>
+                <h1>🗺️ Map Editor <span class="version">v6.5</span></h1>
+                <p class="subtitle">Create and edit soundscapes</p>
 
                 <!-- Login UI -->
                 <div id="loginPanel" style="margin: 10px 0;">
@@ -187,11 +187,11 @@
 
             <div id="debugConsole">Ready - tap Start to begin...</div>
             <button id="copyLogsBtn">📋 Copy Logs to Clipboard</button>
-            
+
             <div class="debug-info">
                 📚 Using <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio API</a> with HRTF panning
             </div>
-            
+
             <div class="status-bar" id="statusBar">
                 <div class="status-item">
                     <span>📍 GPS:</span>
@@ -209,13 +209,13 @@
         </div>
         <div id="map"></div>
     </div>
-    
+
     <!-- Hidden file input for import -->
     <input type="file" id="importFileInput" accept=".json,application/json" style="display: none;">
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // API configuration - uses relative path (proxied by Apache)
+        // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
     <script src="api-client.js?v=20260315142440"></script>
@@ -223,6 +223,7 @@
     <script src="spatial_audio.js?v=20260315142440"></script>
     <script src="spatial_audio_app.js?v=20260315142440"></script>
     <script src="wake_lock_helper.js?v=20260315142440"></script>
-    <script src="map_placer.js?v=20260315142440"></script>
+    <script src="map_shared.js?v=20260315142440"></script>
+    <script src="map_editor.js?v=20260315142440"></script>
 </body>
 </html>
