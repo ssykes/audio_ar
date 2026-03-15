@@ -396,13 +396,30 @@ class SoundScapeStorage {
 - Current "💾 Save As..." creates a NEW soundscape every time
 - User clicks it thinking it saves, but creates duplicates
 - No visual feedback about which soundscape is active
+- **Bug: Dragging waypoints doesn't auto-save** - Position changes lost on refresh
+
+**Bug Detail: Drag End Auto-Save Missing**
+```javascript
+// map_placer.js line 1435-1441
+marker.on('dragend', (e) => {
+    this.isDragging = false;
+    waypoint.lat = e.target.getLatLng().lat;
+    waypoint.lon = e.target.getLatLng().lng;
+    this._updateRadiusCircle(waypoint);
+    // ❌ MISSING: this._saveSoundscapeToStorage();
+});
+```
+- **Impact:** User drags waypoint to new location → refreshes page → waypoint snaps back to original position
+- **Fix:** Add `this._saveSoundscapeToStorage();` call in dragend handler
+- **Priority:** High (data loss bug)
 
 **Solution (Option A - Simple Fix):**
 1. Rename button from "💾 Save As..." → "➕ New"
 2. "New" creates empty soundscape and switches to it (one-time action)
 3. After creating, all edits auto-save to current soundscape
 4. Dropdown switches between soundscapes + centers map
-5. No Rename/Delete buttons yet (future enhancement)
+5. **Fix dragend handler to auto-save waypoint position changes**
+6. No Rename/Delete buttons yet (future enhancement)
 
 **Changes:**
 ```javascript
@@ -441,6 +458,611 @@ _saveSoundscapeToStorage() {
 - Populate dropdown from server
 - Switch loads from server if not cached locally
 - Independent save per soundscape
+
+---
+
+### Session 5E: Smart Auto-Sync with Timestamps (PLANNED)
+
+**Goal:** Auto-sync phone on page load ONLY when server data has changed (transparent sync for players)
+
+**Architecture Vision:**
+
+| Device | Role | Capabilities |
+|--------|------|--------------|
+| **PC** | Editor + Simulator | Create, edit, delete + Draggable avatar preview |
+| **Phone** | Player | Listen only (multiple users, no edits) |
+| **Database** | Ledger of truth | Single source of truth |
+| **JSON export** | Transfer protocol | Manual import/export (legacy) |
+
+**Problem:**
+- Phone is player-only (multiple users, no edit capability)
+- Phone shows cached localStorage data on page load
+- User must manually tap "🔄 Sync from Server" to see PC edits
+- Blind auto-sync on every page load is wasteful if data unchanged
+- Version numbers add complexity (need to track, increment, maintain)
+
+**Solution: Last-Modified Timestamps (Simpler than Version Numbers)**
+
+```javascript
+// Server API: Add lastModified timestamp to soundscape
+{
+  id: "soundscape_123",
+  name: "My Soundscape",
+  lastModified: "2026-03-14T10:30:00.123Z",  // ISO 8601 timestamp
+  waypoints: [...],
+  behaviors: [...]
+}
+
+// Client: Store timestamp in localStorage
+localStorage.setItem('soundscape_modified_' + soundscapeId, "2026-03-14T10:30:00.123Z");
+```
+
+**Why Timestamps Over Version Numbers?**
+
+| Aspect | Version Numbers | Timestamps | Winner |
+|--------|----------------|------------|--------|
+| **Complexity** | Need counter, increment logic | Built-in (Date.now()) | **Timestamps** ✅ |
+| **Debugging** | "version 42" - meaningless | "2026-03-14T10:30" - human readable | **Timestamps** ✅ |
+| **Conflict detection** | Only shows order | Shows exact time | **Timestamps** ✅ |
+| **Server logic** | Must maintain counter | Just use `new Date().toISOString()` | **Timestamps** ✅ |
+| **Storage** | 1-2 bytes (integer) | ~24 bytes (ISO string) | Version (minor) |
+| **Comparison** | `serverVer > localVer` | `serverTime !== localTime` | Tie |
+
+**Implementation:**
+
+```javascript
+// 1. PC: Server saves with timestamp
+async _saveSoundscapeToServer() {
+    const soundscape = this.getActiveSoundscape();
+    const now = new Date().toISOString();
+    
+    await this.api.saveSoundscape(serverId, waypoints, behaviors, now);
+    
+    // Store timestamp locally (PC also uses localStorage as cache)
+    localStorage.setItem('soundscape_modified_' + this.activeSoundscapeId, now);
+    
+    this.debugLog('💾 Saved to server (modified: ' + now + ')');
+}
+
+// 2. Phone: Page load checks timestamp (transparent auto-sync)
+async _checkLoginStatus() {
+    if (this.isLoggedIn) {
+        // Get server timestamp (lightweight API call)
+        const serverModified = await this.api.getSoundscapeModified(this.activeSoundscapeId);
+        const localModified = localStorage.getItem('soundscape_modified_' + this.activeSoundscapeId);
+        
+        if (serverModified !== localModified) {
+            this.debugLog('🔄 Timestamp mismatch (server: ' + serverModified + ', local: ' + localModified + ') - auto-syncing...');
+            this._showToast('🔄 Updating from server...', 'info');
+            await this._loadSoundscapeFromServer();  // Sync new data
+            this._showToast('✅ Soundscape updated', 'success');
+        } else {
+            this.debugLog('✅ Timestamp match (' + serverModified + ') - using cached data');
+        }
+    }
+}
+```
+
+**API Changes:**
+
+```javascript
+// api-client.js - Add lightweight timestamp check endpoint
+async getSoundscapeModified(soundscapeId) {
+    const response = await fetch(`/api/soundscapes/${soundscapeId}/modified`, {
+        headers: { 'Authorization': `Bearer ${this.token}` }
+    });
+    const data = await response.json();
+    return data.lastModified;  // Just the timestamp, not full data
+}
+```
+
+**Server Changes (Cloudflare Worker):**
+
+```javascript
+// Add new endpoint
+if (url.pathname.match(/\/api\/soundscapes\/[^\/]+\/modified/)) {
+    const lastModified = soundscape.lastModified || soundscape.updatedAt;
+    return jsonResponse({ lastModified });
+}
+
+// Set timestamp on save (automatic, no counter to maintain)
+if (url.pathname.startsWith('/api/soundscapes/') && request.method === 'PUT') {
+    soundscape.lastModified = new Date().toISOString();  // Auto-timestamp
+    // ... save as usual
+}
+```
+
+**User Experience:**
+
+| Device | Action | User Sees |
+|--------|--------|-----------|
+| **PC** | Edit waypoint → Save | "💾 Auto-saved to server" (timestamp updated) |
+| **PC** | Drag avatar (simulator) | Audio updates in real-time (no sync needed) |
+| **Phone** | Open page (same soundscape) | "🔄 Updating from server..." → "✅ Updated" (auto-sync) |
+| **Phone** | Refresh page (no changes) | Nothing (silent, uses cached data) |
+| **Phone** | Switch to different soundscape | Timestamp check → Auto-sync if needed |
+
+**Testing:**
+
+1. PC: Edit soundscape → timestamp updates (e.g., `10:30:00` → `10:35:22`)
+2. Phone A: Open page → timestamp check (`10:35:22` ≠ `10:30:00`) → auto-sync → "✅ Updated"
+3. Phone B: Open page → timestamp check (`10:35:22` ≠ `10:30:00`) → auto-sync → "✅ Updated"
+4. Phone A: Refresh page → timestamp check (`10:35:22` = `10:35:22`) → skip sync → silent
+5. No network → timestamp check fails → fallback to localStorage → "⚠️ Offline - using cached data"
+
+**Files to Modify:**
+
+| File | Changes |
+|------|---------|
+| `api-client.js` | Add `getSoundscapeModified()` method |
+| `map_placer.js` | Add timestamp check in `_checkLoginStatus()` (runs on page load) |
+| `cloudflare-worker.js` | Add `/modified` endpoint, set `lastModified` on save |
+| `soundscape.js` | Add `lastModified` field to `SoundScape` class |
+
+**Priority:** High (critical for transparent player experience)
+
+**Est. Lines:** ~100 (API + client + worker changes)
+
+**Future: Separate Pages (Session 6)**
+- `editor.html` - PC-only editing interface (includes simulator)
+- `player.html` - Phone-only player interface (auto-sync, listen, no edit controls)
+- Shared: `soundscape.js`, `api-client.js`, `spatial_audio_app.js`
+
+---
+
+### Session 6: Separate Editor and Player Pages (PLANNED)
+
+**Goal:** Split `map_placer.html` into two specialized pages: `map_editor.html` (PC) and `map_player.html` (Phone)
+
+**Architecture Vision:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Shared Libraries                            │
+│  soundscape.js │ api-client.js │ spatial_audio_app.js       │
+└─────────────────────────────────────────────────────────────┘
+           ▲                                    ▲
+           │                                    │
+    ┌──────┴────────┐                    ┌─────┴──────┐
+    │ map_editor.js │                    │ map_player.js │
+    │ (PC + Editor) │                    │ (Phone + Player) │
+    ├───────────────┤                    ├────────────────┤
+    │ - Login UI    │                    │ - Auto-sync    │
+    │ - Edit UI     │                    │ - Read-only UI │
+    │ - Export      │                    │ - Minimal UI   │
+    │ - Simulator   │                    │ - GPS/Compass  │
+    └───────────────┘                    └────────────────┘
+           ▲                                    ▲
+           │                                    │
+    ┌──────────────┐                    ┌──────────────┐
+    │map_editor.html│                    │map_player.html│
+    └──────────────┘                    └──────────────┘
+```
+
+**Decision: Copy & Refactor (Not Start Fresh)**
+
+| Aspect | Rationale |
+|--------|-----------|
+| **Shared code** | ~2,500 lines (map, GPS, audio, simulator) - no reason to duplicate |
+| **Editor-only** | ~250 lines (login, edit UI, export/import, soundscape management) |
+| **Player-only** | ~80 lines (auto-sync, minimal UI, GPS display) |
+| **Approach** | Copy `map_placer.html` → `map_editor.html`, create new `map_player.html` |
+| **Risk** | Low (incremental changes, keep `map_placer.html` as backup) |
+
+**What's Shared (Keep as-is):**
+
+| Component | File | Lines | Reuse |
+|-----------|------|-------|-------|
+| Map initialization | `map_placer.js` | ~200 | ✅ 100% |
+| GPS tracking | `map_placer.js` | ~150 | ✅ 100% |
+| Compass handling | `map_placer.js` | ~100 | ✅ 100% |
+| Simulator logic | `map_placer.js` | ~200 | ✅ 100% |
+| Audio engine | `spatial_audio_app.js` | ~800 | ✅ 100% |
+| Soundscape classes | `soundscape.js` | ~884 | ✅ 100% |
+| API client | `api-client.js` | ~300 | ✅ 100% |
+
+**What's Different (Split Logic):**
+
+### `map_editor.html` (PC Only)
+
+| Feature | Lines | Description |
+|---------|-------|-------------|
+| Login/Register UI | ~30 | Full auth UI |
+| Soundscape management | ~50 | New/Edit/Delete buttons |
+| Waypoint editing | ~100 | Add/Delete/Edit/Clear |
+| Export/Import | ~50 | JSON file handling |
+| Server sync button | ~20 | Manual sync trigger |
+| **Total editor-only** | **~250** | |
+
+### `map_player.html` (Phone Only)
+
+| Feature | Lines | Description |
+|---------|-------|-------------|
+| Auto-sync on load | ~30 | Timestamp check + sync |
+| Minimal UI | ~20 | No edit controls |
+| Start/Stop only | ~10 | Play/pause |
+| Debug console | ~20 | GPS/compass stats |
+| **Total player-only** | **~80** | |
+
+**Implementation Plan:**
+
+### Phase 1: Copy Editor Files
+```bash
+# Copy existing files (no changes yet)
+copy map_placer.html map_editor.html
+copy map_placer.js map_editor.js
+```
+
+### Phase 2: Create Player Files
+```javascript
+// NEW FILE: map_player.js
+class MapPlayerApp extends MapAppShared {
+    async init() {
+        await super.init();
+        await this._autoSyncIfNeeded();  // Session 5E timestamp check
+        this._applyPlayerRestrictions(); // Hide edit controls
+    }
+}
+```
+
+```html
+<!-- NEW FILE: map_player.html -->
+<!-- Stripped-down UI: Start button, debug console, status bar only -->
+<script src="api-client.js"></script>
+<script src="soundscape.js"></script>
+<script src="spatial_audio_app.js"></script>
+<script src="map_player.js"></script>
+```
+
+### Phase 3: Add Auto-Sync to Player (Session 5E)
+```javascript
+// map_player.js - _autoSyncIfNeeded()
+async _autoSyncIfNeeded() {
+    const serverModified = await this.api.getSoundscapeModified(this.activeSoundscapeId);
+    const localModified = localStorage.getItem('soundscape_modified_' + this.activeSoundscapeId);
+    
+    if (serverModified !== localModified) {
+        this._showToast('🔄 Updating from server...', 'info');
+        await this._loadSoundscapeFromServer();
+        this._showToast('✅ Soundscape updated', 'success');
+    }
+}
+```
+
+### Phase 4: Test Both Pages
+| Test | Editor | Player |
+|------|--------|--------|
+| Login | ✅ Full auth UI | ✅ Auto-login from token |
+| Edit waypoints | ✅ Add/Delete/Move | ❌ Read-only |
+| Simulator | ✅ Draggable avatar | ❌ Not available |
+| Auto-sync | ❌ Manual sync button | ✅ Timestamp check on load |
+| Export/Import | ✅ Full support | ❌ Not available |
+| GPS/Compass | ✅ Simulation mode | ✅ Real GPS/Compass |
+
+**Migration Strategy:**
+
+| Step | Action | Risk |
+|------|--------|------|
+| 1 | Copy `map_placer.html` → `map_editor.html` | ✅ None (copy) |
+| 2 | Copy `map_placer.js` → `map_editor.js` | ✅ None (copy) |
+| 3 | Create `map_player.html` (minimal UI) | ✅ Low (HTML only) |
+| 4 | Create `map_player.js` (extends shared) | ✅ Low (small file) |
+| 5 | Add auto-sync timestamp check to player | ✅ Low (Session 5E logic) |
+| 6 | Test both pages in parallel | ✅ Low (incremental) |
+| 7 | (Optional) Extract `map_shared.js` | ✅ Medium (refactor) |
+
+**Files to Create:**
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `map_editor.html` | PC editor page | ⏳ Pending |
+| `map_editor.js` | PC editor logic | ⏳ Pending |
+| `map_player.html` | Phone player page | ⏳ Pending |
+| `map_player.js` | Phone player logic | ⏳ Pending |
+| `map_shared.js` | (Optional) Extracted shared logic | ⏳ Pending |
+
+**Priority:** Medium (after Sessions 5C and 5E)
+
+**Est. Lines:** ~500 (copy + create player + auto-sync)
+
+**Benefits:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Cleaner separation** | Editor logic separate from player logic |
+| **Smaller player bundle** | Phone doesn't load edit UI code |
+| **Better UX** | Each page optimized for its role |
+| **Easier maintenance** | Edit logic in one place, player logic in another |
+| **Future-proof** | Easy to add more player variants (tablet, kiosk, etc.) |
+
+---
+
+### Session 7: Data Mapper Pattern for Maintainability (PLANNED)
+
+**Goal:** Reduce code changes when database schema changes by centralizing DB ↔ Object mapping
+
+**Problem:**
+
+| Current State | Impact |
+|---------------|--------|
+| DB schema change → update 8+ files | High maintenance burden |
+| Mapping logic scattered across routes, api-client, models | Easy to miss a spot |
+| No clear separation between DB rows and domain objects | Tight coupling |
+
+**Example: Adding "priority" Column to Soundscapes**
+
+```
+Current (Without Mapper):
+1. api/routes/soundscapes.js - Add to SELECT
+2. api/routes/soundscapes.js - Add to INSERT
+3. api/routes/soundscapes.js - Add to UPDATE
+4. api-client.js - Add to wpFromServer()
+5. api-client.js - Add to wpToServer()
+6. soundscape.js - Add to toJSON()
+7. soundscape.js - Add to fromJSON()
+8. map_placer.js - Add to UI
+
+Total: 8 places to change!
+```
+
+```
+With Data Mapper:
+1. api/repositories/SoundScapeRepository.js - Add to mapping
+2. soundscape.js - Add property + toJSON/fromJSON
+3. map_placer.js - Add to UI
+
+Total: 3 places to change! (62% reduction)
+```
+
+**Solution: Data Mapper (Repository) Pattern**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Application Layer (Domain Objects)                     │
+│  SoundScape, SoundBehavior, Waypoint                    │
+│  - Business logic                                       │
+│  - toJSON() / fromJSON()                                │
+│  - No database knowledge                                │
+└─────────────────────────────────────────────────────────┘
+                        ↕
+┌─────────────────────────────────────────────────────────┐
+│  Repository Layer (Data Mapper)                         │
+│  SoundScapeRepository, WaypointRepository               │
+│  - DB ↔ Object mapping (ONE PLACE)                      │
+│  - SQL queries                                          │
+│  - snake_case ↔ camelCase conversion                    │
+└─────────────────────────────────────────────────────────┘
+                        ↕
+┌─────────────────────────────────────────────────────────┐
+│  Database Layer                                         │
+│  PostgreSQL tables                                      │
+│  - soundscapes, waypoints, behaviors                    │
+│  - snake_case columns                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Implementation Plan (Broken into Sessions):**
+
+### Session 7A: Base Repository (~100 lines)
+
+**Goal:** Create reusable base repository with auto-mapping
+
+**Files:**
+- `api/repositories/BaseRepository.js` (NEW)
+
+**Features:**
+- `_toEntity()` - snake_case → camelCase
+- `_toRow()` - camelCase → snake_case
+- `findAll()`, `findById()`, `insert()`, `update()`, `delete()`
+
+**Testing:**
+```bash
+node -e "
+const db = require('./database');
+const BaseRepository = require('./repositories/BaseRepository');
+const repo = new BaseRepository(db, 'soundscapes');
+(async () => {
+    const rows = await repo.findAll({ user_id: 'test-user' });
+    console.log('Found', rows.length, 'rows');
+})();
+"
+```
+
+**Risk:** ✅ None (new file, doesn't affect existing code)
+
+**Est. Time:** 1 hour
+
+---
+
+### Session 7B: Waypoint & Behavior Repositories (~80 lines)
+
+**Goal:** Create repositories for child tables
+
+**Files:**
+- `api/repositories/WaypointRepository.js` (NEW)
+- `api/repositories/BehaviorRepository.js` (NEW)
+
+**Features:**
+- `findBySoundscape(id)` - Get all waypoints/behaviors for soundscape
+- `countBySoundscape(id)` - Count for display
+- Simple CRUD (no nested operations)
+
+**Testing:**
+```bash
+node -e "
+const db = require('./database');
+const WaypointRepository = require('./repositories/WaypointRepository');
+const repo = new WaypointRepository(db);
+(async () => {
+    const wps = await repo.findBySoundscape('test-soundscape-id');
+    console.log('Found', wps.length, 'waypoints');
+})();
+"
+```
+
+**Risk:** ✅ None (new files, doesn't affect existing code)
+
+**Est. Time:** 1 hour
+
+---
+
+### Session 7C: SoundScape Repository (~50 lines)
+
+**Goal:** Create repository for soundscapes with nested operations
+
+**Files:**
+- `api/repositories/SoundScapeRepository.js` (NEW)
+
+**Features:**
+- `getFull(id, userId)` - Get soundscape + waypoints + behaviors
+- `getAllForUser(userId)` - Get all with waypoint counts
+- `createWithWaypoints()` - Transactional create with children
+
+**Dependencies:** Requires 7A (BaseRepository) and 7B (child repos)
+
+**Testing:**
+```bash
+node -e "
+const db = require('./database');
+const SoundScapeRepository = require('./repositories/SoundScapeRepository');
+const repo = new SoundScapeRepository(db);
+(async () => {
+    const data = await repo.getFull('test-id', 'test-user');
+    console.log('Soundscape:', data.soundscape.name);
+    console.log('Waypoints:', data.waypoints.length);
+})();
+"
+```
+
+**Risk:** ✅ Low (new file, uses tested repos from 7A/7B)
+
+**Est. Time:** 1.5 hours
+
+---
+
+### Session 7D: Update Routes to Use Repositories (~30 lines changed)
+
+**Goal:** Replace inline SQL with repository calls
+
+**Files:**
+- `api/routes/soundscapes.js` (MODIFY)
+
+**Changes:**
+```javascript
+// BEFORE
+const result = await db.query('SELECT * FROM soundscapes WHERE user_id = $1', [req.user.id]);
+res.json(result.rows);
+
+// AFTER
+const soundscapes = await repo.getAllForUser(req.user.id);
+res.json(soundscapes);
+```
+
+**Dependencies:** Requires 7C (SoundScapeRepository)
+
+**Testing:**
+```bash
+# Test each endpoint
+curl -H "Authorization: Bearer TOKEN" http://localhost:3000/api/soundscapes
+curl -H "Authorization: Bearer TOKEN" http://localhost:3000/api/soundscapes/ID
+```
+
+**Risk:** ⚠️ Medium (modifies existing routes - test thoroughly)
+
+**Est. Time:** 1 hour
+
+---
+
+### Session 7E: Update API Client Mapping (~30 lines)
+
+**Goal:** Mirror server mapping on client side
+
+**Files:**
+- `api-client.js` (MODIFY)
+
+**Changes:**
+- Add `_toEntity()` / `_toRow()` methods
+- Update `loadSoundscape()` to use mapping
+- Ensure consistent snake_case ↔ camelCase
+
+**Testing:**
+```javascript
+// Open map_placer.html, check console
+// Verify soundscapes load correctly
+// Verify waypoints appear on map
+```
+
+**Dependencies:** Requires 7D (server routes working)
+
+**Risk:** ⚠️ Medium (modifies existing client - test on phone too)
+
+**Est. Time:** 1 hour
+
+---
+
+### Session 7F: Add Domain Classes (Optional) (~40 lines)
+
+**Goal:** Add server-side domain models (optional - can use plain objects)
+
+**Files:**
+- `api/models/SoundScape.js` (NEW)
+- `api/models/Waypoint.js` (NEW)
+- `api/models/Behavior.js` (NEW)
+
+**Changes:**
+- Add `toJSON()` / `fromJSON()` methods
+- Use in repositories instead of plain objects
+
+**Testing:**
+```bash
+node -e "
+const SoundScape = require('./models/SoundScape');
+const ss = SoundScape.fromJSON({ id: '1', name: 'Test' });
+console.log(ss.toJSON());
+"
+```
+
+**Dependencies:** Optional enhancement
+
+**Risk:** ✅ Low (additive, can skip if not needed)
+
+**Est. Time:** 1 hour (optional)
+
+---
+
+**Session Summary:**
+
+| Session | Task | Files | Lines | Risk | Time |
+|---------|------|-------|-------|------|------|
+| **7A** | Base Repository | 1 new | ~100 | ✅ None | 1h |
+| **7B** | Child Repositories | 2 new | ~80 | ✅ None | 1h |
+| **7C** | SoundScape Repository | 1 new | ~50 | ✅ Low | 1.5h |
+| **7D** | Update Routes | 1 modify | ~30 | ⚠️ Medium | 1h |
+| **7E** | Update API Client | 1 modify | ~30 | ⚠️ Medium | 1h |
+| **7F** | Domain Classes (Optional) | 3 new | ~40 | ✅ Low | 1h |
+
+**Total:** ~330 lines, 5.5-6.5 hours (or 4.5-5.5h without optional 7F)
+
+---
+
+**Benefits:**
+
+| Benefit | Description |
+|---------|-------------|
+| **Incremental progress** | Can stop after any session |
+| **Testable milestones** | Each session has clear testing |
+| **Low risk** | New files first, modify existing last |
+| **Rollback safe** | Can revert per-session if issues |
+| **Easier schema changes** | Add column → update repository only |
+| **Single mapping location** | DB ↔ Object mapping in one place |
+| **Convention-based** | snake_case ↔ camelCase auto-converted |
+| **No dependencies** | Pure JavaScript, no npm packages |
+
+---
+
+**Priority:** Medium (do before major schema changes)
+
+**Recommended Order:** 7A → 7B → 7C → 7D → 7E → (optional 7F)
 
 ---
 

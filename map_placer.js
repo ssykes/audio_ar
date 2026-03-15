@@ -1437,6 +1437,7 @@ class MapPlacerApp {
             waypoint.lat = e.target.getLatLng().lat;
             waypoint.lon = e.target.getLatLng().lng;
             this._updateRadiusCircle(waypoint);
+            this._saveSoundscapeToStorage();  // Auto-save new position
         });
         this.markers.set(waypoint.id, marker);
         this._updateRadiusCircle(waypoint);
