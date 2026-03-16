@@ -1,4 +1,4 @@
-# Full Server Backup Script
+s# Full Server Backup Script
 # Captures Apache2 config, SSL certs, system settings, and web content
 # Run this to create a complete disaster recovery backup
 

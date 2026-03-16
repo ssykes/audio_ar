@@ -287,7 +287,16 @@ $API_FILES = @(
     "routes/auth.js",
     "routes/soundscapes.js",
     "scripts/cleanup-users.js",
-    "SECURITY.md"
+    "scripts/test-base-repository.js",
+    "scripts/test-domain-models.js",
+    "SECURITY.md",
+    "repositories/BaseRepository.js",
+    "repositories/WaypointRepository.js",
+    "repositories/BehaviorRepository.js",
+    "repositories/SoundScapeRepository.js",
+    "models/SoundScape.js",
+    "models/Waypoint.js",
+    "models/Behavior.js"
 )
 
 $apiPath = Join-Path $LOCAL_PATH "api"
@@ -336,33 +345,81 @@ if (Test-Path $apiPath) {
         $npmResult | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
     }
 
-    # Stop existing server gracefully
+    # Stop existing server gracefully (PM2 managed)
     Write-Host "   Stopping existing API server..." -NoNewline
-    & ssh -n $SERVER_USER@$SERVER_HOST "pkill -f 'node server.js' 2>&1" | Out-Null
-    Start-Sleep -Seconds 2  # Give it time to stop
+    & ssh -n $SERVER_USER@$SERVER_HOST "pm2 stop audio-ar-api 2>&1" | Out-Null
+    Start-Sleep -Seconds 1
     Write-Host " [OK]" -ForegroundColor Green
+    
+    # Force kill any remaining node processes on port 3000 (with sudo)
+    Write-Host "   Killing any processes on port 3000..." -NoNewline
+    $killResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo fuser -k 3000/tcp 2>&1" 
+    Start-Sleep -Seconds 3  # Wait longer for port to be released
+    if ($killResult -match "killed" -or $killResult -eq "") {
+        Write-Host " [OK]" -ForegroundColor Green
+    } else {
+        Write-Host " [OK] (no process on port)" -ForegroundColor Green
+    }
 
-    # Start new server in background (simple approach)
-    Write-Host "   Starting API server..." -NoNewline
-    # Run server start in background - don't wait for it to complete
-    # Use -n to redirect stdin (prevents SSH from waiting)
-    & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && nohup node server.js > /dev/null 2>&1 &" 2>$null
-    Start-Sleep -Seconds 3  # Wait for process to start
+    # Delete old PM2 process and create fresh one (prevents restart conflicts)
+    Write-Host "   Deleting old PM2 process..." -NoNewline
+    & ssh -n $SERVER_USER@$SERVER_HOST "pm2 delete audio-ar-api 2>&1" | Out-Null
+    Start-Sleep -Seconds 2
+    
+    # Force kill any remaining node processes on port 3000 (with sudo)
+    Write-Host "   Killing any processes on port 3000..." -NoNewline
+    $killResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo fuser -k 3000/tcp 2>&1" 
+    Start-Sleep -Seconds 5  # Wait longer for kernel to release port
+    if ($killResult -match "killed" -or $killResult -eq "") {
+        Write-Host " [OK]" -ForegroundColor Green
+    } else {
+        Write-Host " [OK] (no process on port)" -ForegroundColor Green
+    }
+    
+    # Verify port is actually free before starting
+    Write-Host "   Verifying port 3000 is free..." -NoNewline
+    $portCheck = & ssh -n $SERVER_USER@$SERVER_HOST "sudo lsof -i :3000 2>&1"
+    if ($portCheck -eq "" -or $portCheck -match "COMMAND") {
+        Write-Host " [OK]" -ForegroundColor Green
+    } else {
+        Write-Host " [FAILED - port still in use]" -ForegroundColor Red
+        Write-Host "   Waiting 10 more seconds..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 10
+    }
+
+    # Start fresh PM2 process
+    Write-Host "   Starting API server with PM2..." -NoNewline
+    & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && pm2 start server.js --name audio-ar-api 2>&1" 2>$null
+    Start-Sleep -Seconds 5  # Wait for process to start
 
     # Check if it's running (use head -1 to get single PID, timeout after 5s)
-    $checkResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pgrep -f 'node server.js' | head -1" 2>$null
+    $checkResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 list | grep audio-ar-api" 2>$null
     if ($checkResult -and $checkResult.Trim() -ne "") {
-        Write-Host " [OK] (PID: $checkResult)" -ForegroundColor Green
-        Write-Host "   ✅ API server is running!" -ForegroundColor Green
-    } else {
-        Write-Host " [FAILED]" -ForegroundColor Red
-        Write-Host "   ⚠️ Server may have failed to start - check api.log" -ForegroundColor Yellow
-        $logContent = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "tail -20 ${SERVER_PATH}/api/api.log" 2>$null
-        if ($logContent) {
-            $logContent | ForEach-Object {
-                Write-Host "     $_" -ForegroundColor Gray
+        Write-Host " [OK]" -ForegroundColor Green
+        Write-Host "   ✅ API server is running with PM2!" -ForegroundColor Green
+        
+        # Show PM2 status
+        Write-Host ""
+        Write-Host "   PM2 Status:" -ForegroundColor Cyan
+        & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 status audio-ar-api" 2>$null
+        
+        # Show last 20 log lines (helps catch startup errors)
+        Write-Host ""
+        Write-Host "   Last 20 log lines (checking for errors...)" -ForegroundColor Cyan
+        $logs = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 logs audio-ar-api --lines 20 --nostream" 2>$null
+        if ($logs) {
+            $logs | ForEach-Object {
+                if ($_ -match "error|Error|ERROR|failed|Failed") {
+                    Write-Host "     $_" -ForegroundColor Red
+                } else {
+                    Write-Host "     $_" -ForegroundColor Gray
+                }
             }
         }
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        Write-Host "   ⚠️ Server may have failed to start - check PM2 logs" -ForegroundColor Yellow
+        Write-Host "   Run: pm2 logs audio-ar-api --lines 50" -ForegroundColor Gray
     }
 
     Write-Host ""

@@ -1,7 +1,8 @@
 /**
  * Audio AR API Client
  * Handles authentication and soundscape sync with server
- * @version 4.0 - Multi-user server sync
+ * Uses Data Mapper pattern for snake_case ↔ camelCase conversion
+ * @version 5.0 - Data Mapper pattern
  */
 
 class ApiClient {
@@ -11,6 +12,38 @@ class ApiClient {
         this.token = localStorage.getItem('audio_ar_token');
         this.user = JSON.parse(localStorage.getItem('audio_ar_user') || 'null');
         console.log('[ApiClient] Using base URL:', this.baseUrl);
+    }
+
+    /**
+     * Convert snake_case server response to camelCase JavaScript object
+     * @param {Object} row - Server response (snake_case keys)
+     * @returns {Object} JavaScript object (camelCase keys)
+     */
+    _toEntity(row) {
+        if (!row) return null;
+        
+        const entity = {};
+        for (const [key, value] of Object.entries(row)) {
+            // Convert snake_case to camelCase
+            entity[key.replace(/_([a-z])/g, (match, letter) => letter.toUpperCase())] = value;
+        }
+        return entity;
+    }
+
+    /**
+     * Convert camelCase JavaScript object to snake_case server format
+     * @param {Object} entity - JavaScript object (camelCase keys)
+     * @returns {Object} Server format (snake_case keys)
+     */
+    _toRow(entity) {
+        if (!entity) return null;
+        
+        const row = {};
+        for (const [key, value] of Object.entries(entity)) {
+            // Convert camelCase to snake_case
+            row[key.replace(/([A-Z])/g, '_$1').toLowerCase()] = value;
+        }
+        return row;
     }
 
     /**
@@ -174,42 +207,36 @@ class ApiClient {
 
     /**
      * Load soundscape from server
+     * Uses Data Mapper pattern for consistent field conversion
      */
     async loadSoundscape(id) {
         const data = await this.getSoundscape(id);
+        
+        // Use _toEntity for automatic snake_case → camelCase conversion
         return {
             soundscape: {
                 id: data.soundscape.id,
                 name: data.soundscape.name,
                 description: data.soundscape.description,
                 soundIds: data.waypoints.map(wp => wp.id),
-                waypointData: data.waypoints.map(wp => this.wpFromServer(wp)),
+                waypointData: data.waypoints.map(wp => this._toEntity(wp)),
                 behaviors: data.behaviors.map(b => ({
                     type: b.type,
-                    memberIds: b.member_ids,
-                    config: b.config_json
+                    memberIds: b.memberIds || b.member_ids,
+                    config: b.configJson || b.config_json
                 }))
             },
-            waypoints: data.waypoints.map(wp => this.wpFromServer(wp))
+            waypoints: data.waypoints.map(wp => this._toEntity(wp))
         };
     }
 
     /**
      * Convert server waypoint to app format
+     * @deprecated Use _toEntity() instead for automatic conversion
      */
     wpFromServer(wp) {
-        return {
-            id: wp.id,
-            name: wp.name,
-            lat: wp.lat,
-            lon: wp.lon,
-            soundUrl: wp.sound_url,
-            volume: wp.volume,
-            loop: wp.loop,
-            activationRadius: wp.activation_radius,
-            icon: wp.icon,
-            color: wp.color
-        };
+        // Use new Data Mapper pattern
+        return this._toEntity(wp);
     }
 
     /**
@@ -222,20 +249,11 @@ class ApiClient {
 
     /**
      * Convert app waypoint to server format
+     * @deprecated Use _toRow() instead for automatic conversion
      */
     wpToServer(wp) {
-        return {
-            id: wp.id,
-            name: wp.name,
-            lat: wp.lat,
-            lon: wp.lon,
-            soundUrl: wp.soundUrl,
-            volume: wp.volume,
-            loop: wp.loop,
-            activationRadius: wp.activationRadius,
-            icon: wp.icon,
-            color: wp.color
-        };
+        // Use new Data Mapper pattern
+        return this._toRow(wp);
     }
 }
 

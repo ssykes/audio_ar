@@ -1,8 +1,11 @@
 const express = require('express');
-const db = require('../database');
 const authenticateToken = require('../middleware/auth');
 const { soundscapeLimiter } = require('../middleware/rateLimiter');
+const SoundScapeRepository = require('../repositories/SoundScapeRepository');
+const db = require('../database');
 const router = express.Router();
+
+const repo = new SoundScapeRepository(db);
 
 // Rate limit soundscape operations
 router.use(soundscapeLimiter);
@@ -10,11 +13,8 @@ router.use(soundscapeLimiter);
 // Get all soundscapes for user
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const result = await db.query(
-      'SELECT * FROM soundscapes WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
-    );
-    res.json(result.rows);
+    const soundscapes = await repo.getAllForUser(req.user.id);
+    res.json(soundscapes);
   } catch (error) {
     console.error('[Soundscapes] Get all error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -25,31 +25,13 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    const full = await repo.getFull(id, req.user.id);
 
-    const soundscapeResult = await db.query(
-      'SELECT * FROM soundscapes WHERE id = $1 AND user_id = $2',
-      [id, req.user.id]
-    );
-
-    if (soundscapeResult.rows.length === 0) {
+    if (!full) {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
-    const waypointsResult = await db.query(
-      'SELECT * FROM waypoints WHERE soundscape_id = $1 ORDER BY sort_order',
-      [id]
-    );
-
-    const behaviorsResult = await db.query(
-      'SELECT * FROM behaviors WHERE soundscape_id = $1 ORDER BY sort_order',
-      [id]
-    );
-
-    res.json({
-      soundscape: soundscapeResult.rows[0],
-      waypoints: waypointsResult.rows,
-      behaviors: behaviorsResult.rows
-    });
+    res.json(full);
   } catch (error) {
     console.error('[Soundscapes] Get single error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -61,14 +43,15 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const { name, description } = req.body;
 
-    const result = await db.query(
-      'INSERT INTO soundscapes (user_id, name, description) VALUES ($1, $2, $3) RETURNING *',
-      [req.user.id, name, description || '']
+    const soundscape = await repo.createWithWaypoints(
+      { userId: req.user.id, name, description },
+      [], // No waypoints initially
+      []  // No behaviors initially
     );
 
     res.json({
       message: 'Soundscape created',
-      soundscape: result.rows[0]
+      soundscape: soundscape.soundscape
     });
   } catch (error) {
     console.error('[Soundscapes] Create error:', error);
@@ -82,18 +65,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { name, description } = req.body;
 
-    const result = await db.query(
-      'UPDATE soundscapes SET name = $1, description = $2, updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING *',
-      [name, description, id, req.user.id]
-    );
+    const updated = await repo.update(id, { name, description });
 
-    if (result.rows.length === 0) {
+    if (!updated) {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
     res.json({
       message: 'Soundscape updated',
-      soundscape: result.rows[0]
+      soundscape: updated
     });
   } catch (error) {
     console.error('[Soundscapes] Update error:', error);
@@ -106,12 +86,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await db.query(
-      'DELETE FROM soundscapes WHERE id = $1 AND user_id = $2 RETURNING *',
-      [id, req.user.id]
-    );
+    const deleted = await repo.delete(id);
 
-    if (result.rows.length === 0) {
+    if (!deleted) {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
@@ -128,44 +105,16 @@ router.post('/:id/save', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { waypoints, behaviors } = req.body;
 
-    const check = await db.query(
-      'SELECT id FROM soundscapes WHERE id = $1 AND user_id = $2',
-      [id, req.user.id]
-    );
-    if (check.rows.length === 0) {
+    // Verify ownership
+    const soundscape = await repo.findById(id);
+    if (!soundscape || soundscape.user_id !== req.user.id) {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
-    await db.query('UPDATE soundscapes SET updated_at = NOW() WHERE id = $1', [id]);
+    // Save waypoints and behaviors (transactional)
+    const full = await repo.saveFull(id, waypoints || [], behaviors || []);
 
-    // Save waypoints
-    await db.query('DELETE FROM waypoints WHERE soundscape_id = $1', [id]);
-    if (waypoints && waypoints.length > 0) {
-      for (let i = 0; i < waypoints.length; i++) {
-        const wp = waypoints[i];
-        await db.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, volume, loop, activation_radius, icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.volume || 0.8,
-           wp.loop !== undefined ? wp.loop : true, wp.activationRadius || 20, wp.icon || '🎵', wp.color || '#00d9ff', i]
-        );
-      }
-    }
-
-    // Save behaviors
-    await db.query('DELETE FROM behaviors WHERE soundscape_id = $1', [id]);
-    if (behaviors && behaviors.length > 0) {
-      for (let i = 0; i < behaviors.length; i++) {
-        const b = behaviors[i];
-        await db.query(
-          `INSERT INTO behaviors (soundscape_id, type, member_ids, config_json, sort_order)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [id, b.type, b.memberIds || [], b.config || {}, i]
-        );
-      }
-    }
-
-    res.json({ message: 'Soundscape saved' });
+    res.json({ message: 'Soundscape saved', soundscape: full });
   } catch (error) {
     console.error('[Soundscapes] Save error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -177,16 +126,12 @@ router.get('/:id/modified', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await db.query(
-      'SELECT updated_at FROM soundscapes WHERE id = $1 AND user_id = $2',
-      [id, req.user.id]
-    );
-
-    if (result.rows.length === 0) {
+    const soundscape = await repo.findById(id);
+    if (!soundscape || soundscape.user_id !== req.user.id) {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
-    res.json({ lastModified: result.rows[0].updated_at.toISOString() });
+    res.json({ lastModified: soundscape.updated_at.toISOString() });
   } catch (error) {
     console.error('[Soundscapes] Get modified error:', error);
     res.status(500).json({ error: 'Server error' });

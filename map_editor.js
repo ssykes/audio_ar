@@ -1,9 +1,10 @@
 /**
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
- * 
- * @version 6.1 - Session 6 Refactor: Mode Presets
- * 
+ *
+ * @version 6.3 - Populate waypointData when loading from server
+ * @author Spatial Audio AR Team
+ *
  * Features:
  * - Login/Register/Logout UI
  * - Soundscape management (create, edit, delete)
@@ -41,6 +42,8 @@ class MapEditorApp extends MapAppShared {
         // Load soundscape from server if logged in, otherwise from localStorage
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
+            // Auto-sync if server data has changed since last save
+            await this._autoSyncIfNeeded();
         } else {
             this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
@@ -651,6 +654,9 @@ class MapEditorApp extends MapAppShared {
                 try {
                     const data = await this.api.loadSoundscape(ss.id);
                     const soundscape = SoundScape.fromJSON(data.soundscape);
+                    
+                    // IMPORTANT: Add waypointData to soundscape (from data.waypoints, not data.soundscape)
+                    soundscape.waypointData = data.waypoints;
 
                     // Add to soundscapes map
                     this.soundscapes.set(soundscape.id, soundscape);
@@ -696,9 +702,10 @@ class MapEditorApp extends MapAppShared {
             this.debugLog('☁️ Saving to server...');
 
             const soundscape = this.getActiveSoundscape();
+            // Use soundscape.waypointData (clean objects) instead of this.waypoints (may have Leaflet refs)
             await this.api.saveSoundscape(
                 serverId,
-                this.waypoints.map(wp => this.api.wpToServer(wp)),
+                soundscape.waypointData.map(wp => this.api.wpToServer(wp)),
                 soundscape.behaviors || []
             );
 
@@ -1090,6 +1097,53 @@ class MapEditorApp extends MapAppShared {
 
         // Update status bar
         this._updateStatusBar();
+    }
+
+    /**
+     * Auto-sync if server data has changed since last save (Session 5E: Timestamp-based sync)
+     * Compares server timestamp with local timestamp to detect changes from other tabs/devices
+     * @private
+     */
+    async _autoSyncIfNeeded() {
+        if (!this.isLoggedIn || !this.activeSoundscapeId) return;
+
+        try {
+            // Get server timestamp
+            const serverModified = await this.api.getSoundscapeModified(this.activeSoundscapeId);
+            const localModified = localStorage.getItem('soundscape_modified_' + this.activeSoundscapeId);
+
+            if (serverModified !== localModified) {
+                this.debugLog('🔄 Timestamp mismatch (server: ' + serverModified + ', local: ' + localModified + ') - server has newer data');
+                
+                // Check if we have unsaved local changes
+                const soundscape = this.getActiveSoundscape();
+                if (soundscape && soundscape.isDirty) {
+                    // Has local changes - ask user what to do
+                    this.debugLog('⚠️ Local changes detected - prompting user');
+                    const confirmSync = confirm(
+                        'Server has newer data from another tab or device.\n\n' +
+                        'Click OK to sync from server (local changes will be lost).\n' +
+                        'Click Cancel to keep your local changes.'
+                    );
+                    
+                    if (!confirmSync) {
+                        this.debugLog('❌ User chose to keep local changes');
+                        return;
+                    }
+                }
+                
+                // Sync from server
+                this._showToast('🔄 Updating from server...', 'info');
+                await this._loadSoundscapeFromServer();
+                this._showToast('✅ Soundscape updated', 'success');
+                this.debugLog('✅ Auto-synced from server');
+            } else {
+                this.debugLog('✅ Timestamp match (' + serverModified + ') - using current data');
+            }
+        } catch (error) {
+            this.debugLog('⚠️ Auto-sync check failed: ' + error.message);
+            // Silently fail - continue with current data
+        }
     }
 
     /**

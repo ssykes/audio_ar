@@ -1,15 +1,15 @@
 /**
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
- * 
- * @version 6.1 - Session 6 Refactor: Mode Presets
+ *
+ * @version 6.4 - Strip Leaflet properties before server save
  * @author Spatial Audio AR Team
- * 
+ *
  * Architecture:
  * - Shared logic extracted to base class (map initialization, GPS, compass, simulator, audio)
  * - Child classes use mode presets (editor/player) with optional overrides
  * - Abstract methods enforce subclass implementation
- * 
+ *
  * Usage:
  *   class MapEditorApp extends MapAppShared {
  *       constructor() { super({ mode: 'editor' }); }
@@ -482,10 +482,22 @@ class MapAppShared {
         }
 
         this.debugLog('☁️ Auto-saving to server...');
+        
+        // Use soundscape.waypointData (clean data) instead of this.waypoints
+        const wpData = soundscape.waypointData || [];
+        const behaviors = soundscape.behaviors || [];
+
+        // Strip Leaflet properties (circleMarker, marker) before sending to server
+        // These are added by _updateRadiusCircle() and contain circular references to the map
+        const cleanWaypoints = wpData.map(wp => {
+            const { circleMarker, marker, ...cleanWp } = wp;
+            return cleanWp; // Keep camelCase - server repository handles snake_case conversion
+        });
+
         this.api.saveSoundscape(
             serverId,
-            this.waypoints.map(wp => this.api.wpToServer(wp)),
-            soundscape.behaviors || []
+            cleanWaypoints,
+            behaviors
         )
         .then(() => {
             soundscape.isDirty = false;
@@ -584,8 +596,23 @@ class MapAppShared {
         
         marker.on('dragend', (e) => {
             this.isDragging = false;
-            waypoint.lat = e.target.getLatLng().lat;
-            waypoint.lon = e.target.getLatLng().lng;
+            const newLat = e.target.getLatLng().lat;
+            const newLon = e.target.getLatLng().lng;
+            
+            // Update waypoint in this.waypoints
+            waypoint.lat = newLat;
+            waypoint.lon = newLon;
+            
+            // Also update soundscape.waypointData (for clean server save)
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                const wpInSoundscape = soundscape.waypointData.find(wp => wp.id === waypoint.id);
+                if (wpInSoundscape) {
+                    wpInSoundscape.lat = newLat;
+                    wpInSoundscape.lon = newLon;
+                }
+            }
+            
             this._updateRadiusCircle(waypoint);
             this._markSoundscapeDirty();
             this._scheduleAutoSave();  // Debounced save after drag
@@ -650,6 +677,18 @@ class MapAppShared {
         if (!isNaN(radius) && radius > 0) {
             waypoint.activationRadius = radius;
             this._updateRadiusCircle(waypoint);
+        }
+
+        // Also update soundscape.waypointData (for clean server save)
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            const wpInSoundscape = soundscape.waypointData.find(wp => wp.id === waypointId);
+            if (wpInSoundscape) {
+                wpInSoundscape.soundUrl = waypoint.soundUrl;
+                wpInSoundscape.volume = waypoint.volume;
+                wpInSoundscape.loop = waypoint.loop;
+                wpInSoundscape.activationRadius = waypoint.activationRadius;
+            }
         }
 
         // Close and reopen popup to show updated info
