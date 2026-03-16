@@ -1973,55 +1973,68 @@ git commit -m "Short single-line message"
 
 ---
 
-## Session 8: Device-Aware Editor with Options Presets - COMPLETED ✅
+## Session 8: Device-Aware Auto-Routing on Login - COMPLETED ✅
 
-### Status: ✅ COMPLETE
+### Status: ✅ COMPLETE (v6.8 - Fixed login flow)
 
-**Implementation:** Device detection + GPS hardware check + Start button logic
+**Problem:** After login, all devices showed "Choose Your Device" page, but:
+- PC should go directly to `map_editor.html`
+- Phone should go directly to `soundscape_picker.html`
+- Only tablets should see device selector
 
-**Key Changes:**
-- `map_shared.js` v6.8: `_detectDeviceType()`, `_getInitialGPS()` on all devices, `allowStartTesting` flag
-- `map_editor.js` v6.39: GPS check with heading validation, Start button shown only on GPS detection
-- All devices request GPS/WiFi positioning (not just tablets)
-- Start button shown only when GPS hardware detected (heading + accuracy < 50m)
+**Solution:** Auto-routing based on device category detection
 
-**Final Implementation:**
+**Implementation:**
+- `index.html` v6.8: Added `handleDeviceRouting()` method called after login
+- Device detection via user agent patterns (not touch/screen size)
+- Auto-redirect without showing device selector (except tablets with GPS)
+
+**Device Detection Logic:**
 ```javascript
-// map_shared.js - All devices request GPS/WiFi
-async _getInitialGPS() {
-    if (!navigator.geolocation) {
-        resolve(false);
-        return;
-    }
-    navigator.geolocation.getCurrentPosition((pos) => {
-        this.listenerLat = pos.coords.latitude;
-        this.listenerLon = pos.coords.longitude;
-        this.map.setView([this.listenerLat, this.listenerLon], 16);
-        resolve(true);
-    });
-}
-
-// map_editor.js - GPS check with heading validation
-async _checkGPSAvailability() {
-    navigator.geolocation.getCurrentPosition((pos) => {
-        const hasHeading = typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading);
-        const hasGoodAccuracy = pos.coords.accuracy < 50;
-        resolve(hasHeading || hasGoodAccuracy);  // GPS likely if either true
-    });
-}
+// index.html - _detectDeviceCategory()
+Mobile (Phone):  /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/ → soundscape_picker.html
+Tablet:          /iPad|Android(?!.*Mobile)|Tablet|Silk/ → Show selector + GPS check
+Desktop (PC):    Everything else → map_editor.html
 ```
 
+**Login Flow:**
+```
+1. User logs in at index.html
+   ↓
+2. handleDeviceRouting() called
+   ↓
+3. Detect device category
+   ↓
+4. Auto-redirect:
+   ├─ Mobile  → soundscape_picker.html (direct)
+   ├─ Desktop → map_editor.html (direct)
+   └─ Tablet  → GPS check → Show selector or auto-redirect
+```
+
+**Tablet Handling:**
+- Tablets check for GPS + compass availability
+- If both present: Show device selector (user chooses Editor or Player)
+- If missing: Auto-redirect to `map_editor.html`
+
 **User Experience:**
-| Device | Positioning | Start Button |
-|--------|-------------|--------------|
-| Desktop (WiFi) | WiFi triangulation | ❌ Hidden (WiFi detected) |
-| Desktop (Ethernet) | IP geolocation | ❌ Hidden (no GPS) |
-| Tablet (GPS) | GPS | ✅ Visible (GPS detected) |
-| Tablet (WiFi only) | WiFi triangulation | ❌ Hidden (WiFi detected) |
+| Device | Login Behavior |
+|--------|----------------|
+| **PC (Windows/Mac)** | → `map_editor.html` (direct, no selector) ✅ |
+| **Phone (iPhone/Android)** | → `soundscape_picker.html` (direct, no selector) ✅ |
+| **Tablet (iPad/Android)** | → GPS check → Show selector or editor |
 
 **Files Modified:**
-- `map_shared.js` v6.8: Device detection, GPS on all devices
-- `map_editor.js` v6.39: GPS check, Start button logic
+- `index.html` v6.8: Added `handleDeviceRouting()`, `_detectDeviceCategory()`, `_checkDeviceGPSAndCompass()`, `_checkDeviceCompass()`
+- Changed `handleLogin()` to call `handleDeviceRouting()` instead of `showDeviceSelector()`
+
+**Testing:**
+- ✅ PC: Login → Direct to map_editor (no device selector shown)
+- ✅ Phone: Login → Direct to soundscape_picker (no device selector shown)
+- ⏳ Tablet: Login → GPS check → Show selector (if GPS+compass) or editor
+
+**Bug Fixed (v6.8):**
+- `handleLogin()` was calling `showDeviceSelector()` instead of `handleDeviceRouting()`
+- Fixed: Now calls `handleDeviceRouting()` for auto-routing
 
 ---
 

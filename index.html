@@ -238,13 +238,14 @@
         </div>
     </div>
 
-    <div class="version">v6.0</div>
+    <div class="version">v6.8</div>
 
     <script>
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    <script src="api-client.js?v=20260316130550"></script>
+    <script src="api-client.js?v=20260316150813"></script>
+    <script src="map_shared.js"></script>
     <script>
         /**
          * Landing Page Controller
@@ -262,6 +263,7 @@
                     successMsg: document.getElementById('successMsg'),
                     welcomeMsg: document.getElementById('welcomeMsg')
                 };
+                this.deviceCheckResult = null;  // Cache device check result
             }
 
             async init() {
@@ -270,7 +272,7 @@
                     try {
                         const valid = await this.api.verifyToken();
                         if (valid) {
-                            this.showDeviceSelector();
+                            await this.handleDeviceRouting();
                             return;
                         }
                     } catch (error) {
@@ -284,6 +286,56 @@
                     }
                 }
                 this.showLoginForm();
+            }
+
+            /**
+             * Handle device detection and routing after login
+             */
+            async handleDeviceRouting() {
+                console.log('[Landing] handleDeviceRouting called');
+                console.log('[Landing] isLoggedIn:', this.api.isLoggedIn());
+                console.log('[Landing] user:', this.api.user);
+
+                const deviceCategory = this._detectDeviceCategory();
+                console.log(`[Landing] Device category: ${deviceCategory}`);
+
+                // === PHONE ===
+                // Go directly to soundscape picker
+                if (deviceCategory === 'mobile') {
+                    console.log('[Landing] Mobile → soundscape_picker.html');
+                    window.location.href = 'soundscape_picker.html';
+                    return;
+                }
+
+                // === DESKTOP ===
+                // Go directly to map_editor
+                if (deviceCategory === 'desktop') {
+                    console.log('[Landing] Desktop → map_editor.html');
+                    window.location.href = 'map_editor.html';
+                    return;
+                }
+
+                // === TABLET ===
+                // Check GPS and compass
+                console.log('[Landing] Tablet - checking GPS and compass...');
+                this.showDeviceSelector();  // Show selector while checking
+
+                try {
+                    const result = await this._checkDeviceGPSAndCompass();
+                    console.log('[Landing] Device check result:', result);
+
+                    if (result.both) {
+                        // Tablet with GPS and compass - keep selector visible for user to choose
+                        console.log('[Landing] GPS and compass available - waiting for user choice');
+                    } else {
+                        // Tablet without GPS/compass - auto-redirect to editor
+                        console.log('[Landing] No GPS/compass - redirecting to map_editor.html');
+                        window.location.href = 'map_editor.html';
+                    }
+                } catch (err) {
+                    console.error('[Landing] Device check error:', err);
+                    window.location.href = 'map_editor.html';
+                }
             }
 
             showLoginForm() {
@@ -329,7 +381,8 @@
                 try {
                     await this.api.login(email, password);
                     this.showSuccess('Login successful!');
-                    setTimeout(() => this.showDeviceSelector(), 500);
+                    // Auto-route based on device (don't show device selector)
+                    setTimeout(() => this.handleDeviceRouting(), 500);
                 } catch (error) {
                     this.showError(error.message || 'Login failed');
                 }
@@ -365,16 +418,172 @@
                 this.showLoginForm();
             }
 
+            /**
+             * Handle button click from device selector (tablet with GPS/compass only)
+             * @param {string} deviceType - 'editor' or 'player'
+             */
             selectDevice(deviceType) {
-                // Store device preference for redirect
-                localStorage.setItem('audio_ar_device_type', deviceType);
+                console.log(`[Landing] User selected: ${deviceType}`);
 
-                if (deviceType === 'editor') {
-                    window.location.href = 'map_editor.html';
-                } else {
-                    // Player: redirect to soundscape picker first (Session 9)
+                if (deviceType === 'player') {
+                    console.log('[Landing] Player → soundscape_picker.html');
                     window.location.href = 'soundscape_picker.html';
+                } else {
+                    console.log('[Landing] Editor → map_editor.html');
+                    window.location.href = 'map_editor.html';
                 }
+            }
+
+            /**
+             * Detect device category
+             * @returns {string} 'mobile' | 'tablet' | 'desktop'
+             * @private
+             */
+            _detectDeviceCategory() {
+                const ua = navigator.userAgent;
+                const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+                const width = window.innerWidth;
+
+                console.log(`[Device Detect] UA: ${ua.substring(0, 80)}...`);
+                console.log(`[Device Detect] hasTouch: ${hasTouch}, maxTouchPoints: ${navigator.maxTouchPoints}`);
+                console.log(`[Device Detect] width: ${width}px`);
+
+                // Mobile devices (phone) - check for phone-specific patterns
+                const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
+                if (isPhone) {
+                    console.log('[Device Detect] → mobile (phone detected)');
+                    return 'mobile';
+                }
+
+                // Tablet devices - iPad or Android without Mobile
+                const isTablet = /iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+                if (isTablet) {
+                    console.log('[Device Detect] → tablet (tablet detected)');
+                    return 'tablet';
+                }
+
+                // Desktop (default)
+                console.log('[Device Detect] → desktop (default)');
+                return 'desktop';
+            }
+
+            /**
+             * Check if device has both GPS and compass (for tablets)
+             * @returns {Promise<{gps: boolean, compass: boolean, both: boolean}>}
+             * @private
+             */
+            async _checkDeviceGPSAndCompass() {
+                return new Promise((resolve) => {
+                    const result = { gps: false, compass: false, both: false };
+
+                    // Check GPS
+                    if (!navigator.geolocation) {
+                        console.log('[Device Check] Geolocation not supported');
+                        resolve(result);
+                        return;
+                    }
+
+                    const gpsTimeout = setTimeout(() => {
+                        console.log('[Device Check] GPS timeout');
+                        resolve(result);
+                    }, 5000);
+
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            clearTimeout(gpsTimeout);
+                            const hasHeading = typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading);
+                            const hasGoodAccuracy = pos.coords.accuracy < 50;
+                            result.gps = hasHeading || hasGoodAccuracy;
+                            console.log(`[Device Check] GPS: ${result.gps ? '✅' : '⚠️'} (heading: ${hasHeading}, accuracy: ${pos.coords.accuracy}m)`);
+
+                            // Check compass (DeviceOrientation)
+                            this._checkDeviceCompass().then((hasCompass) => {
+                                result.compass = hasCompass;
+                                result.both = result.gps && result.compass;
+                                console.log(`[Device Check] Compass: ${result.compass ? '✅' : '⚠️'}`);
+                                console.log(`[Device Check] Result: GPS=${result.gps}, Compass=${result.compass}, Both=${result.both ? '✅ YES' : '❌ NO'}`);
+                                resolve(result);
+                            });
+                        },
+                        (err) => {
+                            clearTimeout(gpsTimeout);
+                            console.log('[Device Check] GPS error:', err.message);
+                            resolve(result);
+                        },
+                        { timeout: 5000, enableHighAccuracy: true }
+                    );
+                });
+            }
+
+            /**
+             * Check if compass (DeviceOrientation) is available
+             * @returns {Promise<boolean>} True if compass available
+             * @private
+             */
+            async _checkDeviceCompass() {
+                return new Promise((resolve) => {
+                    // Check if DeviceOrientation is supported
+                    if (!window.DeviceOrientationEvent) {
+                        resolve(false);
+                        return;
+                    }
+
+                    // Try to get a device orientation reading
+                    const compassTimeout = setTimeout(() => {
+                        console.log('[Device Check] Compass timeout');
+                        resolve(false);
+                    }, 3000);
+
+                    const handler = (event) => {
+                        clearTimeout(compassTimeout);
+                        window.removeEventListener('deviceorientation', handler);
+
+                        // Check for heading data (alpha or webkitCompassHeading)
+                        const hasAlpha = typeof event.alpha === 'number' && !isNaN(event.alpha);
+                        const hasWebkitHeading = typeof event.webkitCompassHeading === 'number' && !isNaN(event.webkitCompassHeading);
+
+                        const hasCompass = hasAlpha || hasWebkitHeading;
+                        console.log(`[Device Check] Compass data: alpha=${event.alpha}, webkitHeading=${event.webkitCompassHeading}, result=${hasCompass ? '✅' : '⚠️'}`);
+                        resolve(hasCompass);
+                    };
+
+                    window.addEventListener('deviceorientation', handler);
+                });
+            }
+
+            /**
+             * Show device check status message
+             * @param {string} message - Message to show
+             * @param {string} type - 'info' | 'success' | 'warning'
+             * @private
+             */
+            _showDeviceCheckStatus(message, type = 'info') {
+                let statusEl = document.getElementById('deviceCheckStatus');
+                if (!statusEl) {
+                    // Create status element if it doesn't exist
+                    statusEl = document.createElement('div');
+                    statusEl.id = 'deviceCheckStatus';
+                    statusEl.style.cssText = 'margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 0.9em; text-align: center;';
+                    const welcomeMsg = document.getElementById('welcomeMsg');
+                    if (welcomeMsg) {
+                        welcomeMsg.parentNode.insertBefore(statusEl, welcomeMsg.nextSibling);
+                    } else {
+                        document.querySelector('#deviceCard .card').appendChild(statusEl);
+                    }
+                }
+
+                const colors = {
+                    info: { bg: 'rgba(0, 217, 255, 0.2)', border: '#00d9ff', text: '#00d9ff' },
+                    success: { bg: 'rgba(0, 184, 148, 0.2)', border: '#00b894', text: '#00ff88' },
+                    warning: { bg: 'rgba(255, 193, 7, 0.2)', border: '#ffc107', text: '#ffca2c' }
+                };
+                const color = colors[type] || colors.info;
+
+                statusEl.style.background = color.bg;
+                statusEl.style.border = `1px solid ${color.border}`;
+                statusEl.style.color = color.text;
+                statusEl.textContent = message;
+                statusEl.classList.remove('hidden');
             }
 
             setupEventListeners() {
@@ -398,8 +607,17 @@
 
         // Initialize app
         const app = new LandingPage();
-        app.init();
-        app.setupEventListeners();
+        
+        // Wait for DOM to be ready before initializing
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                app.init();
+                app.setupEventListeners();
+            });
+        } else {
+            app.init();
+            app.setupEventListeners();
+        }
     </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.8 - Default to Ashland, OR; fitBounds() for waypoint zoom
+ * @version 6.9 - Added _checkGPSAndCompass() and _checkCompass() methods
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -223,12 +223,12 @@ class MapAppShared {
             navigator.geolocation.getCurrentPosition((pos) => {
                 this.listenerLat = pos.coords.latitude;
                 this.listenerLon = pos.coords.longitude;
-                
+
                 // Store position but don't center yet - will center on soundscapes if they exist
                 console.log('[MapShared] GPS/WiFi acquired:', this.listenerLat, this.listenerLon);
                 console.log('[MapShared] Will center on soundscapes if available, otherwise use this position');
                 this._updateListenerMarker(this.listenerLat, this.listenerLon, false);
-                
+
                 // Center map on GPS position (will be overridden by soundscapes if they exist)
                 this.map.setView([this.listenerLat, this.listenerLon], 16);
                 resolve(true);
@@ -236,6 +236,92 @@ class MapAppShared {
                 console.log('[MapShared] GPS/WiFi unavailable (' + err.message + ') - will use soundscape position or default');
                 resolve(false);
             }, { enableHighAccuracy: true, timeout: 5000 });
+        });
+    }
+
+    /**
+     * Check if device has both GPS and compass (for editor capability)
+     * GPS: heading property exists OR accuracy < 50m
+     * Compass: DeviceOrientation with alpha/heading available
+     * @returns {Promise<{gps: boolean, compass: boolean, both: boolean}>}
+     * @protected
+     */
+    async _checkGPSAndCompass() {
+        return new Promise((resolve) => {
+            const result = { gps: false, compass: false, both: false };
+
+            // Check GPS
+            if (!navigator.geolocation) {
+                console.log('[Device Check] Geolocation not supported');
+                resolve(result);
+                return;
+            }
+
+            const gpsTimeout = setTimeout(() => {
+                console.log('[Device Check] GPS timeout');
+                resolve(result);
+            }, 5000);
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    clearTimeout(gpsTimeout);
+                    const hasHeading = typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading);
+                    const hasGoodAccuracy = pos.coords.accuracy < 50;
+                    result.gps = hasHeading || hasGoodAccuracy;
+                    console.log(`[Device Check] GPS: ${result.gps ? '✅' : '⚠️'} (heading: ${hasHeading}, accuracy: ${pos.coords.accuracy}m)`);
+
+                    // Check compass (DeviceOrientation)
+                    this._checkCompass().then((hasCompass) => {
+                        result.compass = hasCompass;
+                        result.both = result.gps && result.compass;
+                        console.log(`[Device Check] Compass: ${result.compass ? '✅' : '⚠️'}`);
+                        console.log(`[Device Check] Result: GPS=${result.gps}, Compass=${result.compass}, Both=${result.both ? '✅ YES' : '❌ NO'}`);
+                        resolve(result);
+                    });
+                },
+                (err) => {
+                    clearTimeout(gpsTimeout);
+                    console.log('[Device Check] GPS error:', err.message);
+                    resolve(result);
+                },
+                { timeout: 5000, enableHighAccuracy: true }
+            );
+        });
+    }
+
+    /**
+     * Check if compass (DeviceOrientation) is available
+     * @returns {Promise<boolean>} True if compass available
+     * @protected
+     */
+    async _checkCompass() {
+        return new Promise((resolve) => {
+            // Check if DeviceOrientation is supported
+            if (!window.DeviceOrientationEvent) {
+                resolve(false);
+                return;
+            }
+
+            // Try to get a device orientation reading
+            const compassTimeout = setTimeout(() => {
+                console.log('[Device Check] Compass timeout');
+                resolve(false);
+            }, 3000);
+
+            const handler = (event) => {
+                clearTimeout(compassTimeout);
+                window.removeEventListener('deviceorientation', handler);
+
+                // Check for heading data (alpha or webkitCompassHeading)
+                const hasAlpha = typeof event.alpha === 'number' && !isNaN(event.alpha);
+                const hasWebkitHeading = typeof event.webkitCompassHeading === 'number' && !isNaN(event.webkitCompassHeading);
+
+                const hasCompass = hasAlpha || hasWebkitHeading;
+                console.log(`[Device Check] Compass data: alpha=${event.alpha}, webkitHeading=${event.webkitCompassHeading}, result=${hasCompass ? '✅' : '⚠️'}`);
+                resolve(hasCompass);
+            };
+
+            window.addEventListener('deviceorientation', handler);
         });
     }
 
