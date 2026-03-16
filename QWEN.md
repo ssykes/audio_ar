@@ -1973,86 +1973,145 @@ git commit -m "Short single-line message"
 
 ---
 
-## Session 8: Device-Aware Editor with Options Presets (PLANNED)
+## Session 8: Device-Aware Editor with Options Presets - COMPLETED ✅
 
-### Problem Statement
+### Status: ✅ COMPLETE
 
-**Current State:**
-- `map_editor.html` has a **Start** button designed for GPS-enabled devices
-- PC users see Start button but have no GPS (button is useless)
-- Tablet users could use Start button (has GPS) but no distinction from PC
-- `map_player.html` exists for phone/tablet testing, but editor could also test on tablet
+**Implementation:** Device detection + GPS hardware check + Start button logic
 
-**Issue:** One-size-fits-all editor doesn't adapt to device capabilities (GPS availability)
+**Key Changes:**
+- `map_shared.js` v6.8: `_detectDeviceType()`, `_getInitialGPS()` on all devices, `allowStartTesting` flag
+- `map_editor.js` v6.39: GPS check with heading validation, Start button shown only on GPS detection
+- All devices request GPS/WiFi positioning (not just tablets)
+- Start button shown only when GPS hardware detected (heading + accuracy < 50m)
 
-### Solution: Options Presets with Runtime Detection
+**Final Implementation:**
+```javascript
+// map_shared.js - All devices request GPS/WiFi
+async _getInitialGPS() {
+    if (!navigator.geolocation) {
+        resolve(false);
+        return;
+    }
+    navigator.geolocation.getCurrentPosition((pos) => {
+        this.listenerLat = pos.coords.latitude;
+        this.listenerLon = pos.coords.longitude;
+        this.map.setView([this.listenerLat, this.listenerLon], 16);
+        resolve(true);
+    });
+}
 
-**Architecture Vision:**
-
+// map_editor.js - GPS check with heading validation
+async _checkGPSAvailability() {
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const hasHeading = typeof pos.coords.heading === 'number' && !isNaN(pos.coords.heading);
+        const hasGoodAccuracy = pos.coords.accuracy < 50;
+        resolve(hasHeading || hasGoodAccuracy);  // GPS likely if either true
+    });
+}
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  map_shared.js - Base Class with Preset System              │
-│                                                             │
-│  static getPreset(name) → { allowStartTesting, ... }        │
-│  _detectDeviceType() → 'desktop' | 'tablet' | 'phone'       │
-│  _checkGPSAvailability() → Promise<boolean>                 │
-│                                                             │
-│  Constructor uses preset + runtime GPS check                │
-└─────────────────────────────────────────────────────────────┘
-           ▲
-           │
-    ┌──────┴────────────────┐
-    │ map_editor.js         │
-    │ - Detects tablet      │
-    │ - Shows Start if GPS  │
-    │ - Hides Start if no GPS │
-    └───────────────────────┘
-```
 
-### Implementation Plan (Divided into Sub-Sessions)
+**User Experience:**
+| Device | Positioning | Start Button |
+|--------|-------------|--------------|
+| Desktop (WiFi) | WiFi triangulation | ❌ Hidden (WiFi detected) |
+| Desktop (Ethernet) | IP geolocation | ❌ Hidden (no GPS) |
+| Tablet (GPS) | GPS | ✅ Visible (GPS detected) |
+| Tablet (WiFi only) | WiFi triangulation | ❌ Hidden (WiFi detected) |
 
-| Session | Phase | Task | Files | Est. Lines | Time | Risk |
-|---------|-------|------|-------|------------|------|------|
-| **8A** | 1 | Add preset system to `map_shared.js` | 1 modify | ~65 | 30 min | ✅ None |
-| **8B** | 2 | Update `map_editor.js` to use presets | 1 modify | ~50 | 30 min | ⚠️ Low |
-| **8C** | 3 | Add runtime GPS detection | `map_editor.js` | ~25 | 15 min | ⚠️ Low |
-| **8D** | 4 | Update UI rendering to use flags | `map_shared.js` | ~25 | 15 min | ✅ None |
-| **8E** | 5 | Test on PC + tablet + phone | Browser | - | 35 min | ✅ None |
-| **Total** | | | **2 files** | **~165 lines** | **~2h 5m** | **Low** |
+**Files Modified:**
+- `map_shared.js` v6.8: Device detection, GPS on all devices
+- `map_editor.js` v6.39: GPS check, Start button logic
 
 ---
 
-### Session 8A: Add Preset System to `map_shared.js`
+## Session 9: Soundscape Selector Page - COMPLETED ✅
 
-**Goal:** Add static preset definitions + device detection helper
+### Status: ✅ COMPLETE
 
-**Changes:**
+**Implementation:** Soundscape picker page + selection flow + Back button
 
+**Key Changes:**
+- `soundscape_picker.html` (NEW): Soundscape selection UI with login check
+- `index.html`: Player redirect → soundscape_picker.html
+- `map_player.js` v6.2: Read `selected_soundscape_id` from localStorage
+- `map_player.html`: Added "Back to Soundscapes" button
+- `deploy.ps1`: Added soundscape_picker.html to deployment
+
+**User Flow:**
+```
+1. index.html (Landing) - Login
+   ↓
+2. Device Selector - Click "Player (Phone)"
+   ↓
+3. soundscape_picker.html - Choose soundscape from list
+   ↓
+4. map_player.html - Load selected soundscape (not most recent)
+   ↓
+5. "Back to Soundscapes" button - Return to picker
+```
+
+**Files Changed:**
+- `soundscape_picker.html` (NEW): 346 lines
+- `index.html`: Redirect logic (+7 lines)
+- `map_player.js` v6.2: Read selection (+40 lines)
+- `map_player.html`: Back button (+1 line)
+- `deploy.ps1`: Add to deployment (+4 lines)
+
+**Testing Checklist:**
+- ✅ Login → Player redirect → soundscape picker appears
+- ✅ Soundscape list loads from server
+- ✅ Click soundscape → redirects to map_player.html
+- ✅ map_player.html loads selected soundscape
+- ✅ Back button returns to picker
+- ✅ Logout clears selection
+
+---
+
+## Session 9 (Continued): Map Positioning & Auto-Zoom - COMPLETED ✅
+
+### Default Map Position
+
+**Changed From:** Seattle, WA (47.6062, -122.3321)<br>
+**Changed To:** Ashland, OR (42.1713, -122.7095)
+
+### Auto-Zoom with fitBounds()
+
+**Implementation:** Use Leaflet's `fitBounds()` to automatically zoom and show all waypoints
+
+**Key Changes:**
+- `map_shared.js` v6.8: `fitBounds()` in `switchSoundscape()` and `_loadSoundscapeFromStorage()`
+- `map_player.js` v6.2: `fitBounds()` in `_loadSoundscapeFromServer()`
+- `map_editor.js` v6.39: GPS fallback zoom 18 (closer than before)
+
+**Zoom Behavior:**
+| Scenario | Zoom Level | Method |
+|----------|-----------|--------|
+| Soundscapes loaded | Auto (max 19) | `fitBounds()` with 50px padding |
+| Single waypoint | 19 (max zoom) | `fitBounds()` |
+| Multiple close waypoints | 18-19 | `fitBounds()` |
+| Spread out waypoints | 13-17 | `fitBounds()` (zooms out) |
+| No soundscapes + GPS | 18 | Fixed (close) |
+| No soundscapes + no GPS | 16 | Fixed (Ashland default) |
+
+**Code Example:**
 ```javascript
-// map_shared.js - Add after constructor
+// Center and zoom map to show all waypoints
+if (this.waypoints.length > 0) {
+    const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+    this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+}
+```
 
-/**
- * Get options preset by name
- * @param {string} name - Preset name
- * @returns {Object} Options object
- */
-static getPreset(name) {
-    const presets = {
-        desktop_editor: {
-            mode: 'editor',
-            allowEditing: true,
-            allowSimulation: true,
-            allowStartTesting: false,  // No GPS on desktop
-            autoSync: false,
-            showDetailedInfo: true,
-            enableContextMenu: true,
-            autoCenterOnGPS: false
-        },
-        tablet_editor: {
-            mode: 'editor',
-            allowEditing: true,
-            allowSimulation: true,
-            allowStartTesting: true,   // Has GPS on tablet
+**Benefits:**
+- ✅ Single waypoint: Zoomed in very close (zoom 19)
+- ✅ Multiple waypoints: Automatically framed with padding
+- ✅ Spread out waypoints: Zooms out to show all
+- ✅ Consistent behavior between editor and player
+
+---
+
+## Session 10+ (Future Planning)
             autoSync: true,
             showDetailedInfo: true,
             enableContextMenu: true,
