@@ -1,4 +1,4 @@
-s# Full Server Backup Script
+# Full Server Backup Script
 # Captures Apache2 config, SSL certs, system settings, and web content
 # Run this to create a complete disaster recovery backup
 
@@ -55,10 +55,11 @@ $CMD9 = "dpkg --get-selections > system/package_list.txt 2>/dev/null; echo 'Pack
 $CMD10 = "ip addr show > system/network.txt 2>/dev/null; ip route show >> system/network.txt 2>/dev/null; echo 'Network: done'"
 $CMD11 = "crontab -l > system/crontab.txt 2>/dev/null || echo 'none' > system/crontab.txt; echo 'Cron: done'"
 $CMD12 = "mysqldump --all-databases > database/mysql_dump.sql 2>/dev/null || echo '-- no mysql' > database/mysql_dump.sql; echo 'DB: done'"
-$CMD13 = "cd /tmp && tar -czf server_backup_final.tar.gz server_backup && rm -rf server_backup"
-$CMD14 = "echo 'Archive created: /tmp/server_backup_final.tar.gz'"
+$CMD13 = "cp -r /var/www/html/api/* database/api_backup/ 2>/dev/null; echo 'API backup: done'"
+$CMD14 = "cd /tmp && tar -czf server_backup_final.tar.gz server_backup && rm -rf server_backup"
+$CMD15 = "echo 'Archive created: /tmp/server_backup_final.tar.gz'"
 
-$SERVER_COMMANDS = "$CMD1 && $CMD2 && $CMD3 && $CMD4 && $CMD5 && $CMD6 && $CMD7 && $CMD8 && $CMD9 && $CMD10 && $CMD11 && $CMD12 && $CMD13 && $CMD14"
+$SERVER_COMMANDS = "$CMD1 && $CMD2 && $CMD3 && $CMD4 && $CMD5 && $CMD6 && $CMD7 && $CMD8 && $CMD9 && $CMD10 && $CMD11 && $CMD12 && $CMD13 && $CMD14 && $CMD15"
 
 Write-Host "        Running backup commands on server..." -ForegroundColor Gray
 
@@ -119,6 +120,30 @@ if ($LASTEXITCODE -eq 0) {
 Write-Host ""
 
 # ========================================
+# Step 2b: Backup Cloudflare Worker config
+# ========================================
+Write-Host "Step 2b: Backing up Cloudflare Worker config..." -ForegroundColor Yellow
+
+$CLOUDFLARE_WORKER = Join-Path $BACKUP_PATH "cloudflare-worker.js"
+$WRANGLER_CONFIG = Join-Path $BACKUP_PATH "wrangler.toml"
+
+if (Test-Path "e:\vsCode\workspaces\audio_ar\cloudflare-worker.js") {
+    Copy-Item "e:\vsCode\workspaces\audio_ar\cloudflare-worker.js" $CLOUDFLARE_WORKER
+    Write-Host "        Cloudflare Worker saved" -ForegroundColor Green
+} else {
+    Write-Host "        Cloudflare Worker not found (local file)" -ForegroundColor Yellow
+}
+
+if (Test-Path "e:\vsCode\workspaces\audio_ar\wrangler.toml") {
+    Copy-Item "e:\vsCode\workspaces\audio_ar\wrangler.toml" $WRANGLER_CONFIG
+    Write-Host "        Wrangler config saved" -ForegroundColor Green
+} else {
+    Write-Host "        Wrangler config not found (local file)" -ForegroundColor Yellow
+}
+
+Write-Host ""
+
+# ========================================
 # Step 3: Create restore instructions
 # ========================================
 Write-Host "Step 3: Creating restore instructions..." -ForegroundColor Yellow
@@ -133,7 +158,9 @@ $RESTORE_LINES = @(
     "This backup contains:",
     "* Apache2 configuration (/etc/apache2)",
     "* SSL certificates (/etc/letsencrypt or /etc/ssl)",
-    "* Web content (/var/www/html)",
+    "* Web content (/var/www/html) - Audio AR app",
+    "* Node.js API server (api/ folder)",
+    "* Cloudflare Worker configuration",
     "* System user info (ssykes)",
     "* SSH authorized keys",
     "* Firewall rules (UFW/iptables)",
@@ -146,6 +173,8 @@ $RESTORE_LINES = @(
     "1. Fresh Ubuntu Server installation",
     "2. Root or sudo access",
     "3. Same username (ssykes) or update configs",
+    "4. Node.js and npm installed",
+    "5. Wrangler CLI installed (for Cloudflare Worker)",
     "",
     "RESTORE STEPS:",
     "",
@@ -167,7 +196,8 @@ $RESTORE_LINES = @(
     "",
     "4. Install Packages",
     "   sudo apt update",
-    "   sudo apt install apache2 certbot python3-certbot-apache",
+    "   sudo apt install apache2 certbot python3-certbot-apache nodejs npm",
+    "   npm install -g wrangler",
     "",
     "5. Restore Apache2 Config",
     "   sudo cp -r apache2/* /etc/apache2/",
@@ -180,24 +210,35 @@ $RESTORE_LINES = @(
     "   sudo cp -r www/* /var/www/html/",
     "   sudo chown -R www-data:www-data /var/www/html",
     "",
-    "8. Restore Firewall",
+    "8. Restore API Server",
+    "   cd /var/www/html/api",
+    "   npm install",
+    "   cp .env.example .env  # Edit with your credentials",
+    "",
+    "9. Restore Firewall",
     "   sudo ufw reset",
     "   sudo ufw default deny incoming",
     "   sudo ufw default allow outgoing",
     "",
-    "9. Restore Cron Jobs",
+    "10. Restore Cron Jobs",
     "   crontab system/crontab.txt",
     "",
-    "10. Restore Database (if applicable)",
+    "11. Restore Database (if applicable)",
     "    mysql < database/mysql_dump.sql",
     "",
-    "11. Enable Services",
+    "12. Enable Services",
     "    sudo systemctl enable apache2",
     "    sudo systemctl start apache2",
+    "    cd /var/www/html/api && node server.js &",
     "",
-    "12. Test",
+    "13. Deploy Cloudflare Worker",
+    "    wrangler login",
+    "    wrangler deploy --config wrangler.toml",
+    "",
+    "14. Test",
     "    Visit https://your-domain.com",
     "    Check SSL: https://www.ssllabs.com/ssltest/",
+    "    Test API: https://your-domain.com/api/health",
     "",
     "========================================"
 )
@@ -226,7 +267,12 @@ $SUMMARY_LINES = @(
     "CONTENTS:",
     "* Apache2 configuration (/etc/apache2)",
     "* SSL certificates (/etc/letsencrypt)",
-    "* Web content (/var/www/html)",
+    "* Web content (/var/www/html) - Audio AR app",
+    "* Node.js API server (api/ folder)",
+    "  - Express.js routes",
+    "  - Data Mapper repositories",
+    "  - Domain models",
+    "* Cloudflare Worker configuration",
     "* System user information",
     "* SSH authorized keys",
     "* Firewall rules",
@@ -326,7 +372,12 @@ Write-Host ""
 Write-Host "Contents:" -ForegroundColor Yellow
 Write-Host "  Apache2 configuration" -ForegroundColor Green
 Write-Host "  SSL certificates (Let's Encrypt)" -ForegroundColor Green
-Write-Host "  Web content (/var/www/html)" -ForegroundColor Green
+Write-Host "  Web content (/var/www/html) - Audio AR app" -ForegroundColor Green
+Write-Host "  Node.js API server (api/)" -ForegroundColor Green
+Write-Host "    - Express.js routes" -ForegroundColor Gray
+Write-Host "    - Data Mapper repositories" -ForegroundColor Gray
+Write-Host "    - Domain models" -ForegroundColor Gray
+Write-Host "  Cloudflare Worker configuration" -ForegroundColor Green
 Write-Host "  System user info (ssykes)" -ForegroundColor Green
 Write-Host "  SSH authorized keys" -ForegroundColor Green
 Write-Host "  Firewall rules" -ForegroundColor Green

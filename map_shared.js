@@ -2,7 +2,7 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.4 - Strip Leaflet properties before server save
+ * @version 6.8 - Default to Ashland, OR; fitBounds() for waypoint zoom
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -19,7 +19,7 @@
  *   }
  */
 
-console.log('[map_shared.js] Loading v6.1...');
+console.log('[map_shared.js] Loading v6.8...');
 
 /**
  * Mode Presets - Pre-configured behavior bundles
@@ -35,9 +35,10 @@ const MODE_PRESETS = {
         autoSync: false,              // Manual sync only
         showDetailedInfo: true,       // Full waypoint details in popups
         autoCenterOnGPS: false,       // Map doesn't jump on GPS update
-        showSimulator: true           // Show simulation controls
+        showSimulator: true,          // Show simulation controls
+        allowStartTesting: false      // Start button hidden (shown on tablets via runtime detection)
     },
-    
+
     /**
      * Player Mode - Read-only GPS-based audio experience
      * Used by: MapPlayerApp (phone), MapKioskApp (kiosk viewer)
@@ -47,7 +48,8 @@ const MODE_PRESETS = {
         autoSync: true,               // Auto-sync on page load
         showDetailedInfo: false,      // Minimal popup info
         autoCenterOnGPS: true,        // Map follows user location
-        showSimulator: false          // No simulation controls
+        showSimulator: false,         // No simulation controls
+        allowStartTesting: true       // Start button visible (GPS required)
     }
 };
 
@@ -135,13 +137,14 @@ class MapAppShared {
         // === Apply Mode Preset + Optional Overrides ===
         const mode = options.mode || 'editor';
         const preset = MODE_PRESETS[mode] || MODE_PRESETS.editor;
-        
+
         this.mode = mode;
         this.allowEditing = options.allowEditing ?? preset.allowEditing;
         this.autoSync = options.autoSync ?? preset.autoSync;
         this.showDetailedInfo = options.showDetailedInfo ?? preset.showDetailedInfo;
         this.autoCenterOnGPS = options.autoCenterOnGPS ?? preset.autoCenterOnGPS;
         this.showSimulator = options.showSimulator ?? preset.showSimulator;
+        this.allowStartTesting = options.allowStartTesting ?? preset.allowStartTesting;
 
         this.debugLog(`🗺️ MapAppShared initialized (mode: ${this.mode})`);
     }
@@ -155,18 +158,43 @@ class MapAppShared {
     }
 
     /**
+     * Detect device type based on user agent, touch capability, and screen size
+     * @returns {string} 'desktop' | 'tablet' | 'mobile'
+     * @protected
+     */
+    _detectDeviceType() {
+        const ua = navigator.userAgent;
+        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const width = window.innerWidth;
+
+        // Mobile devices (phone) - explicit mobile UA detection
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+            return 'mobile';
+        }
+
+        // Tablet (touch + larger screen)
+        if (hasTouch && width > 600) {
+            return 'tablet';
+        }
+
+        // Desktop (no touch or large screen without mobile UA)
+        return 'desktop';
+    }
+
+    /**
      * Initialize map
      * @protected
      */
     _initMap() {
-        const defaultLat = 47.6062;
-        const defaultLon = -122.3321;
+        // Default to Ashland, Oregon (not Seattle)
+        const defaultLat = 42.1713;
+        const defaultLon = -122.7095;
         this.map = L.map('map').setView([defaultLat, defaultLon], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 19
         }).addTo(this.map);
-        
+
         // Map click handler (only in editor mode with editing allowed)
         this.map.on('click', (e) => {
             if (this.state !== 'editor') return;
@@ -177,28 +205,35 @@ class MapAppShared {
     }
 
     /**
-     * Get initial GPS position
-     * @returns {Promise<boolean>} True if GPS acquired
+     * Get initial GPS/WiFi position (fallback if no soundscapes)
+     * All devices request position (GPS on mobile, WiFi on desktop)
+     * Position is stored but map is centered later based on soundscapes
+     * @returns {Promise<boolean>} True if position acquired
      * @protected
      */
     async _getInitialGPS() {
         return new Promise((resolve) => {
+            // Try to get GPS/WiFi position for all devices
             if (!navigator.geolocation) {
-                console.log('[MapShared] Geolocation not supported - using default location');
-                this.map.setView([47.6062, -122.3321], 16);
+                console.log('[MapShared] Geolocation not supported - will use soundscape position or default');
                 resolve(false);
                 return;
             }
+
             navigator.geolocation.getCurrentPosition((pos) => {
                 this.listenerLat = pos.coords.latitude;
                 this.listenerLon = pos.coords.longitude;
-                this.map.setView([this.listenerLat, this.listenerLon], 17);
+                
+                // Store position but don't center yet - will center on soundscapes if they exist
+                console.log('[MapShared] GPS/WiFi acquired:', this.listenerLat, this.listenerLon);
+                console.log('[MapShared] Will center on soundscapes if available, otherwise use this position');
                 this._updateListenerMarker(this.listenerLat, this.listenerLon, false);
-                console.log('[MapShared] GPS acquired:', this.listenerLat, this.listenerLon);
+                
+                // Center map on GPS position (will be overridden by soundscapes if they exist)
+                this.map.setView([this.listenerLat, this.listenerLon], 16);
                 resolve(true);
             }, (err) => {
-                console.log('[MapShared] GPS unavailable (' + err.message + ') - using default location');
-                this.map.setView([47.6062, -122.3321], 16);
+                console.log('[MapShared] GPS/WiFi unavailable (' + err.message + ') - will use soundscape position or default');
                 resolve(false);
             }, { enableHighAccuracy: true, timeout: 5000 });
         });
@@ -251,17 +286,18 @@ class MapAppShared {
         this._updateWaypointList();
         this._updateSoundscapeSelector();
 
-        // Center map on the new waypoints
+        // Center and zoom map to show all waypoints
         if (this.waypoints.length > 0) {
-            // Calculate center point
-            const sumLat = this.waypoints.reduce((sum, wp) => sum + wp.lat, 0);
-            const sumLon = this.waypoints.reduce((sum, wp) => sum + wp.lon, 0);
-            const centerLat = sumLat / this.waypoints.length;
-            const centerLon = sumLon / this.waypoints.length;
-
-            // Center map with appropriate zoom
-            this.map.setView([centerLat, centerLon], 17);
-            this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}]`);
+            // Create bounds from all waypoint positions
+            const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+            
+            // Fit map to show all waypoints with padding
+            this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+            
+            const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+            const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+            
+            this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
         }
 
         this.debugLog(`🎼 Switched to: ${soundscape.name} (${this.waypoints.length} waypoints)`);
@@ -381,6 +417,20 @@ class MapAppShared {
 
             this._updateWaypointList();
             this._updateSoundscapeSelector();
+
+            // Center and zoom map to show all waypoints
+            if (this.waypoints.length > 0) {
+                // Create bounds from all waypoint positions
+                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+                
+                // Fit map to show all waypoints with padding
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+                
+                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+                
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
+            }
 
             this.debugLog(`🎼 Loaded ${this.soundscapes.size} soundscape(s): ${activeSoundscape.name} (${this.waypoints.length} waypoints)`);
         } else {
@@ -1152,6 +1202,25 @@ class MapAppShared {
         const lines = this.debugConsole.textContent.split('\n');
         if (lines.length > this.maxDebugLines) {
             this.debugConsole.textContent = lines.slice(0, this.maxDebugLines).join('\n');
+        }
+    }
+
+    /**
+     * Initialize UI elements based on mode flags
+     * Called by subclasses after DOM is ready
+     * @protected
+     */
+    _initUI() {
+        // Start button - only if allowStartTesting is true
+        const startBtn = document.getElementById('startBtn');
+        if (startBtn) {
+            startBtn.style.display = this.allowStartTesting ? 'block' : 'none';
+        }
+
+        // Simulate button - only if showSimulator is true
+        const simulateBtn = document.getElementById('simulateBtn');
+        if (simulateBtn) {
+            simulateBtn.style.display = this.showSimulator ? 'block' : 'none';
         }
     }
 

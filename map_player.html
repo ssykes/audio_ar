@@ -64,10 +64,19 @@
 <body>
     <div id="app">
         <div id="sidebar">
-            <h1>🎧 Map Player <span class="version">v6.33</span></h1>
+            <h1>🎧 Map Player <span class="version">v6.41</span></h1>
             <p class="subtitle">Walk and listen</p>
 
+            <!-- User Info (read-only - login via index.html) -->
+            <div id="userPanel" style="margin: 10px 0; display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin: 10px 0;">
+                    <span id="userEmail" style="color: #00ff88; font-size: 0.9em;"></span>
+                    <button id="logoutBtn" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85em;">🚪 Logout</button>
+                </div>
+            </div>
+
             <!-- Player UI: Start button only -->
+            <button id="backBtn" class="btn" style="background: rgba(255,255,255,0.1);">← Back to Soundscapes</button>
             <button id="startBtn" class="btn btn-primary">▶️ Start</button>
 
             <!-- Debug console -->
@@ -97,12 +106,12 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    <script src="api-client.js?v=20260315191817"></script>
-    <script src="soundscape.js?v=20260315191817"></script>
-    <script src="spatial_audio.js?v=20260315191817"></script>
-    <script src="spatial_audio_app.js?v=20260315191817"></script>
-    <script src="wake_lock_helper.js?v=20260315191817"></script>
-    <script src="map_shared.js?v=20260315191817"></script>
-    <script src="map_player.js?v=20260315191817"></script>
+    <script src="api-client.js?v=20260316130550"></script>
+    <script src="soundscape.js?v=20260316130550"></script>
+    <script src="spatial_audio.js?v=20260316130550"></script>
+    <script src="spatial_audio_app.js?v=20260316130550"></script>
+    <script src="wake_lock_helper.js?v=20260316130550"></script>
+    <script src="map_shared.js?v=20260316130550"></script>
+    <script src="map_player.js?v=20260316130550"></script>
 </body>
 </html>

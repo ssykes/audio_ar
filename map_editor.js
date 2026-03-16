@@ -2,19 +2,19 @@
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.3 - Populate waypointData when loading from server
+ * @version 6.39 - Default to Ashland, OR; fitBounds() for soundscapes
  * @author Spatial Audio AR Team
  *
  * Features:
- * - Login/Register/Logout UI
  * - Soundscape management (create, edit, delete)
  * - Waypoint editing (add, edit, delete, clear)
  * - Export/Import JSON
  * - Server sync
  * - Simulation mode
+ * - Auto-redirect to index.html if not logged in
  */
 
-console.log('[map_editor.js] Loading v6.1...');
+console.log('[map_editor.js] Loading v6.39...');
 
 class MapEditorApp extends MapAppShared {
     constructor() {
@@ -31,15 +31,19 @@ class MapEditorApp extends MapAppShared {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
         }
 
-        // Check login status first
+        // Check login status - redirect to index.html if not logged in
         await this._checkLoginStatus();
 
         this._initMap();
         this._setupEventListeners();
         this._initDebugConsole();
+
+        // Get initial GPS/WiFi position (all devices, for fallback positioning)
+        // Position will be used if no soundscapes exist
         await this._getInitialGPS();
 
         // Load soundscape from server if logged in, otherwise from localStorage
+        // This will center the map on the first soundscape's waypoints (if any exist)
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
             // Auto-sync if server data has changed since last save
@@ -47,6 +51,26 @@ class MapEditorApp extends MapAppShared {
         } else {
             this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
+
+        // If no soundscapes were loaded and we have GPS position, center on it
+        if (this.waypoints.length === 0 && this.listenerLat !== null) {
+            this.map.setView([this.listenerLat, this.listenerLon], 18);  // Closer zoom for GPS position
+            this.debugLog(`🗺️ No soundscapes - centered on GPS/WiFi position [${this.listenerLat.toFixed(4)}, ${this.listenerLon.toFixed(4)}]`);
+        }
+
+        // Check GPS hardware for Start button (all devices)
+        this.debugLog('📡 Checking for GPS hardware...');
+        const hasGPS = await this._checkGPSAvailability();
+        if (hasGPS) {
+            this.debugLog('📍 GPS detected - showing Start button');
+            const startBtn = document.getElementById('startBtn');
+            if (startBtn) startBtn.style.display = 'block';
+        } else {
+            this.debugLog('⚠️ No GPS hardware (WiFi positioning only) - keeping Start button hidden');
+        }
+
+        // Initialize UI based on mode flags
+        this._initUI();
 
         // Warn before closing page with unsaved changes
         window.addEventListener('beforeunload', (e) => {
@@ -62,54 +86,40 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Check if user is logged in and update UI
+     * Check if user is logged in - redirect to index.html if not
      * @private
      */
     async _checkLoginStatus() {
-        const loginForm = document.getElementById('loginForm');
+        if (!this.api.isLoggedIn()) {
+            this.debugLog('🔒 Not logged in - redirecting to index.html');
+            window.location.href = 'index.html';
+            return;
+        }
+
+        // Verify token is still valid
+        const valid = await this.api.verifyToken();
+        if (!valid) {
+            this.debugLog('🔒 Token invalid - redirecting to index.html');
+            window.location.href = 'index.html';
+            return;
+        }
+
+        // User is logged in - show user panel
+        this.isLoggedIn = true;
         const userPanel = document.getElementById('userPanel');
         const userEmail = document.getElementById('userEmail');
         const soundscapeControls = document.getElementById('soundscapeControls');
         const addWaypointBtn = document.getElementById('addWaypointBtn');
 
-        if (this.api.isLoggedIn()) {
-            // Verify token is still valid
-            const valid = await this.api.verifyToken();
-            if (valid) {
-                this.isLoggedIn = true;
-                if (loginForm) loginForm.style.display = 'none';
-                if (userPanel) userPanel.style.display = 'block';
-                if (userEmail) userEmail.textContent = this.api.user.email;
-                if (soundscapeControls) soundscapeControls.style.display = 'block';
-                if (addWaypointBtn) addWaypointBtn.style.display = 'block';
-                this.debugLog('🔐 Logged in as ' + this.api.user.email);
+        if (userPanel) userPanel.style.display = 'block';
+        if (userEmail) userEmail.textContent = this.api.user.email;
+        if (soundscapeControls) soundscapeControls.style.display = 'block';
+        if (addWaypointBtn) addWaypointBtn.style.display = 'block';
 
-                // Load soundscape list
-                await this._loadSoundscapeList();
-            } else {
-                this._showLoginForm();
-            }
-        } else {
-            this._showLoginForm();
-        }
-    }
+        this.debugLog('🔐 Logged in as ' + this.api.user.email);
 
-    /**
-     * Show login form
-     * @private
-     */
-    _showLoginForm() {
-        const loginForm = document.getElementById('loginForm');
-        const userPanel = document.getElementById('userPanel');
-        const soundscapeControls = document.getElementById('soundscapeControls');
-        const addWaypointBtn = document.getElementById('addWaypointBtn');
-
-        if (loginForm) loginForm.style.display = 'block';
-        if (userPanel) userPanel.style.display = 'none';
-        if (soundscapeControls) soundscapeControls.style.display = 'none';
-        if (addWaypointBtn) addWaypointBtn.style.display = 'none';
-
-        this.debugLog('🔓 Not logged in - please login or register');
+        // Load soundscape list
+        await this._loadSoundscapeList();
     }
 
     /**
@@ -175,17 +185,7 @@ class MapEditorApp extends MapAppShared {
             importFileInput.addEventListener('change', (e) => this._handleImportFile(e.target.files[0]));
         }
 
-        // Login/Logout handlers
-        const loginBtn = document.getElementById('loginBtn');
-        if (loginBtn) {
-            loginBtn.addEventListener('click', () => this._handleLogin());
-        }
-
-        const registerBtn = document.getElementById('registerBtn');
-        if (registerBtn) {
-            registerBtn.addEventListener('click', () => this._handleRegister());
-        }
-
+        // Logout handler
         const logoutBtn = document.getElementById('logoutBtn');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', () => this._handleLogout());
@@ -205,80 +205,7 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Handle login
-     * @private
-     */
-    async _handleLogin() {
-        const emailInput = document.getElementById('loginEmail');
-        const passwordInput = document.getElementById('loginPassword');
-        const email = emailInput?.value?.trim();
-        const password = passwordInput?.value?.trim();
-
-        if (!email || !password) {
-            this._showToast('⚠️ Please enter email and password', 'warning');
-            return;
-        }
-
-        try {
-            this.debugLog('🔐 Logging in...');
-            await this.api.login(email, password);
-            this.isLoggedIn = true;
-            await this._checkLoginStatus();
-            this._showToast('✅ Logged in successfully', 'success');
-            this.debugLog('🔐 Logged in as ' + email);
-
-            // Clear password
-            if (passwordInput) passwordInput.value = '';
-
-            // Load soundscape from server
-            await this._loadSoundscapeFromServer();
-        } catch (error) {
-            this._showToast('❌ Login failed: ' + error.message, 'error');
-            this.debugLog('❌ Login failed: ' + error.message);
-        }
-    }
-
-    /**
-     * Handle register
-     * @private
-     */
-    async _handleRegister() {
-        const emailInput = document.getElementById('loginEmail');
-        const passwordInput = document.getElementById('loginPassword');
-        const email = emailInput?.value?.trim();
-        const password = passwordInput?.value?.trim();
-
-        if (!email || !password) {
-            this._showToast('⚠️ Please enter email and password', 'warning');
-            return;
-        }
-
-        if (password.length < 6) {
-            this._showToast('⚠️ Password must be at least 6 characters', 'warning');
-            return;
-        }
-
-        try {
-            this.debugLog('📝 Registering...');
-            await this.api.register(email, password);
-            this.isLoggedIn = true;
-            await this._checkLoginStatus();
-            this._showToast('✅ Registration successful', 'success');
-            this.debugLog('📝 Registered as ' + email);
-
-            // Clear password
-            if (passwordInput) passwordInput.value = '';
-
-            // Create first soundscape
-            await this._createNewSoundscape();
-        } catch (error) {
-            this._showToast('❌ Registration failed: ' + error.message, 'error');
-            this.debugLog('❌ Registration failed: ' + error.message);
-        }
-    }
-
-    /**
-     * Handle logout
+     * Handle logout - redirect to index.html
      * @private
      */
     _handleLogout() {
@@ -302,9 +229,52 @@ class MapEditorApp extends MapAppShared {
         this.markers.clear();
         this._updateWaypointList();
 
-        this._showLoginForm();
         this._showToast('🚪 Logged out successfully', 'info');
         this.debugLog('🚪 Logged out');
+
+        // Redirect to index.html
+        window.location.href = 'index.html';
+    }
+
+    /**
+     * Check if GPS hardware is available (for Start button)
+     * Uses heading property to distinguish GPS from WiFi positioning
+     * @returns {Promise<boolean>} True if GPS available
+     * @private
+     */
+    async _checkGPSAvailability() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(false);
+                return;
+            }
+
+            const timeout = setTimeout(() => resolve(false), 5000);
+
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    clearTimeout(timeout);
+                    
+                    // Check for GPS indicators
+                    const hasHeading = typeof pos.coords.heading === 'number' && 
+                                       !isNaN(pos.coords.heading);
+                    const hasGoodAccuracy = pos.coords.accuracy < 50;
+
+                    console.log(`[GPS Check] Accuracy: ${pos.coords.accuracy}m`);
+                    console.log(`[GPS Check] Heading: ${pos.coords.heading}`);
+                    console.log(`[GPS Check] Result: ${hasHeading || hasGoodAccuracy ? 'GPS likely ✅' : 'WiFi likely ⚠️'}`);
+                    
+                    // Accept if heading exists OR accuracy is good
+                    resolve(hasHeading || hasGoodAccuracy);
+                },
+                (err) => {
+                    clearTimeout(timeout);
+                    console.log(`[GPS Check] Error: ${err.message}`);
+                    resolve(false);
+                },
+                { timeout: 5000, enableHighAccuracy: true }
+            );
+        });
     }
 
     /**
@@ -521,6 +491,15 @@ class MapEditorApp extends MapAppShared {
         this._saveSoundscapeToStorage();
         this._updateSoundscapeSelector();
         this._showToast('✅ Soundscape updated', 'success');
+    }
+
+    /**
+     * Delete current soundscape
+     * @private
+     */
+    async _deleteSoundscape() {
+        if (!this.activeSoundscapeId) return;
+        this.deleteSoundscape(this.activeSoundscapeId);
     }
 
     /**

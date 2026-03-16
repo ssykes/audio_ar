@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choose Soundscape - Spatial Audio AR</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #1a1a2e; 
+            color: #fff; 
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        h1 { 
+            margin-bottom: 10px;
+            color: #00d9ff;
+        }
+        .subtitle { 
+            color: #888; 
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background 0.2s;
+        }
+        .logout-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        #soundscapeList { 
+            list-style: none; 
+            margin-top: 20px;
+        }
+        .soundscape-item {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .soundscape-item:hover { 
+            background: rgba(255,255,255,0.15);
+            border-color: #00d9ff;
+            transform: translateX(5px);
+        }
+        .soundscape-name { 
+            font-size: 1.1em; 
+            font-weight: 600;
+            color: #00d9ff;
+        }
+        .soundscape-meta { 
+            font-size: 0.85em; 
+            color: #888; 
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .loading, .empty, .error { 
+            text-align: center; 
+            padding: 40px; 
+            color: #888;
+            font-size: 0.95em;
+        }
+        .empty {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .error {
+            background: rgba(233, 69, 96, 0.1);
+            border: 1px solid #e94560;
+            border-radius: 8px;
+            color: #e94560;
+        }
+        .back-btn {
+            display: inline-block;
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: background 0.2s;
+        }
+        .back-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .icon {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <button class="logout-btn" id="logoutBtn">Logout</button>
+    
+    <div class="container">
+        <button class="back-btn" id="backBtn">← Back</button>
+        
+        <h1><span class="icon">🎧</span> Choose Soundscape</h1>
+        <p class="subtitle">Select an experience to play</p>
+        
+        <ul id="soundscapeList">
+            <li class="loading">Loading soundscapes...</li>
+        </ul>
+    </div>
+    
+    <script src="api-client.js?v=20260316130550"></script>
+    <script src="soundscape.js?v=20260316130550"></script>
+    <script>
+        /**
+         * SoundscapePickerApp - List soundscapes and allow user to select one
+         * 
+         * Flow:
+         * 1. Check login status (redirect to index.html if not logged in)
+         * 2. Fetch all soundscapes from server
+         * 3. Display as clickable list
+         * 4. On click: store selection in localStorage → redirect to map_player.html
+         */
+        class SoundscapePickerApp {
+            constructor() {
+                this.api = new ApiClient('/api');
+                this.soundscapes = [];
+            }
+            
+            /**
+             * Initialize the picker app
+             */
+            async init() {
+                console.log('[SoundscapePicker] Initializing...');
+                
+                await this._checkLoginStatus();
+                await this._loadSoundscapes();
+                this._setupEventListeners();
+                
+                console.log('[SoundscapePicker] Ready');
+            }
+            
+            /**
+             * Check if user is logged in
+             * @private
+             */
+            async _checkLoginStatus() {
+                const token = localStorage.getItem('audio_ar_token');
+                if (!token) {
+                    console.log('[SoundscapePicker] Not logged in - redirecting to index.html');
+                    window.location.href = 'index.html';
+                    return;
+                }
+                
+                this.api.token = token;
+                
+                // Verify token is still valid
+                const valid = await this.api.verifyToken();
+                if (!valid) {
+                    console.log('[SoundscapePicker] Token invalid - redirecting to index.html');
+                    localStorage.removeItem('audio_ar_token');
+                    window.location.href = 'index.html';
+                    return;
+                }
+                
+                console.log('[SoundscapePicker] User logged in');
+            }
+            
+            /**
+             * Load soundscapes from server
+             * @private
+             */
+            async _loadSoundscapes() {
+                const listEl = document.getElementById('soundscapeList');
+                
+                try {
+                    console.log('[SoundscapePicker] Fetching soundscapes from server...');
+                    this.soundscapes = await this.api.getSoundscapes();
+                    
+                    if (this.soundscapes.length === 0) {
+                        listEl.innerHTML = `
+                            <li class="empty">
+                                <strong>No soundscapes found</strong><br><br>
+                                Create a soundscape in the Editor first, then come back here to play it.
+                            </li>
+                        `;
+                        return;
+                    }
+                    
+                    this._renderList();
+                    console.log(`[SoundscapePicker] Loaded ${this.soundscapes.length} soundscape(s)`);
+                } catch (err) {
+                    console.error('[SoundscapePicker] Failed to load soundscapes:', err);
+                    listEl.innerHTML = `
+                        <li class="error">
+                            <strong>Failed to load soundscapes</strong><br><br>
+                            ${err.message || 'Network error - please check your connection'}
+                        </li>
+                    `;
+                }
+            }
+            
+            /**
+             * Render soundscape list
+             * @private
+             */
+            _renderList() {
+                const listEl = document.getElementById('soundscapeList');
+                
+                // Sort by updatedAt (most recent first)
+                const sorted = [...this.soundscapes].sort((a, b) => {
+                    return new Date(b.updatedAt) - new Date(a.updatedAt);
+                });
+                
+                listEl.innerHTML = sorted.map(ss => `
+                    <li class="soundscape-item" data-id="${ss.id}">
+                        <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
+                        <div class="soundscape-meta">
+                            <span><span class="icon">🔊</span>${ss.waypointCount || 0} sound(s)</span>
+                            <span><span class="icon">📅</span>${this._formatDate(ss.updatedAt)}</span>
+                        </div>
+                    </li>
+                `).join('');
+                
+                // Add click handlers
+                listEl.querySelectorAll('.soundscape-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const id = item.dataset.id;
+                        this._selectSoundscape(id);
+                    });
+                });
+            }
+            
+            /**
+             * Handle soundscape selection
+             * @param {string} id - Soundscape ID
+             * @private
+             */
+            _selectSoundscape(id) {
+                console.log(`[SoundscapePicker] Selected: ${id}`);
+                
+                // Store selection for map_player.html
+                localStorage.setItem('selected_soundscape_id', id);
+                
+                // Redirect to player
+                window.location.href = 'map_player.html';
+            }
+            
+            /**
+             * Format date for display
+             * @param {string} isoString - ISO 8601 date string
+             * @returns {string} Formatted date
+             * @private
+             */
+            _formatDate(isoString) {
+                if (!isoString) return 'Unknown';
+                const date = new Date(isoString);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                
+                if (diffDays === 0) {
+                    return 'Today';
+                } else if (diffDays === 1) {
+                    return 'Yesterday';
+                } else if (diffDays < 7) {
+                    return `${diffDays} days ago`;
+                } else {
+                    return date.toLocaleDateString();
+                }
+            }
+            
+            /**
+             * Escape HTML to prevent XSS
+             * @param {string} text - Text to escape
+             * @returns {string} Escaped text
+             * @private
+             */
+            _escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+            
+            /**
+             * Setup event listeners
+             * @private
+             */
+            _setupEventListeners() {
+                // Logout handler
+                document.getElementById('logoutBtn')?.addEventListener('click', () => {
+                    this._handleLogout();
+                });
+                
+                // Back button handler
+                document.getElementById('backBtn')?.addEventListener('click', () => {
+                    window.location.href = 'index.html';
+                });
+            }
+            
+            /**
+             * Handle logout
+             * @private
+             */
+            _handleLogout() {
+                if (!confirm('Are you sure you want to logout?')) {
+                    return;
+                }
+                
+                // Clear tokens and selection
+                localStorage.removeItem('audio_ar_token');
+                localStorage.removeItem('selected_soundscape_id');
+                
+                console.log('[SoundscapePicker] Logged out');
+                
+                // Redirect to login
+                window.location.href = 'index.html';
+            }
+        }
+        
+        // Initialize app
+        const app = new SoundscapePickerApp();
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => app.init());
+        } else {
+            app.init();
+        }
+        
+        console.log('[soundscape_picker.js] SoundscapePickerApp loaded');
+    </script>
+</body>
+</html>

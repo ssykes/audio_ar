@@ -1970,3 +1970,875 @@ git commit -m "Short single-line message"
 ```
 
 **DO NOT:** Use multi-line `-m` strings in CMD - they will fail.
+
+---
+
+## Session 8: Device-Aware Editor with Options Presets (PLANNED)
+
+### Problem Statement
+
+**Current State:**
+- `map_editor.html` has a **Start** button designed for GPS-enabled devices
+- PC users see Start button but have no GPS (button is useless)
+- Tablet users could use Start button (has GPS) but no distinction from PC
+- `map_player.html` exists for phone/tablet testing, but editor could also test on tablet
+
+**Issue:** One-size-fits-all editor doesn't adapt to device capabilities (GPS availability)
+
+### Solution: Options Presets with Runtime Detection
+
+**Architecture Vision:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  map_shared.js - Base Class with Preset System              │
+│                                                             │
+│  static getPreset(name) → { allowStartTesting, ... }        │
+│  _detectDeviceType() → 'desktop' | 'tablet' | 'phone'       │
+│  _checkGPSAvailability() → Promise<boolean>                 │
+│                                                             │
+│  Constructor uses preset + runtime GPS check                │
+└─────────────────────────────────────────────────────────────┘
+           ▲
+           │
+    ┌──────┴────────────────┐
+    │ map_editor.js         │
+    │ - Detects tablet      │
+    │ - Shows Start if GPS  │
+    │ - Hides Start if no GPS │
+    └───────────────────────┘
+```
+
+### Implementation Plan (Divided into Sub-Sessions)
+
+| Session | Phase | Task | Files | Est. Lines | Time | Risk |
+|---------|-------|------|-------|------------|------|------|
+| **8A** | 1 | Add preset system to `map_shared.js` | 1 modify | ~65 | 30 min | ✅ None |
+| **8B** | 2 | Update `map_editor.js` to use presets | 1 modify | ~50 | 30 min | ⚠️ Low |
+| **8C** | 3 | Add runtime GPS detection | `map_editor.js` | ~25 | 15 min | ⚠️ Low |
+| **8D** | 4 | Update UI rendering to use flags | `map_shared.js` | ~25 | 15 min | ✅ None |
+| **8E** | 5 | Test on PC + tablet + phone | Browser | - | 35 min | ✅ None |
+| **Total** | | | **2 files** | **~165 lines** | **~2h 5m** | **Low** |
+
+---
+
+### Session 8A: Add Preset System to `map_shared.js`
+
+**Goal:** Add static preset definitions + device detection helper
+
+**Changes:**
+
+```javascript
+// map_shared.js - Add after constructor
+
+/**
+ * Get options preset by name
+ * @param {string} name - Preset name
+ * @returns {Object} Options object
+ */
+static getPreset(name) {
+    const presets = {
+        desktop_editor: {
+            mode: 'editor',
+            allowEditing: true,
+            allowSimulation: true,
+            allowStartTesting: false,  // No GPS on desktop
+            autoSync: false,
+            showDetailedInfo: true,
+            enableContextMenu: true,
+            autoCenterOnGPS: false
+        },
+        tablet_editor: {
+            mode: 'editor',
+            allowEditing: true,
+            allowSimulation: true,
+            allowStartTesting: true,   // Has GPS on tablet
+            autoSync: true,
+            showDetailedInfo: true,
+            enableContextMenu: true,
+            autoCenterOnGPS: true
+        },
+        phone_player: {
+            mode: 'player',
+            allowEditing: false,
+            allowSimulation: false,
+            allowStartTesting: true,
+            autoSync: true,
+            showDetailedInfo: false,
+            enableContextMenu: false,
+            autoCenterOnGPS: true
+        }
+    };
+    return presets[name] || presets.desktop_editor;
+}
+
+/**
+ * Detect device type
+ * @returns {string} 'desktop' | 'tablet' | 'phone'
+ */
+_detectDeviceType() {
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const width = window.innerWidth;
+
+    if (hasTouch && width > 600) return 'tablet';
+    if (hasTouch && width <= 600) return 'phone';
+    return 'desktop';
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+console.log(MapAppShared.getPreset('tablet_editor'));
+// Should show allowStartTesting: true
+
+const app = new MapAppShared();
+console.log(app._detectDeviceType());
+// Should show 'desktop', 'tablet', or 'phone'
+```
+
+**Risk:** ✅ None (additive, doesn't affect existing code)
+
+---
+
+### Session 8B: Update `map_editor.js` to Use Presets
+
+**Goal:** Replace hardcoded options with preset-based initialization
+
+**Changes:**
+
+```javascript
+// map_editor.js - Update constructor
+class MapEditorApp extends MapAppShared {
+    constructor() {
+        // Detect device type and use appropriate preset
+        const deviceType = this._detectDeviceType();
+        const presetName = deviceType === 'tablet' ? 'tablet_editor' : 'desktop_editor';
+
+        console.log(`[MapEditor] Device: ${deviceType}, using preset: ${presetName}`);
+        super(MapAppShared.getPreset(presetName));
+    }
+
+    async init() {
+        // ... existing init code ...
+    }
+}
+```
+
+**Testing:**
+1. Open `map_editor.html` on PC → verify `desktop_editor` preset used
+2. Open `map_editor.html` on tablet → verify `tablet_editor` preset used
+3. Check console log shows device type and preset name
+
+**Risk:** ⚠️ Low (changes constructor, but well-contained)
+
+---
+
+### Session 8C: Add Runtime GPS Detection
+
+**Goal:** Verify GPS is actually available before showing Start button
+
+**Why:** Some tablets have touch but no GPS (WiFi-only models)
+
+**Changes:**
+
+```javascript
+// map_editor.js - Add to init()
+async init() {
+    await super.init();
+
+    // Runtime GPS check - hide Start button if GPS unavailable
+    if (this.allowStartTesting) {
+        const hasGPS = await this._checkGPSAvailability();
+        if (!hasGPS) {
+            this.debugLog('⚠️ No GPS available - hiding Start button');
+            const startBtn = document.getElementById('startBtn');
+            if (startBtn) startBtn.style.display = 'none';
+        }
+    }
+}
+
+/**
+ * Check if GPS is available
+ * @returns {Promise<boolean>}
+ */
+_checkGPSAvailability() {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            resolve(false);
+            return;
+        }
+
+        const timeout = setTimeout(() => resolve(false), 5000);
+
+        navigator.geolocation.getCurrentPosition(
+            () => {
+                clearTimeout(timeout);
+                resolve(true);
+            },
+            () => {
+                clearTimeout(timeout);
+                resolve(false);
+            },
+            { timeout: 5000 }
+        );
+    });
+}
+```
+
+**Testing:**
+1. Tablet with GPS → Start button visible
+2. Tablet without GPS → Start button hidden after 5s
+3. PC (no GPS) → Start button already hidden by preset
+
+**Risk:** ⚠️ Low (async check, fails gracefully)
+
+---
+
+### Session 8D: Update UI Rendering to Use Flags
+
+**Goal:** Ensure UI elements respect `allowStartTesting` and `allowSimulation` flags
+
+**Changes:**
+
+```javascript
+// map_shared.js - Update or add _initUI() method
+_initUI() {
+    // Start button - only if allowStartTesting is true
+    const startBtn = document.getElementById('startBtn');
+    if (startBtn) {
+        startBtn.style.display = this.allowStartTesting ? 'block' : 'none';
+    }
+
+    // Simulate button - only if allowSimulation is true
+    const simulateBtn = document.getElementById('simulateBtn');
+    if (simulateBtn) {
+        simulateBtn.style.display = this.allowSimulation ? 'block' : 'none';
+    }
+
+    // Editor controls - only if allowEditing is true
+    const editorControls = document.getElementById('soundscapeControls');
+    if (editorControls) {
+        editorControls.style.display = this.allowEditing ? 'block' : 'none';
+    }
+}
+```
+
+**Testing:**
+1. Desktop editor → Start hidden, Simulate visible
+2. Tablet editor → Start visible (if GPS), Simulate visible
+3. Phone player → Start visible, Simulate hidden, Edit controls hidden
+
+**Risk:** ✅ None (UI-only changes)
+
+---
+
+### Session 8E: Test All Scenarios
+
+**Test Matrix:**
+
+| Device | Preset | Start Button | Simulate Button | Edit Controls | Auto-Sync |
+|--------|--------|--------------|-----------------|---------------|-----------|
+| **PC (Desktop)** | `desktop_editor` | ❌ Hidden | ✅ Visible | ✅ Visible | ❌ Off |
+| **Tablet (GPS)** | `tablet_editor` | ✅ Visible | ✅ Visible | ✅ Visible | ✅ On |
+| **Tablet (No GPS)** | `tablet_editor` | ❌ Hidden* | ✅ Visible | ✅ Visible | ✅ On |
+| **Phone** | `phone_player` | ✅ Visible | ❌ Hidden | ❌ Hidden | ✅ On |
+
+*Hidden by runtime GPS check
+
+**Test Checklist:**
+- [ ] PC: Open `map_editor.html` → Start button hidden
+- [ ] PC: Simulate button visible → drag avatar works
+- [ ] Tablet: Open `map_editor.html` → device detected as 'tablet'
+- [ ] Tablet: Start button visible (if GPS available)
+- [ ] Tablet: Tap Start → GPS permission granted → audio works
+- [ ] Tablet: Simulate button visible → works alongside Start
+- [ ] Tablet (GPS off): Start button hidden after 5s check
+- [ ] Phone: Open `map_player.html` → matches current behavior
+
+**Risk:** ✅ None (testing only)
+
+---
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **Right features on right devices** | Start button only where GPS available |
+| **Single codebase** | `map_editor.html` works on PC + tablet |
+| **No duplication** | Preset objects, not separate files |
+| **Easy to extend** | Add `kiosk_mode` preset in 5 minutes |
+| **Graceful degradation** | Tablet without GPS falls back to Simulate mode |
+| **Uses existing architecture** | Options Object pattern (Session 6) |
+
+---
+
+### Future Enhancements (Post-Session 8)
+
+| Enhancement | Description | Effort |
+|-------------|-------------|--------|
+| **Kiosk mode** | Public display, read-only, auto-start | ~10 lines (add preset) |
+| **Developer mode** | All features enabled regardless of device | ~10 lines (add preset) |
+| **Manual override** | UI toggle to force show/hide Start button | ~30 lines (add UI) |
+| **GPS quality indicator** | Show GPS accuracy before enabling Start | ~50 lines (add UI) |
+
+---
+
+### Dependencies
+
+| Dependency | Status |
+|------------|--------|
+| Session 6: Options Object pattern | ✅ Complete (foundation) |
+| Session 6: `map_shared.js` exists | ✅ Complete |
+| Session 6: `map_editor.js` exists | ✅ Complete |
+| Session 7: Data Mapper pattern | ✅ Complete (unrelated) |
+
+**No blocking dependencies** - can implement anytime
+
+---
+
+### Rollback Plan
+
+If issues arise:
+
+1. **Revert `map_shared.js`** → restore from backup
+2. **Revert `map_editor.js`** → restore from backup
+3. **Fallback** → use `map_placer.html` as backup editor
+
+**Mitigation:** Create backups before starting Session 8A
+
+---
+
+### Success Criteria
+
+| Criterion | How to Verify |
+|-----------|---------------|
+| PC: Start button hidden | Visual inspection |
+| Tablet: Start button visible (with GPS) | Visual inspection + functional test |
+| Tablet: Start button hidden (no GPS) | Turn off GPS, reload, verify hidden |
+| Simulate button works on all devices | Drag avatar test |
+| No console errors | Check browser console |
+| Existing functionality unchanged | Test waypoint editing, save, sync |
+
+---
+
+## Session 9: Soundscape Selector Page (PLANNED)
+
+### Problem Statement
+
+**Current State:**
+- User logs in at `index.html` → redirects to device selector
+- User selects "Player (Phone)" → redirects to `map_player.html`
+- `map_player.html` auto-loads the **most recently active** soundscape
+- **Issue:** User has no way to **choose** which soundscape to play before entering the map view
+
+**User Journey Gap:**
+```
+Login → Device Select → Map Player → (stuck with last soundscape)
+                         ↑
+                    Should be: Soundscape Selector
+```
+
+**Desired Flow:**
+```
+Login → Device Select → Soundscape List → User picks one → Map Player (with selected soundscape)
+```
+
+---
+
+### Solution: Soundscape Picker Page
+
+**Architecture Vision:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  index.html (Landing)                                       │
+│  - Login form                                               │
+│  - After login: Device selector (Editor/Player)             │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼ (Player selected)
+┌─────────────────────────────────────────────────────────────┐
+│  soundscape_picker.html (NEW)                               │
+│  - Fetch all soundscapes from server                        │
+│  - Display as clickable list (name, waypoint count, date)   │
+│  - On click: store selection → redirect to map_player.html  │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼ (Soundscape selected)
+┌─────────────────────────────────────────────────────────────┐
+│  map_player.html                                            │
+│  - Read selected soundscape ID from localStorage/URL param  │
+│  - Load that soundscape (not most recent)                   │
+│  - Show Start button + map                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Implementation Plan (Divided into Sub-Sessions)
+
+| Session | Phase | Task | Files | Est. Lines | Time | Risk |
+|---------|-------|------|-------|------------|------|------|
+| **9A** | 1 | Verify/add `getAllSoundscapes()` to `api-client.js` | 1 modify | ~20 | 15 min | ✅ None |
+| **9B** | 2 | Create `soundscape_picker.html` (UI + logic) | 1 new | ~180 | 1h | ⚠️ Low |
+| **9C** | 3 | Update `index.html` redirect logic | 1 modify | ~30 | 20 min | ⚠️ Low |
+| **9D** | 4 | Update `map_player.js` to read selection | 1 modify | ~40 | 25 min | ⚠️ Low |
+| **9E** | 5 | Add "Back to Picker" button to `map_player.html` | 1 modify | ~25 | 15 min | ✅ None |
+| **9F** | 6 | Test full flow (login → picker → player) | Browser | - | 35 min | ✅ None |
+| **Total** | | | **4 files** | **~295 lines** | **~2h 50m** | **Low** |
+
+---
+
+### Session 9A: Verify/Add `getAllSoundscapes()` to API Client
+
+**Goal:** Expose method to fetch all soundscapes (may already exist from Session 5D)
+
+**Changes:**
+
+```javascript
+// api-client.js - Add or verify method exists
+async getAllSoundscapes() {
+    const response = await this.fetch('/soundscapes', {
+        method: 'GET'
+    });
+    return response;  // Array of soundscape summaries
+}
+```
+
+**Current State Check:**
+- `api-client.js` already has `loadSoundscape(id)` for single soundscape
+- Need to verify `getAllSoundscapes()` exists (may already be there from Session 5D)
+- If exists: no changes needed
+- If not: add ~20 lines
+
+**Testing:**
+```javascript
+// Open browser console
+const api = new ApiClient();
+api.token = 'YOUR_TOKEN';
+const soundscapes = await api.getAllSoundscapes();
+console.log(soundscapes);  // Should show array
+```
+
+**Risk:** ✅ None (additive, doesn't affect existing code)
+
+---
+
+### Session 9B: Create `soundscape_picker.html`
+
+**Goal:** Simple page with soundscape list
+
+**HTML Structure:**
+
+```html
+<!-- NEW FILE: soundscape_picker.html (~180 lines) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Choose Soundscape - Spatial Audio AR</title>
+    <style>
+        /* Mobile-first styles: list of cards */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+            background: #1a1a2e; 
+            color: #fff; 
+            padding: 20px;
+        }
+        h1 { margin-bottom: 10px; }
+        .subtitle { color: #888; margin-bottom: 20px; }
+        #soundscapeList { list-style: none; }
+        .soundscape-item {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .soundscape-item:hover { background: rgba(255,255,255,0.2); }
+        .soundscape-name { font-size: 1.1em; font-weight: 600; }
+        .soundscape-meta { 
+            font-size: 0.85em; 
+            color: #888; 
+            margin-top: 5px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .loading { text-align: center; padding: 40px; color: #888; }
+        .empty { text-align: center; padding: 40px; color: #888; }
+        .logout-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <button class="logout-btn" id="logoutBtn">Logout</button>
+    
+    <h1>🎧 Choose Soundscape</h1>
+    <p class="subtitle">Select an experience to play</p>
+    
+    <ul id="soundscapeList">
+        <li class="loading">Loading soundscapes...</li>
+    </ul>
+    
+    <script src="api-client.js"></script>
+    <script src="soundscape.js"></script>
+    <script>
+        // Picker logic: fetch list, render, handle selection
+        class SoundscapePickerApp {
+            constructor() {
+                this.api = new ApiClient();
+                this.soundscapes = [];
+            }
+            
+            async init() {
+                await this._checkLoginStatus();
+                await this._loadSoundscapes();
+                this._setupLogoutHandler();
+            }
+            
+            async _checkLoginStatus() {
+                const token = localStorage.getItem('audio_ar_token');
+                if (!token) {
+                    window.location.href = 'index.html';
+                    return;
+                }
+                this.api.token = token;
+            }
+            
+            async _loadSoundscapes() {
+                try {
+                    this.soundscapes = await this.api.getAllSoundscapes();
+                    this._renderList();
+                } catch (err) {
+                    document.getElementById('soundscapeList').innerHTML = 
+                        '<li class="empty">Failed to load soundscapes</li>';
+                }
+            }
+            
+            _renderList() {
+                const list = document.getElementById('soundscapeList');
+                
+                if (this.soundscapes.length === 0) {
+                    list.innerHTML = '<li class="empty">No soundscapes found. Create one in the Editor first.</li>';
+                    return;
+                }
+                
+                list.innerHTML = this.soundscapes.map(ss => `
+                    <li class="soundscape-item" data-id="${ss.id}">
+                        <div class="soundscape-name">${ss.name}</div>
+                        <div class="soundscape-meta">
+                            <span>🔊 ${ss.waypointCount || 0} sounds</span>
+                            <span>📅 ${this._formatDate(ss.lastModified)}</span>
+                        </div>
+                    </li>
+                `).join('');
+                
+                // Add click handlers
+                list.querySelectorAll('.soundscape-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const id = item.dataset.id;
+                        this._selectSoundscape(id);
+                    });
+                });
+            }
+            
+            _selectSoundscape(id) {
+                // Store selection for map_player.html
+                localStorage.setItem('selected_soundscape_id', id);
+                // Redirect to player
+                window.location.href = 'map_player.html';
+            }
+            
+            _formatDate(isoString) {
+                if (!isoString) return 'Unknown';
+                const date = new Date(isoString);
+                return date.toLocaleDateString();
+            }
+            
+            _setupLogoutHandler() {
+                document.getElementById('logoutBtn')?.addEventListener('click', () => {
+                    localStorage.removeItem('audio_ar_token');
+                    localStorage.removeItem('selected_soundscape_id');
+                    window.location.href = 'index.html';
+                });
+            }
+        }
+        
+        const app = new SoundscapePickerApp();
+        app.init();
+    </script>
+</body>
+</html>
+```
+
+**Features:**
+- Fetch all soundscapes from server
+- Display as clickable cards (name, waypoint count, last modified date)
+- Store selection in localStorage before redirect
+- Logout button (clears token + selection)
+- Mobile-optimized UI (large touch targets)
+- Empty state (no soundscapes)
+- Error state (load failure)
+
+**Testing:**
+1. Open `soundscape_picker.html` → verify login check redirects if not logged in
+2. Verify soundscape list loads
+3. Click soundscape → verify redirects to `map_player.html`
+4. Verify `selected_soundscape_id` stored in localStorage
+
+**Risk:** ⚠️ Low (standalone page, doesn't affect existing code)
+
+---
+
+### Session 9C: Update `index.html` Redirect Logic
+
+**Goal:** Add "Player" redirect to picker page instead of directly to `map_player.html`
+
+**Changes:**
+
+```javascript
+// index.html - Update device selector handler
+function handlePlayerClick() {
+    // Store device type for picker to reference (optional)
+    localStorage.setItem('device_type', 'phone');
+    // Redirect to picker, not directly to player
+    window.location.href = 'soundscape_picker.html';
+}
+```
+
+**Current Flow:**
+```
+index.html → (Player clicked) → map_player.html
+```
+
+**New Flow:**
+```
+index.html → (Player clicked) → soundscape_picker.html → (Selection made) → map_player.html
+```
+
+**Testing:**
+1. Login at `index.html`
+2. Click "Player (Phone)"
+3. Verify redirects to `soundscape_picker.html` (not `map_player.html`)
+
+**Risk:** ⚠️ Low (simple redirect change)
+
+---
+
+### Session 9D: Update `map_player.js` to Read Selection
+
+**Goal:** Load selected soundscape instead of most recent
+
+**Changes:**
+
+```javascript
+// map_player.js - Update init() or _loadSoundscapeFromStorage()
+async init() {
+    await super.init();
+    this._applyPlayerRestrictions();
+    
+    // Check if user selected a soundscape from picker
+    const selectedId = localStorage.getItem('selected_soundscape_id');
+    if (selectedId) {
+        this.debugLog(`📱 Using selected soundscape: ${selectedId}`);
+        this.activeSoundscapeId = selectedId;
+        localStorage.removeItem('selected_soundscape_id');  // Clear after use
+    }
+    
+    await this._autoSyncIfNeeded();
+    this.debugLog('📱 MapPlayerApp initialized');
+}
+```
+
+**Fallback Behavior:**
+- If no selection → load most recent soundscape (existing behavior)
+- If selection exists but invalid → show error, fall back to most recent
+
+**Testing:**
+1. Select soundscape at picker → verify `map_player.html` loads that soundscape
+2. Clear selection → verify falls back to most recent
+3. Select invalid ID → verify graceful fallback
+
+**Risk:** ⚠️ Low (adds override logic, doesn't break existing)
+
+---
+
+### Session 9E: Add "Back to Picker" Button
+
+**Goal:** Allow user to return to picker from player page
+
+**Changes:**
+
+```html
+<!-- map_player.html - Add button to sidebar -->
+<div id="sidebar">
+    <button class="btn" id="backBtn">← Back to Soundscapes</button>
+    <button id="startBtn" class="btn btn-primary">▶️ Start</button>
+    <!-- ... rest of UI ... -->
+</div>
+
+<script>
+// map_player.js - Add handler
+_setupBackButton() {
+    document.getElementById('backBtn')?.addEventListener('click', () => {
+        window.location.href = 'soundscape_picker.html';
+    });
+}
+</script>
+```
+
+**Styling:**
+- Small button, less prominent than Start button
+- Positioned above Start button or in corner
+- Mobile-friendly touch target
+
+**Testing:**
+1. Open `map_player.html` → verify "Back" button visible
+2. Click "Back" → verify redirects to picker
+3. Select different soundscape → verify loads correctly
+
+**Risk:** ✅ None (UI-only addition)
+
+---
+
+### Session 9F: Test Full Flow
+
+**Test Checklist:**
+
+| Test | Expected Result | Status |
+|------|-----------------|--------|
+| Login → Player redirect | Goes to picker page | ⬜ |
+| Picker loads soundscapes | List shows all user soundscapes | ⬜ |
+| Click soundscape | Redirects to player with selection | ⬜ |
+| Player loads selected | Correct soundscape loaded (not most recent) | ⬜ |
+| Back button works | Returns to picker from player | ⬜ |
+| Logout clears selection | Token + selection cleared | ⬜ |
+| No soundscapes | Empty state message shown | ⬜ |
+| Network error | Error state shown | ⬜ |
+| Direct URL access | `map_player.html` works without selection (fallback) | ⬜ |
+
+**Edge Cases:**
+- User bookmarks `map_player.html` → should work (fallback to most recent)
+- User refreshes picker → should maintain login state
+- User has 0 soundscapes → show helpful message ("Create one in Editor first")
+- User selects, then browser crashes → selection cleared on next load (one-time use)
+
+**Risk:** ✅ None (testing only)
+
+---
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **User choice** | Pick which soundscape to play |
+| **Clear navigation** | Explicit flow: Login → Picker → Player |
+| **No confusion** | User knows which soundscape is loaded |
+| **Easy to switch** | "Back" button returns to picker |
+| **Mobile-optimized** | Large touch targets, simple UI |
+| **Graceful fallback** | Direct `map_player.html` access still works |
+| **No data loss** | Selection stored in localStorage (survives redirect) |
+
+---
+
+### User Flow Comparison
+
+### Before (Current)
+```
+Login → Device Select → Map Player
+                        ↓
+                  (Loads last soundscape - user confused)
+```
+
+### After (Session 9)
+```
+Login → Device Select → Soundscape Picker → Map Player
+                        ↓                      ↓
+                  (User chooses)         (Loads selection)
+```
+
+---
+
+### Dependencies
+
+| Dependency | Status |
+|------------|--------|
+| Session 5D: Server sync (getAllSoundscapes) | ✅ Complete (may already exist) |
+| Session 6: Login/redirect pattern | ✅ Complete (`index.html` exists) |
+| Session 6: `map_player.html` exists | ✅ Complete |
+| Session 7: Data Mapper pattern | ✅ Complete (unrelated) |
+
+**No blocking dependencies** - can implement anytime
+
+---
+
+### Rollback Plan
+
+If issues arise:
+
+1. **Revert `index.html`** → restore direct redirect to `map_player.html`
+2. **Delete `soundscape_picker.html`** → remove new page
+3. **Revert `map_player.js`** → remove selection logic
+4. **Fallback** → existing flow works as before
+
+**Mitigation:** Test on desktop first (easier to debug), then mobile
+
+---
+
+### Future Enhancements (Post-Session 9)
+
+| Enhancement | Description | Effort |
+|-------------|-------------|--------|
+| **Search/Filter** | Search soundscapes by name | ~30 lines |
+| **Sort options** | Sort by date, name, waypoint count | ~40 lines |
+| **Preview button** | Play 10s preview before selecting | ~100 lines |
+| **Thumbnail images** | Show soundscape cover art | ~60 lines |
+| **Recent soundscapes** | Show "Last played" section | ~50 lines |
+| **Offline cache** | Cache list for offline access | ~80 lines |
+
+---
+
+### Success Criteria
+
+| Criterion | How to Verify |
+|-----------|---------------|
+| Picker page loads | Visual inspection + console check |
+| Soundscapes listed | Verify all user soundscapes appear |
+| Click redirects | Verify goes to `map_player.html` |
+| Correct soundscape loaded | Check console log + dropdown |
+| Back button works | Click → returns to picker |
+| Logout works | Click → clears token → redirects to login |
+| Fallback works | Direct `map_player.html` access still functions |
+| No console errors | Check browser console |
+| Mobile-friendly | Test on phone (touch targets, layout) |
+
+---
+
+**Total Effort:** ~295 lines across 6 sub-sessions (~2h 50m)
+
+---
+
+## Session 10+ (Future Planning)
+
+**Potential Sessions:**
+
+| Session | Topic | Priority | Status |
+|---------|-------|----------|--------|
+| **10** | Behavior editing UI (timeline, drag-drop) | Medium | 📋 Planned |
+| **11** | Multi-user collaboration (WebSocket sync) | Low | 📋 Planned |
+| **12** | Offline-first architecture (Service Worker) | Low | 📋 Planned |
+| **13** | Analytics + usage tracking | Low | 📋 Planned |
+

@@ -244,7 +244,7 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    <script src="api-client.js?v=20260315191817"></script>
+    <script src="api-client.js?v=20260316130550"></script>
     <script>
         /**
          * Landing Page Controller
@@ -368,11 +368,12 @@
             selectDevice(deviceType) {
                 // Store device preference for redirect
                 localStorage.setItem('audio_ar_device_type', deviceType);
-                
+
                 if (deviceType === 'editor') {
                     window.location.href = 'map_editor.html';
                 } else {
-                    window.location.href = 'map_player.html';
+                    // Player: redirect to soundscape picker first (Session 9)
+                    window.location.href = 'soundscape_picker.html';
                 }
             }
 

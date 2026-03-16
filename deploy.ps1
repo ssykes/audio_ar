@@ -27,7 +27,8 @@ $DISPLAY_VERSION_FILES = @(
     "auto_rotate.html",
     "map_placer.html",
     "map_editor.html",
-    "map_player.html"
+    "map_player.html",
+    "soundscape_picker.html"
 )
 
 foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
@@ -88,7 +89,8 @@ $HTML_FILES = @(
     "auto_rotate.html",
     "map_placer.html",
     "map_editor.html",
-    "map_player.html"
+    "map_player.html",
+    "soundscape_picker.html"
 )
 
 # Patterns to match existing versioned script tags
@@ -205,6 +207,7 @@ $ALL_FILES = @(
     "map_player.js",
     "map_shared.js",
     "soundscape.js",
+    "soundscape_picker.html",
     "wake_lock_helper.js",
     "api-client.js"
 )
@@ -435,12 +438,13 @@ Write-Host ""
 Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
-Write-Host "   Landing Page:  http://ssykes.net/index.html" -ForegroundColor White
-Write-Host "   Map Editor:    http://ssykes.net/map_editor.html" -ForegroundColor White
-Write-Host "   Map Player:    http://ssykes.net/map_player.html" -ForegroundColor White
-Write-Host "   Map Placer:    http://ssykes.net/map_placer.html (legacy)" -ForegroundColor White
-Write-Host "   Test Page:     http://ssykes.net/auto_rotate.html" -ForegroundColor White
-Write-Host "   Single Sound:  http://ssykes.net/single_sound_v2.html" -ForegroundColor White
+Write-Host "   Landing Page:       http://ssykes.net/index.html" -ForegroundColor White
+Write-Host "   Soundscape Picker:  http://ssykes.net/soundscape_picker.html" -ForegroundColor White
+Write-Host "   Map Editor:         http://ssykes.net/map_editor.html" -ForegroundColor White
+Write-Host "   Map Player:         http://ssykes.net/map_player.html" -ForegroundColor White
+Write-Host "   Map Placer:         http://ssykes.net/map_placer.html (legacy)" -ForegroundColor White
+Write-Host "   Test Page:          http://ssykes.net/auto_rotate.html" -ForegroundColor White
+Write-Host "   Single Sound:       http://ssykes.net/single_sound_v2.html" -ForegroundColor White
 Write-Host ""
 Write-Host "Multi-User Features:" -ForegroundColor Cyan
 Write-Host "   1. Open index.html - login and select device" -ForegroundColor White

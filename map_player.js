@@ -2,7 +2,7 @@
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
  * 
- * @version 6.1 - Session 6 Refactor: Mode Presets
+ * @version 6.2 - Use fitBounds() for auto-zoom on soundscapes
  * 
  * Features:
  * - Auto-sync on page load (timestamp-based)
@@ -12,7 +12,7 @@
  * - Debug console with auto-scroll
  */
 
-console.log('[map_player.js] Loading v6.1...');
+console.log('[map_player.js] Loading v6.2...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -40,6 +40,14 @@ class MapPlayerApp extends MapAppShared {
         // Apply player restrictions (hide edit controls)
         this._applyPlayerRestrictions();
 
+        // Check if user selected a soundscape from picker (Session 9)
+        const selectedId = localStorage.getItem('selected_soundscape_id');
+        if (selectedId) {
+            this.debugLog(`📱 Using selected soundscape: ${selectedId}`);
+            this.activeSoundscapeId = selectedId;
+            localStorage.removeItem('selected_soundscape_id');  // Clear after use
+        }
+
         // Load soundscape
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
@@ -61,6 +69,13 @@ class MapPlayerApp extends MapAppShared {
             const valid = await this.api.verifyToken();
             if (valid) {
                 this.isLoggedIn = true;
+                
+                // Show user panel
+                const userPanel = document.getElementById('userPanel');
+                const userEmail = document.getElementById('userEmail');
+                if (userPanel) userPanel.style.display = 'block';
+                if (userEmail) userEmail.textContent = this.api.user.email;
+                
                 this.debugLog('🔐 Logged in as ' + this.api.user.email);
             }
         }
@@ -90,6 +105,48 @@ class MapPlayerApp extends MapAppShared {
         if (startBtn) {
             startBtn.addEventListener('click', () => this._handleStartClick());
         }
+
+        // Back to picker button (Session 9)
+        const backBtn = document.getElementById('backBtn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                window.location.href = 'soundscape_picker.html';
+            });
+        }
+
+        // Logout handler
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this._handleLogout());
+        }
+    }
+
+    /**
+     * Handle logout - redirect to index.html
+     * @private
+     */
+    _handleLogout() {
+        if (!confirm('Are you sure you want to logout?')) {
+            return;
+        }
+
+        this.api.logout();
+        this.isLoggedIn = false;
+        this.serverSoundscapeIds.clear();
+        this.soundscapes.clear();
+        this.activeSoundscapeId = null;
+        this.waypoints = [];
+
+        // Clear map markers
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+        this._updateWaypointList();
+
+        this._showToast('🚪 Logged out successfully', 'info');
+        this.debugLog('🚪 Logged out');
+
+        // Redirect to index.html
+        window.location.href = 'index.html';
     }
 
     /**
@@ -164,13 +221,18 @@ class MapPlayerApp extends MapAppShared {
             this.waypoints.forEach(wp => this._createMarker(wp));
             this._updateWaypointList();
 
-            // Center map on waypoints
+            // Center and zoom map to show all waypoints
             if (this.waypoints.length > 0) {
-                const sumLat = this.waypoints.reduce((sum, wp) => sum + wp.lat, 0);
-                const sumLon = this.waypoints.reduce((sum, wp) => sum + wp.lon, 0);
-                const centerLat = sumLat / this.waypoints.length;
-                const centerLon = sumLon / this.waypoints.length;
-                this.map.setView([centerLat, centerLon], 17);
+                // Create bounds from all waypoint positions
+                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+                
+                // Fit map to show all waypoints with padding
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+                
+                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+                
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
             }
 
             this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints)`);
