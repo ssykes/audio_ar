@@ -19,7 +19,7 @@ class Waypoint {
         volume = 0.8,
         loop = true,
         activationRadius = 20,
-        icon = '🎵',
+        icon = '•',
         color = '#00d9ff',
         sortOrder = 0
     ) {
@@ -53,7 +53,7 @@ class Waypoint {
             row.volume ?? 0.8,
             row.loop ?? true,
             row.activation_radius ?? 20,
-            row.icon || '🎵',
+            row.icon || '•',
             row.color || '#00d9ff',
             row.sort_order ?? 0
         );
@@ -75,7 +75,7 @@ class Waypoint {
             json.volume ?? 0.8,
             json.loop ?? true,
             json.activationRadius || json.activation_radius || 20,
-            json.icon || '🎵',
+            json.icon || '•',
             json.color || '#00d9ff',
             json.sortOrder ?? 0
         );

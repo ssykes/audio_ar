@@ -356,8 +356,22 @@ class MapAppShared {
         this.activeSoundscapeId = id;
         const soundscape = this.getActiveSoundscape();
 
-        // Update waypoints from the soundscape's waypointData
+        // Clear existing markers and circles BEFORE loading new data
+        this.debugLog(`🧹 Clearing existing markers and circles...`);
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+        // Also clear circles from current waypoints
+        this.waypoints.forEach(wp => {
+            if (wp.circleMarker) {
+                wp.circleMarker.remove();
+                wp.circleMarker = null;
+            }
+        });
+        this.debugLog(`   ✅ Cleared old markers and circles`);
+
+        // Load new waypoints from soundscape
         this.waypoints = soundscape.waypointData || [];
+        this.debugLog(`   📥 Loaded ${this.waypoints.length} waypoints from soundscape`);
 
         // Restore nextId from waypoints
         if (this.waypoints.length > 0) {
@@ -365,10 +379,10 @@ class MapAppShared {
             this.nextId = maxId + 1;
         }
 
-        // Clear and render waypoints
-        this.markers.forEach(marker => marker.remove());
-        this.markers.clear();
+        // Create markers and circles for new waypoints
+        this.debugLog(`   🎨 Creating markers and circles...`);
         this.waypoints.forEach(wp => this._createMarker(wp));
+        this.debugLog(`   ✅ Created markers and circles for new soundscape`);
         this._updateWaypointList();
         this._updateSoundscapeSelector();
 
@@ -667,7 +681,7 @@ class MapAppShared {
             lon: lon,
             name: config.name || 'Sound ' + (this.waypoints.length + 1),
             type: config.type || 'sample',
-            icon: config.icon || '🎵',
+            icon: config.icon || '•',
             color: config.color || '#00d9ff',
             activationRadius: config.activationRadius || this.defaultActivationRadius,
             soundUrl: config.soundUrl || this.soundConfig.soundUrl,
@@ -717,12 +731,17 @@ class MapAppShared {
             iconSize: [32, 32],
             iconAnchor: [16, 16]
         });
-        
-        const marker = L.marker([waypoint.lat, waypoint.lon], { 
-            icon: icon, 
+
+        this.debugLog(`📍 Creating marker for ${waypoint.name} at [${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}]`);
+        this.debugLog(`   allowEditing: ${this.allowEditing}`);
+
+        const marker = L.marker([waypoint.lat, waypoint.lon], {
+            icon: icon,
             draggable: this.allowEditing  // Use behavior flag
         }).addTo(this.map);
-        
+
+        this.debugLog(`   Marker draggable: ${marker.dragging.enabled()}`);
+
         marker.bindPopup(this._createPopupContent(waypoint));
         
         marker.on('dragstart', () => { 
@@ -734,11 +753,14 @@ class MapAppShared {
             this.isDragging = false;
             const newLat = e.target.getLatLng().lat;
             const newLon = e.target.getLatLng().lng;
-            
+
+            this.debugLog(`🖐️ Dragged ${waypoint.name} from [${waypoint.lat.toFixed(4)}, ${waypoint.lon.toFixed(4)}] to [${newLat.toFixed(4)}, ${newLon.toFixed(4)}]`);
+            this.debugLog(`   Circle before update: ${waypoint.circleMarker ? 'exists' : 'NOT FOUND'}`);
+
             // Update waypoint in this.waypoints
             waypoint.lat = newLat;
             waypoint.lon = newLon;
-            
+
             // Also update soundscape.waypointData (for clean server save)
             const soundscape = this.getActiveSoundscape();
             if (soundscape) {
@@ -748,7 +770,7 @@ class MapAppShared {
                     wpInSoundscape.lon = newLon;
                 }
             }
-            
+
             this._updateRadiusCircle(waypoint);
             this._markSoundscapeDirty();
             this._scheduleAutoSave();  // Debounced save after drag
@@ -847,14 +869,28 @@ class MapAppShared {
      * @protected
      */
     _updateRadiusCircle(waypoint) {
-        if (waypoint.circleMarker) waypoint.circleMarker.remove();
-        waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], {
-            radius: waypoint.activationRadius,
-            color: waypoint.color,
-            fillColor: waypoint.color,
-            fillOpacity: 0.15,
-            weight: 1
-        }).addTo(this.map);
+        this.debugLog(`🔵 _updateRadiusCircle called for ${waypoint.name}`);
+        this.debugLog(`   Position: [${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}]`);
+        this.debugLog(`   Existing circle: ${waypoint.circleMarker ? 'found' : 'NOT FOUND'}`);
+        
+        // If circle exists, update its position (more efficient than remove/recreate)
+        if (waypoint.circleMarker) {
+            this.debugLog(`   Updating existing circle position...`);
+            waypoint.circleMarker.setLatLng([waypoint.lat, waypoint.lon]);
+            waypoint.circleMarker.setRadius(waypoint.activationRadius);
+            this.debugLog(`   ✅ Circle position updated`);
+        } else {
+            // Create new circle
+            this.debugLog(`   Creating new circle...`);
+            waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], {
+                radius: waypoint.activationRadius,
+                color: waypoint.color,
+                fillColor: waypoint.color,
+                fillOpacity: 0.15,
+                weight: 1
+            }).addTo(this.map);
+            this.debugLog(`   ✅ Circle created and added to map`);
+        }
     }
 
     /**
@@ -868,8 +904,17 @@ class MapAppShared {
         if (index === -1) return;
         const waypoint = this.waypoints[index];
         const marker = this.markers.get(waypointId);
+        
+        this.debugLog(`🗑️ Deleting waypoint ${waypointId} (${waypoint.name})`);
+        this.debugLog(`   Marker exists: ${!!marker}`);
+        this.debugLog(`   Circle exists: ${!!waypoint.circleMarker}`);
+        
         if (marker) marker.remove();
-        if (waypoint.circleMarker) waypoint.circleMarker.remove();
+        if (waypoint.circleMarker) {
+            waypoint.circleMarker.remove();
+            waypoint.circleMarker = null;
+        }
+        
         this.waypoints.splice(index, 1);
         this._updateWaypointList();
 
@@ -880,6 +925,8 @@ class MapAppShared {
             this._markSoundscapeDirty();
             this._scheduleAutoSave();
         }
+        
+        this.debugLog(`✅ Deleted waypoint ${waypointId}`);
     }
 
     /**

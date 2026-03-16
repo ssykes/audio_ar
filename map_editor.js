@@ -46,8 +46,8 @@ class MapEditorApp extends MapAppShared {
         // This will center the map on the first soundscape's waypoints (if any exist)
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
-            // Auto-sync if server data has changed since last save
-            await this._autoSyncIfNeeded();
+            // Skip auto-sync check - we just loaded from server, so data is fresh
+            this.debugLog('✅ Just loaded from server - skipping auto-sync check');
         } else {
             this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }

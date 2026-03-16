@@ -65,7 +65,7 @@ class WaypointRepository extends BaseRepository {
         volume: wp.volume ?? 0.8,
         loop: wp.loop ?? true,
         activationRadius: wp.activationRadius || 20,
-        icon: wp.icon || '🎵',
+        icon: wp.icon || '•',
         color: wp.color || '#00d9ff',
         sortOrder: i
       });

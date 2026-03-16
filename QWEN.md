@@ -2903,6 +2903,129 @@ If issues arise:
 
 ---
 
+## Session 8: Bug Fixes - Circle Overlay & Double Loading - COMPLETED ✅
+
+### Status: ✅ COMPLETE
+
+**Problems Fixed:**
+
+| Issue | Root Cause | Solution |
+|-------|------------|----------|
+| **Blue circles left behind when dragging** | `_updateRadiusCircle()` was removing and recreating circles, but `switchSoundscape()` wasn't clearing old circles before loading new ones | Use `setLatLng()` to update existing circle position instead of remove/recreate |
+| **Duplicate circles on page load** | `_loadSoundscapeFromServer()` called in `init()`, then `_autoSyncIfNeeded()` called immediately after and detected "timestamp mismatch" → called `_loadSoundscapeFromServer()` AGAIN | Skip `_autoSyncIfNeeded()` after fresh server load (data is already fresh) |
+| **Circles not cleared on soundscape switch** | `switchSoundscape()` only cleared `this.markers`, not `waypoint.circleMarker` | Clear circles from old waypoints before loading new soundscape |
+
+**Files Modified:**
+
+| File | Changes |
+|------|---------|
+| `map_shared.js` | `_updateRadiusCircle()`: Use `setLatLng()` instead of remove/recreate |
+| `map_shared.js` | `switchSoundscape()`: Clear circles from old waypoints before loading new data |
+| `map_editor.js` | `init()`: Skip `_autoSyncIfNeeded()` after fresh server load |
+
+**Code Changes:**
+
+```javascript
+// BEFORE: Remove and recreate circle (prone to leftover circles)
+_updateRadiusCircle(waypoint) {
+    if (waypoint.circleMarker) waypoint.circleMarker.remove();
+    waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], { ... });
+}
+
+// AFTER: Update existing circle position (more reliable)
+_updateRadiusCircle(waypoint) {
+    if (waypoint.circleMarker) {
+        waypoint.circleMarker.setLatLng([waypoint.lat, waypoint.lon]);
+        waypoint.circleMarker.setRadius(waypoint.activationRadius);
+    } else {
+        waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], { ... });
+    }
+}
+```
+
+```javascript
+// switchSoundscape() - Clear circles before loading new data
+this.markers.forEach(marker => marker.remove());
+this.markers.clear();
+// Also clear circles from current waypoints
+this.waypoints.forEach(wp => {
+    if (wp.circleMarker) {
+        wp.circleMarker.remove();
+        wp.circleMarker = null;
+    }
+});
+```
+
+```javascript
+// map_editor.js init() - Skip redundant auto-sync check
+if (this.isLoggedIn) {
+    await this._loadSoundscapeFromServer();
+    // Skip auto-sync check - we just loaded from server, so data is fresh
+    this.debugLog('✅ Just loaded from server - skipping auto-sync check');
+}
+```
+
+**Testing:**
+
+| Test | Expected Result |
+|------|-----------------|
+| Drag waypoint | Circle moves with marker (no leftover) |
+| Delete waypoint | Circle disappears with marker |
+| Page load | Single load sequence (no duplicate circles) |
+| Switch soundscapes | Old circles cleared, new circles created |
+
+**Status:** ✅ **COMPLETE** - All circle overlay bugs fixed
+
+---
+
+## Session 9: Change Default Waypoint Icon - COMPLETED ✅
+
+### Status: ✅ COMPLETE
+
+**Change:** Default waypoint icon from musical note (🎵) to dot (•)
+
+**Files Modified (8 locations):**
+
+| File | Location |
+|------|----------|
+| `map_shared.js` | `_addWaypoint()` default icon |
+| `api/models/Waypoint.js` | Constructor default |
+| `api/models/Waypoint.js` | `fromRow()` default |
+| `api/models/Waypoint.js` | `fromJSON()` default |
+| `api/repositories/WaypointRepository.js` | `_toEntity()` default |
+| `api/repositories/SoundScapeRepository.js` | `createWithWaypoints()` default |
+| `api/repositories/SoundScapeRepository.js` | `saveFull()` default |
+| `map_player.html` | Version update |
+
+**Code Smell Identified:** 🚨
+
+Same default value (`'•'`) hardcoded in **8 different places** violates DRY principle.
+
+**Refactoring Options (Not Yet Implemented):**
+
+| Option | Description | Pros | Cons |
+|--------|-------------|------|------|
+| **Constants file** | Central `constants.js` with `WAYPOINT_ICON = '•'` | Single source of truth, easy to change | Need to import in 8 files |
+| **Domain model only** | Put default only in `Waypoint` class, have all layers call `fromJSON()` | Proper separation of concerns | Client can't share Node.js code |
+| **Database default** | `ALTER TABLE waypoints ALTER COLUMN icon SET DEFAULT '•'` | Ultimate fallback, self-documenting | Client still needs default |
+| **Hybrid** | Constants file + database default | Best of both worlds | More upfront work |
+
+**Recommended:** Hybrid approach - constants file for client/server + database default as safety net
+
+**Future Enhancement:** Admin API endpoint to fetch/update defaults dynamically (change icons without redeploying)
+
+**Testing:**
+
+| Test | Expected Result |
+|------|-----------------|
+| Create new waypoint | Shows dot (•) instead of musical note (🎵) |
+| Load existing waypoints | Keep their original icon (musical note if created before) |
+| Import/export | Icon preserved in JSON |
+
+**Status:** ✅ **COMPLETE** - Default icon changed to dot
+
+---
+
 ## Session 10+ (Future Planning)
 
 **Potential Sessions:**

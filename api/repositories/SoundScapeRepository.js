@@ -97,7 +97,7 @@ class SoundScapeRepository extends BaseRepository {
           `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, volume, loop, activation_radius, icon, color, sort_order)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
           [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '🎵', wp.color || '#00d9ff', i]
+           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
@@ -160,7 +160,7 @@ class SoundScapeRepository extends BaseRepository {
           `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, volume, loop, activation_radius, icon, color, sort_order)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
           [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '🎵', wp.color || '#00d9ff', i]
+           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
