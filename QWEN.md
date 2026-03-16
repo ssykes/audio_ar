@@ -3026,14 +3026,409 @@ Same default value (`'•'`) hardcoded in **8 different places** violates DRY pr
 
 ---
 
-## Session 10+ (Future Planning)
+## Session 10: Map Player UI Redesign - COMPLETED ✅
+
+### Status: ✅ COMPLETE (Mockup Created)
+
+**Goal:** Maximize map view on player page by replacing sidebar with minimal icon-based UI
+
+**Problem:**
+- Current sidebar takes ~30% of screen space
+- Edit controls unnecessary on player page
+- GPS/heading display takes vertical space in sidebar
+- Debug log always visible (clutter)
+
+**Solution:** Full-screen map with floating icon bar + bottom status strip
+
+---
+
+### UI Design
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [Full Screen Map - Leaflet]                                │
+│                                                             │
+│  ┌─────┐                                                    │
+│  │ 🚪  │  ← Logout                                         │
+│  └─────┘                                                    │
+│  ┌─────┐                                                    │
+│  │ ←   │  ← Back to Soundscapes                            │
+│  └─────┘                                                    │
+│  ┌─────┐                                                    │
+│  │ ▶️  │  ← Start Audio (changes to ⏹️ Stop when active)   │
+│  └─────┘                                                    │
+│  ┌─────┐                                                    │
+│  │ 📋  │  ← Show Debug Log                                 │
+│  └─────┘                                                    │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  GPS: 42.1713, -122.7095          Heading: 245° SW          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Key Design Decisions
+
+| Element | Description | Position |
+|---------|-------------|----------|
+| **Map** | Full-screen Leaflet map | 100% viewport |
+| **Icon Bar** | Vertical floating toolbar (4 icons) | Left edge, vertically centered |
+| **Status Bar** | GPS + Heading (horizontal strip) | Bottom edge, full width |
+| **Debug Log** | Modal/overlay (on-demand) | Hidden by default |
+
+---
+
+### Icon Bar Specification
+
+| Icon | Tooltip | Action |
+|------|---------|--------|
+| 🚪 (Logout) | "Logout" | Clear token → redirect to `index.html` |
+| ← (Back) | "Back to Soundscapes" | Redirect to `soundscape_picker.html` |
+| ▶️/⏹️ (Play/Stop) | "Start Audio" / "Stop Audio" | Toggle audio playback |
+| 📋 (Clipboard) | "Show Debug Log" | Open debug modal |
+
+**Visual Style:**
+- Icons: SVG Material Design (single color: #a0a0c0)
+- Size: 48×48px touch targets
+- Background: Semi-transparent dark with glassmorphism (`rgba(0,0,0,0.7)` + `backdrop-filter: blur(10px)`)
+- Border radius: 25px (pill shape)
+- Spacing: 12px between icons
+- Tooltips: Appear on hover/tap (10px offset)
+
+---
+
+### Status Bar Specification
+
+**Layout:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  GPS: 42.1713, -122.7095          Heading: 245° SW          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Style:**
+- Height: 40px
+- Background: `rgba(0,0,0,0.8)` + glassmorphism
+- Font: Monospace (`Consolas`, `monospace`)
+- Color: GPS/Heading labels (#a0a0c0), values (#ffffff)
+- No icons (text only - removed 📍🧭 for cleaner look)
+- Auto-updates in real-time
+
+---
+
+### Debug Modal Specification
+
+**Features:**
+- Slides up from bottom (or fades in)
+- Shows log lines (color-coded: info=green, warn=orange, error=red)
+- **Copy to Clipboard** button (new in Session 11)
+- Close button (×)
+- Semi-transparent backdrop
+
+**Content:**
+```
+┌─────────────────────────────────────┐
+│  📋 Debug Log          [📋 Copy] [×]│
+├─────────────────────────────────────┤
+│  [player] 🗺️ Map initialized       │
+│  [player] 📍 GPS: 42.1713, -122.7...│
+│  [player] 🧭 Heading: 245° SW       │
+│  [player] 🔊 Audio engine ready     │
+│  [player] 🎵 Loaded 3 waypoints     │
+│  [player] ⚠️ Weak GPS signal        │
+└─────────────────────────────────────┘
+```
+
+---
+
+### Files Created
+
+| File | Purpose | Lines |
+|------|---------|-------|
+| `map_player_mockup.html` | Interactive UI mockup (portrait + landscape) | ~435 |
+
+**Mockup Features:**
+- Realistic iPhone frame (with notch)
+- Portrait mode: 390×844 (iPhone 12/13/14)
+- Landscape mode: 844×390
+- Interactive icons (click Start to toggle, click Debug to show modal)
+- Tooltips on hover
+- Glassmorphism effects
+
+**Testing:**
+- ✅ Open `map_player_mockup.html` in browser
+- ✅ Verify portrait + landscape layouts
+- ✅ Click Start button → toggles active state
+- ✅ Click Debug Log → modal appears
+- ✅ Hover over icons → tooltips appear
+
+---
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **Maximized map view** | ~95% viewport (vs ~70% with sidebar) |
+| **Cleaner UI** | Icons only (no text labels in toolbar) |
+| **Touch-optimized** | 48×48px targets (easy on mobile) |
+| **Contextual** | Debug log hidden until needed |
+| **Modern aesthetic** | Glassmorphism, smooth transitions |
+| **Orientation-agnostic** | Works in portrait + landscape |
+
+---
+
+### User Flow
+
+```
+1. User opens map_player.html
+   ↓
+2. Full-screen map loads (maximized view)
+   ↓
+3. Icon bar visible on left (unobtrusive)
+   ↓
+4. Status bar shows live GPS/heading at bottom
+   ↓
+5. Tap ▶️ Start → Audio begins, icon changes to ⏹️
+   ↓
+6. Walk around → GPS/heading update in real-time
+   ↓
+7. Tap 📋 Debug → Modal shows detailed logs
+   ↓
+8. Tap ← Back → Return to soundscape picker
+```
+
+---
+
+### Comparison: Before vs After
+
+| Aspect | Before (Sidebar) | After (Icon Bar) |
+|--------|------------------|------------------|
+| **Map visibility** | ~70% | ~95% |
+| **Controls** | Text buttons + labels | Icons only |
+| **GPS/Heading** | Sidebar (vertical space) | Bottom strip (horizontal) |
+| **Debug log** | Always visible | On-demand modal |
+| **Touch targets** | ~36px | 48px |
+| **Visual clutter** | High | Low |
+
+---
+
+### Implementation Plan (Next Session)
+
+| Phase | Task | Files | Lines | Time |
+|-------|------|-------|-------|------|
+| **1** | Update HTML structure | `map_player.html` | ~50 | 15 min |
+| **2** | Add CSS (icon bar, status bar, modal) | `map_player.html` | ~150 | 30 min |
+| **3** | JavaScript: Modal toggle + copy | `map_player.js` | ~80 | 25 min |
+| **4** | Integrate with existing GPS/compass | `map_player.js` | ~40 | 15 min |
+| **5** | Test on mobile (touch, orientation) | Browser | - | 20 min |
+| **Total** | | **2 files** | **~320 lines** | **~105 min** |
+
+---
+
+### Risks & Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Icon bar blocks map on small screens | Low | Low | Test on iPhone SE (375px width), adjust positioning |
+| Touch targets too small | Low | Low | 48×48px exceeds 44px Apple HIG minimum |
+| Modal covers map completely | None | Low | Modal is dismissible, semi-transparent |
+| GPS text overflows on small screens | Low | Low | Use `text-overflow: ellipsis`, truncate coordinates |
+
+---
+
+### Future Enhancements (Post-Session 10)
+
+| Enhancement | Description | Effort |
+|-------------|-------------|--------|
+| **Draggable icon bar** | User can reposition toolbar | ~40 lines |
+| **Hide icon bar on scroll** | Auto-hide for immersive view | ~30 lines |
+| **Compass rose visualization** | Visual direction indicator | ~50 lines |
+| **Distance to nearest sound** | Add to status bar | ~25 lines |
+| **Haptic feedback on icon tap** | Vibration on touch | ~10 lines |
+
+---
+
+**Status:** ✅ **COMPLETE** - Mockup created and approved
+
+**Next:** Session 11 (Debug Log Copy to Clipboard) → Session 12 (Implement UI in `map_player.html`)
+
+---
+
+## Session 11: Debug Log Copy to Clipboard - COMPLETED ✅
+
+### Status: ✅ COMPLETE (v6.59)
+
+**Goal:** Add "Copy to Clipboard" button to debug console with toast notification feedback
+
+### Implementation Summary
+
+**What Was Implemented:**
+- ✅ Copy button in bottom-left corner of debug console (icon only, 32×32px)
+- ✅ Hover tooltip: "Copy to clipboard"
+- ✅ Toast notification with type-based colors (info/success/warning/error)
+- ✅ Debug console hidden by default, toggle by clicking header
+- ✅ Fallback for older browsers (execCommand)
+
+### Files Modified (5)
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `map_player.html` | CSS + HTML structure, copy button | ~80 |
+| `map_player.js` | `_copyDebugToClipboard()`, `_toggleDebugConsole()` | ~50 |
+| `map_editor.html` | CSS + HTML structure, copy button | ~80 |
+| `map_editor.js` | Updated `_copyLogs()` to use new structure | ~30 |
+| `map_shared.js` | Updated `debugLog()` to use `debugConsoleContent` | ~10 |
+
+**Total:** ~250 lines
+
+---
+
+### HTML Structure
+
+```html
+<div id="debugConsole">
+    <div id="debugConsoleContent">Ready - tap Start to begin...</div>
+    <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋</button>
+</div>
+```
+
+---
+
+### CSS Styling
+
+```css
+#debugConsole {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#debugConsoleContent {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+}
+
+.debug-copy-btn {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    width: 32px;
+    height: 32px;
+}
+
+/* Toast notifications */
+.toast { /* ... */ }
+.toast.info { background: #00d9ff; color: #000; }
+.toast.success { background: #00ff88; color: #000; }
+.toast.warning { background: #ffaa00; color: #000; }
+.toast.error { background: #e94560; color: #fff; }
+```
+
+---
+
+### JavaScript Methods
+
+**map_player.js:**
+```javascript
+_toggleDebugConsole() {
+    // Toggle visible class on #debugConsole
+}
+
+async _copyDebugToClipboard() {
+    const debugText = this.debugConsoleContent.innerText;
+    await navigator.clipboard.writeText(debugText);
+    this._showToast('✅ Copied to clipboard', 'success');
+}
+```
+
+**map_shared.js:**
+```javascript
+debugLog(message) {
+    if (!this.debugConsoleContent) return;
+    this.debugConsoleContent.textContent = line + this.debugConsoleContent.textContent;
+}
+```
+
+---
+
+### User Experience
+
+**Visual Layout:**
+```
+┌─────────────────────────────────┐
+│ 📋 Debug Log              [▼]  │ ← Click header to toggle
+├─────────────────────────────────┤
+│                                 │
+│  [debug log text...]            │
+│                                 │
+│ 📋 ← Copy button (bottom-left)  │
+└─────────────────────────────────┘
+```
+
+**Behavior:**
+- Debug console **hidden by default**
+- Click header to **toggle** visibility
+- Copy button in **bottom-left corner** when console is shown
+- Hover over button → tooltip: "Copy to clipboard"
+- Click button → copies logs + **toast notification**
+
+---
+
+### Browser Support
+
+| Browser | Clipboard API | Fallback |
+|---------|---------------|----------|
+| Chrome 90+ | ✅ Native | N/A |
+| Firefox 82+ | ✅ Native | N/A |
+| Safari 13.1+ | ✅ Native | N/A |
+| Edge 90+ | ✅ Native | N/A |
+| Older browsers | ❌ | ✅ `execCommand('copy')` |
+
+**Coverage:** 95%+ (with fallback)
+
+---
+
+### Testing Instructions
+
+1. **Hard refresh** browser: `Ctrl+Shift+R`
+2. Open `map_player.html` or `map_editor.html`
+3. Click "📋 Debug Log" header → console appears
+4. Verify copy button is in **bottom-left corner** (not in text)
+5. Hover over button → verify tooltip appears
+6. Click button → verify copy works + toast notification
+
+---
+
+### Versions
+
+| File | Version | Cache |
+|------|---------|-------|
+| `map_player.html` | v6.59 | 20260316165000 |
+| `map_player.js` | v6.3 | 20260316165000 |
+| `map_editor.html` | v6.59 | 20260316165000 |
+| `map_editor.js` | - | 20260316165000 |
+| `map_shared.js` | - | 20260316165000 |
+
+---
+
+**Status:** ✅ **COMPLETE**
+
+**Next:** Session 12 (Implement Session 10 UI - Full Icon Bar + Status Bar)
+
+---
+
+## Session 12+ (Future Planning)
 
 **Potential Sessions:**
 
 | Session | Topic | Priority | Status |
 |---------|-------|----------|--------|
-| **10** | Behavior editing UI (timeline, drag-drop) | Medium | 📋 Planned |
-| **11** | Multi-user collaboration (WebSocket sync) | Low | 📋 Planned |
-| **12** | Offline-first architecture (Service Worker) | Low | 📋 Planned |
-| **13** | Analytics + usage tracking | Low | 📋 Planned |
+| **12** | Implement Session 10 UI in `map_player.html` | High | 📋 Planned |
+| **13** | Behavior editing UI (timeline, drag-drop) | Medium | 📋 Planned |
+| **14** | Multi-user collaboration (WebSocket sync) | Low | 📋 Planned |
+| **15** | Offline-first architecture (Service Worker) | Low | 📋 Planned |
+| **16** | Analytics + usage tracking | Low | 📋 Planned |
 

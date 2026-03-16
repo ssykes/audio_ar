@@ -12,7 +12,7 @@
  * - Debug console with auto-scroll
  */
 
-console.log('[map_player.js] Loading v6.2...');
+console.log('[map_player.js] Loading v6.3...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -118,6 +118,22 @@ class MapPlayerApp extends MapAppShared {
         const logoutBtn = document.getElementById('logoutBtn');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', () => this._handleLogout());
+        }
+
+        // Toggle debug console visibility (Session 11)
+        const debugConsoleHeader = document.getElementById('debugConsoleHeader');
+        if (debugConsoleHeader) {
+            debugConsoleHeader.addEventListener('click', (e) => {
+                // Don't toggle if clicking the copy button
+                if (e.target.id === 'debugCopyBtn') return;
+                this._toggleDebugConsole();
+            });
+        }
+
+        // Copy debug log to clipboard (Session 11)
+        const debugCopyBtn = document.getElementById('debugCopyBtn');
+        if (debugCopyBtn) {
+            debugCopyBtn.addEventListener('click', () => this._copyDebugToClipboard());
         }
     }
 
@@ -250,15 +266,71 @@ class MapPlayerApp extends MapAppShared {
      */
     _initDebugConsole() {
         this.debugConsole = document.getElementById('debugConsole');
+        this.debugConsoleContent = document.getElementById('debugConsoleContent');
         if (this.debugConsole) {
             this.debugLog('🎧 Map Player v6.1 ready');
             this.debugLog('📍 Waiting for GPS...');
 
             // Auto-scroll debug console
             const observer = new MutationObserver(() => {
-                this.debugConsole.scrollTop = this.debugConsole.scrollHeight;
+                if (this.debugConsoleContent) {
+                    this.debugConsoleContent.scrollTop = this.debugConsoleContent.scrollHeight;
+                }
             });
-            observer.observe(this.debugConsole, { childList: true, subtree: true });
+            observer.observe(this.debugConsoleContent, { childList: true, subtree: true });
+        }
+    }
+
+    /**
+     * Toggle debug console visibility (Session 11)
+     * @private
+     */
+    _toggleDebugConsole() {
+        if (this.debugConsole) {
+            const isVisible = this.debugConsole.classList.contains('visible');
+            if (isVisible) {
+                this.debugConsole.classList.remove('visible');
+                if (this.debugConsoleContent) {
+                    this.debugConsoleContent.innerText += '\n📋 Debug log hidden';
+                }
+            } else {
+                this.debugConsole.classList.add('visible');
+                if (this.debugConsoleContent) {
+                    this.debugConsoleContent.innerText += '\n📋 Debug log shown';
+                }
+            }
+        }
+    }
+
+    /**
+     * Copy debug log to clipboard (Session 11)
+     * @private
+     */
+    async _copyDebugToClipboard() {
+        try {
+            const debugText = this.debugConsoleContent.innerText;
+
+            // Use modern Clipboard API
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(debugText);
+                this._showToast('✅ Copied to clipboard', 'success');
+                this.debugLog('📋 Debug log copied to clipboard');
+            } else {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = debugText;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                this._showToast('✅ Copied to clipboard', 'success');
+                this.debugLog('📋 Debug log copied to clipboard (fallback method)');
+            }
+        } catch (error) {
+            this.debugLog('❌ Failed to copy: ' + error.message);
+            this._showToast('❌ Copy failed: ' + error.message, 'error');
         }
     }
 

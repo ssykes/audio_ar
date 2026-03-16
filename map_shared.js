@@ -1324,17 +1324,17 @@ class MapAppShared {
      * @param {string} message
      */
     debugLog(message) {
-        if (!this.debugConsole) return;
+        if (!this.debugConsoleContent) return;
 
         const timestamp = new Date().toLocaleTimeString();
         const line = `[${timestamp}] ${message}\n`;
 
-        this.debugConsole.textContent = line + this.debugConsole.textContent;
+        this.debugConsoleContent.textContent = line + this.debugConsoleContent.textContent;
 
         // Limit lines
-        const lines = this.debugConsole.textContent.split('\n');
+        const lines = this.debugConsoleContent.textContent.split('\n');
         if (lines.length > this.maxDebugLines) {
-            this.debugConsole.textContent = lines.slice(0, this.maxDebugLines).join('\n');
+            this.debugConsoleContent.textContent = lines.slice(0, this.maxDebugLines).join('\n');
         }
     }
 
@@ -1365,10 +1365,14 @@ class MapAppShared {
      */
     _showToast(message, type = 'info') {
         const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
         toast.textContent = message;
-        toast.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#00d9ff;color:#000;padding:12px 24px;border-radius:8px;font-weight:bold;z-index:10000;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
         document.body.appendChild(toast);
-        setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 3000);
+        setTimeout(() => { 
+            toast.style.opacity = '0'; 
+            toast.style.transition = 'opacity 0.3s'; 
+            setTimeout(() => toast.remove(), 300); 
+        }, 3000);
     }
 
     /**

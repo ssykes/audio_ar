@@ -735,10 +735,16 @@ class MapEditorApp extends MapAppShared {
             this.debugLog('📍 Waiting for GPS...');
             this.debugLog('🎯 Auto-copy: 1000 lines, copies 3s after you stop');
 
-            // Wire up copy button
-            const copyBtn = document.getElementById('copyLogsBtn');
+            // Wire up copy button (new icon button)
+            const copyBtn = document.getElementById('debugCopyBtn');
             if (copyBtn) {
                 copyBtn.addEventListener('click', () => this._copyLogs());
+            }
+
+            // Wire up old copy button (for backwards compatibility)
+            const oldCopyBtn = document.getElementById('copyLogsBtn');
+            if (oldCopyBtn) {
+                oldCopyBtn.addEventListener('click', () => this._copyLogs());
             }
 
             // Override console.log to capture audio debug logs
@@ -760,16 +766,17 @@ class MapEditorApp extends MapAppShared {
      * @private
      */
     _copyLogs(isAutoCopy = false) {
-        if (!this.debugConsole) return;
+        if (!this.debugConsoleContent) return;
 
-        const text = this.debugConsole.textContent;
+        const text = this.debugConsoleContent.textContent;
         navigator.clipboard.writeText(text).then(() => {
-            const btn = document.getElementById('copyLogsBtn');
+            const btn = document.getElementById('debugCopyBtn');
             if (btn) {
-                const originalText = btn.textContent;
-                btn.textContent = isAutoCopy ? '✅ Auto-copied!' : '✅ Copied!';
+                // Show tooltip feedback
+                const originalTitle = btn.title;
+                btn.title = '✅ Copied!';
                 setTimeout(() => {
-                    btn.textContent = originalText;
+                    btn.title = originalTitle;
                 }, 2000);
             }
             if (isAutoCopy) {
