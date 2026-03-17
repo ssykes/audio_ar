@@ -1,18 +1,19 @@
 /**
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
- * 
- * @version 6.2 - Use fitBounds() for auto-zoom on soundscapes
- * 
+ *
+ * @version 7.0 - Session 10 UI redesign: Icon bar + bottom status bar
+ *
  * Features:
  * - Auto-sync on page load (timestamp-based)
  * - Read-only UI (no editing)
  * - GPS/Compass tracking
- * - Minimal UI (Start button only)
- * - Debug console with auto-scroll
+ * - Icon bar with floating toolbar
+ * - Bottom status bar (GPS + Heading + Sounds)
+ * - Debug modal with copy to clipboard
  */
 
-console.log('[map_player.js] Loading v6.3...');
+console.log('[map_player.js] Loading v7.0...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -120,14 +121,16 @@ class MapPlayerApp extends MapAppShared {
             logoutBtn.addEventListener('click', () => this._handleLogout());
         }
 
-        // Toggle debug console visibility (Session 11)
-        const debugConsoleHeader = document.getElementById('debugConsoleHeader');
-        if (debugConsoleHeader) {
-            debugConsoleHeader.addEventListener('click', (e) => {
-                // Don't toggle if clicking the copy button
-                if (e.target.id === 'debugCopyBtn') return;
-                this._toggleDebugConsole();
-            });
+        // Toggle debug modal visibility (Session 10)
+        const debugBtn = document.getElementById('debugBtn');
+        if (debugBtn) {
+            debugBtn.addEventListener('click', () => this._toggleDebugModal());
+        }
+
+        // Close debug modal
+        const debugCloseBtn = document.getElementById('debugCloseBtn');
+        if (debugCloseBtn) {
+            debugCloseBtn.addEventListener('click', () => this._closeDebugModal());
         }
 
         // Copy debug log to clipboard (Session 11)
@@ -236,6 +239,8 @@ class MapPlayerApp extends MapAppShared {
             // Render waypoints
             this.waypoints.forEach(wp => this._createMarker(wp));
             this._updateWaypointList();
+            
+            this.debugLog('✅ Created ' + this.waypoints.length + ' waypoint markers on map');
 
             // Center and zoom map to show all waypoints
             if (this.waypoints.length > 0) {
@@ -265,40 +270,41 @@ class MapPlayerApp extends MapAppShared {
      * @private
      */
     _initDebugConsole() {
-        this.debugConsole = document.getElementById('debugConsole');
-        this.debugConsoleContent = document.getElementById('debugConsoleContent');
-        if (this.debugConsole) {
-            this.debugLog('🎧 Map Player v6.1 ready');
+        this.debugModal = document.getElementById('debugModal');
+        this.debugModalContent = document.getElementById('debugModalContent');
+        if (this.debugModalContent) {
+            this.debugLog('🎧 Map Player v7.0 ready');
             this.debugLog('📍 Waiting for GPS...');
 
             // Auto-scroll debug console
             const observer = new MutationObserver(() => {
-                if (this.debugConsoleContent) {
-                    this.debugConsoleContent.scrollTop = this.debugConsoleContent.scrollHeight;
+                if (this.debugModalContent) {
+                    this.debugModalContent.scrollTop = this.debugModalContent.scrollHeight;
                 }
             });
-            observer.observe(this.debugConsoleContent, { childList: true, subtree: true });
+            observer.observe(this.debugModalContent, { childList: true, subtree: true });
         }
     }
 
     /**
-     * Toggle debug console visibility (Session 11)
+     * Toggle debug modal visibility (Session 10)
      * @private
      */
-    _toggleDebugConsole() {
-        if (this.debugConsole) {
-            const isVisible = this.debugConsole.classList.contains('visible');
-            if (isVisible) {
-                this.debugConsole.classList.remove('visible');
-                if (this.debugConsoleContent) {
-                    this.debugConsoleContent.innerText += '\n📋 Debug log hidden';
-                }
-            } else {
-                this.debugConsole.classList.add('visible');
-                if (this.debugConsoleContent) {
-                    this.debugConsoleContent.innerText += '\n📋 Debug log shown';
-                }
-            }
+    _toggleDebugModal() {
+        if (this.debugModal) {
+            this.debugModal.classList.add('visible');
+            this.debugLog('📋 Debug log shown');
+        }
+    }
+
+    /**
+     * Close debug modal (Session 10)
+     * @private
+     */
+    _closeDebugModal() {
+        if (this.debugModal) {
+            this.debugModal.classList.remove('visible');
+            this.debugLog('📋 Debug log hidden');
         }
     }
 
@@ -308,7 +314,7 @@ class MapPlayerApp extends MapAppShared {
      */
     async _copyDebugToClipboard() {
         try {
-            const debugText = this.debugConsoleContent.innerText;
+            const debugText = this.debugModalContent.innerText;
 
             // Use modern Clipboard API
             if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -356,7 +362,7 @@ class MapPlayerApp extends MapAppShared {
 
         const startBtn = document.getElementById('startBtn');
         startBtn.disabled = true;
-        startBtn.textContent = 'Starting...';
+        // Don't change textContent - SVG icon will be updated by _updateStartButton
 
         try {
             console.log('[MapPlayer] 🎮 Starting Player Mode...');
@@ -496,10 +502,11 @@ class MapPlayerApp extends MapAppShared {
 
             this.app.onGPSUpdate = (lat, lon, locked) => {
                 this._updateListenerMarker(lat, lon, locked);
-                // Auto-center map on GPS update (player mode)
-                if (this.autoCenterOnGPS) {
-                    this.map.setView([lat, lon], 17);
-                }
+                // Auto-center map on GPS update (player mode) - only once at startup
+                // Commented out to prevent map from jumping away from waypoints
+                // if (this.autoCenterOnGPS) {
+                //     this.map.setView([lat, lon], 17);
+                // }
             };
 
             this.app.onStateChange = (state) => {
@@ -551,10 +558,18 @@ class MapPlayerApp extends MapAppShared {
             // Refresh waypoint list to show distance placeholders
             this._updateWaypointList();
 
+            // Update button to running state AFTER everything is initialized
+            this._updateStartButton('running');
+            
+            this.debugLog('✅ Audio started - ' + this.waypoints.length + ' waypoints active');
+
         } catch (error) {
             console.error('[MapPlayer] ❌ Start failed:', error);
+            console.error('[MapPlayer] Stack trace:', error.stack);
             this._showToast('❌ ' + error.message, 'error');
             this._updateStartButton('error');
+            // Reset state to allow retry
+            this.state = 'editor';
         }
     }
 
@@ -635,28 +650,44 @@ class MapPlayerApp extends MapAppShared {
 
         startBtn.disabled = false;
 
+        // SVG paths for different states
+        const playPath = '<path d="M8 5v14l11-7z"/>';
+        const stopPath = '<path d="M6 6h12v12H6z"/>';
+
+        // Get SVG icon element
+        const svgIcon = startBtn.querySelector('.icon-svg');
+        if (!svgIcon) {
+            console.error('[MapPlayer] ⚠️ SVG icon not found in start button');
+            return;
+        }
+
         switch (state) {
             case 'starting':
-                startBtn.textContent = 'Starting...';
-                startBtn.className = 'btn btn-primary';
+                startBtn.setAttribute('data-tooltip', 'Starting...');
+                startBtn.classList.remove('active');
+                svgIcon.innerHTML = playPath;  // Keep play icon while starting
                 break;
             case 'running':
-                startBtn.textContent = '⏹ Stop';
-                startBtn.className = 'btn btn-danger';
+                startBtn.setAttribute('data-tooltip', 'Stop Audio');
+                startBtn.classList.add('active');
+                svgIcon.innerHTML = stopPath;
                 this._initStatusBar();
                 break;
             case 'stopped':
-                startBtn.textContent = '▶️ Start';
-                startBtn.className = 'btn btn-primary';
+                startBtn.setAttribute('data-tooltip', 'Start Audio');
+                startBtn.classList.remove('active');
+                svgIcon.innerHTML = playPath;
                 this._resetStatusBar();
                 break;
             case 'error':
-                startBtn.textContent = '▶️ Start Over';
-                startBtn.className = 'btn btn-primary';
+                startBtn.setAttribute('data-tooltip', 'Error - Tap to Retry');
+                startBtn.classList.remove('active');
+                svgIcon.innerHTML = playPath;  // Show play icon on error
                 break;
             default:
-                startBtn.textContent = '▶️ Start';
-                startBtn.className = 'btn btn-primary';
+                startBtn.setAttribute('data-tooltip', 'Start Audio');
+                startBtn.classList.remove('active');
+                svgIcon.innerHTML = playPath;
         }
     }
 
@@ -675,10 +706,12 @@ class MapPlayerApp extends MapAppShared {
     _resetStatusBar() {
         const gpsStatusEl = document.getElementById('gpsStatus');
         const headingStatusEl = document.getElementById('headingStatus');
+        const soundsStatusEl = document.getElementById('soundsStatus');
         const statusBarEl = document.getElementById('statusBar');
 
         if (gpsStatusEl) gpsStatusEl.textContent = '--';
         if (headingStatusEl) headingStatusEl.textContent = '--';
+        if (soundsStatusEl) soundsStatusEl.textContent = '0';
         if (statusBarEl) statusBarEl.classList.remove('gps-locked');
     }
 

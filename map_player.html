@@ -11,106 +11,239 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #fff; height: 100vh; overflow: hidden; }
-        #app { display: flex; height: 100vh; }
-        #sidebar { width: 280px; background: rgba(0,0,0,0.3); padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; }
-        #map { flex: 1; height: 100%; }
-        h1 { font-size: 1.5em; margin-bottom: 5px; color: #00d9ff; }
-        .subtitle { color: #888; font-size: 0.9em; margin-bottom: 20px; }
-        .btn { display: block; width: 100%; padding: 12px; margin: 8px 0; background: #4a4a6a; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; transition: background 0.3s; }
-        .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); }
-        .btn-primary:hover { opacity: 0.9; }
-        .btn-danger { background: #e94560; }
-        .btn-danger:hover { background: #ff6b6b; }
-        #debugConsole {
-            position: relative;
-            flex: 1;
-            min-height: 0;
-            margin-top: 15px;
-            background: #0d0d1a;
-            border: 1px solid #333;
-            border-radius: 8px;
-            overflow: hidden; /* Contains the absolute button */
-            display: none; /* Hidden by default (Session 11) */
-        }
-        #debugConsole.visible {
+        
+        /* Full-screen map */
+        #app { position: relative; width: 100vw; height: 100vh; }
+        #map { width: 100%; height: 100%; }
+        
+        /* Icon Bar - Vertical floating toolbar (Session 10) */
+        .icon-bar {
+            position: fixed;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
             display: flex;
             flex-direction: column;
+            gap: 12px;
+            padding: 12px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
         }
-        #debugConsoleContent {
-            flex: 1;
-            min-height: 0;
-            padding: 10px;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 11px;
-            color: #00ff88;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-        .debug-console-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 15px;
-            margin-bottom: 5px;
+        
+        .icon-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            border: none;
+            background: transparent;
+            color: #a0a0c0;
+            font-size: 1.3em;
             cursor: pointer;
-        }
-        .debug-console-title {
-            font-size: 0.85em;
-            color: #888;
-            font-weight: 600;
-        }
-        .debug-copy-btn {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0, 217, 255, 0.2);
-            color: #00d9ff;
-            border: 1px solid rgba(0, 217, 255, 0.3);
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1em;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
-            z-index: 10;
+            transition: all 0.2s ease;
+            position: relative;
         }
-        .debug-copy-btn:hover {
-            background: rgba(0, 217, 255, 0.3);
-            border-color: #00d9ff;
+        
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            transform: scale(1.05);
         }
-        .debug-copy-btn:active {
+        
+        .icon-btn:active {
             transform: scale(0.95);
         }
-        /* Tooltip for copy button */
-        .debug-copy-btn::after {
-            content: 'Copy to clipboard';
+        
+        .icon-btn.active {
+            background: rgba(102, 126, 234, 0.3);
+            color: #667eea;
+        }
+        
+        /* Tooltip for icon buttons */
+        .icon-btn::after {
+            content: attr(data-tooltip);
             position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%) translateY(-5px);
+            left: 100%;
+            top: 50%;
+            transform: translateY(-50%) translateX(10px);
             background: rgba(0, 0, 0, 0.9);
             color: #fff;
-            padding: 6px 10px;
+            padding: 6px 12px;
             border-radius: 6px;
-            font-size: 0.75em;
+            font-size: 0.85em;
             font-weight: 600;
             white-space: nowrap;
             opacity: 0;
             pointer-events: none;
-            transition: all 0.2s;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s ease;
+            margin-left: 10px;
         }
-        .debug-copy-btn:hover::after {
+        
+        .icon-btn:hover::after {
             opacity: 1;
-            transform: translateX(-50%) translateY(-8px);
+            transform: translateY(-50%) translateX(15px);
         }
+        
+        /* Bottom Status Bar (Session 10) */
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.9em;
+            z-index: 1000;
+        }
+        
+        .status-bar .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-bar .status-label {
+            opacity: 0.7;
+        }
+        
+        .status-bar .status-value {
+            color: #ffffff;
+            font-weight: 500;
+        }
+        
+        .status-bar.gps-locked .status-value {
+            color: #00ff88;
+        }
+        
+        /* Debug Console Modal (Session 10 redesign) */
+        .debug-modal {
+            position: fixed;
+            bottom: -100%;
+            left: 0;
+            right: 0;
+            height: calc(100vh - 200px);
+            max-height: 60vh;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 20px 20px 0 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            transition: bottom 0.3s ease-out;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+        }
+        
+        .debug-modal.visible {
+            bottom: 40px; /* Above status bar */
+        }
+        
+        .debug-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .debug-modal-title {
+            font-size: 1em;
+            color: #fff;
+            font-weight: 600;
+        }
+        
+        .debug-modal-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .debug-modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 1.2em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .debug-modal-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .debug-modal-content {
+            flex: 1;
+            background: #0d0d1a;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.75em;
+            color: #00ff88;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        
+        .debug-copy-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+            font-size: 1em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .debug-copy-btn:hover {
+            background: rgba(0, 217, 255, 0.3);
+        }
+        
+        /* Debug line color coding (Session 10 mockup style) */
+        .debug-line {
+            margin: 4px 0;
+            display: block;
+        }
+        
+        .debug-line.error {
+            color: #ff4757;
+        }
+        
+        .debug-line.warn {
+            color: #ffa502;
+        }
+        
+        .debug-line.info {
+            color: #00ff88;
+        }
+        
         /* Toast notification with type-based colors */
         .toast {
             position: fixed;
-            bottom: 20px;
+            bottom: 60px; /* Above status bar */
             left: 50%;
             transform: translateX(-50%);
             padding: 12px 24px;
@@ -137,76 +270,114 @@
             background: #e94560;
             color: #fff;
         }
-        .version { font-size: 0.7em; color: #666; }
-        .status-bar {
-            padding: 10px;
-            background: rgba(0,0,0,0.3);
-            border-top: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.85em;
-            flex-shrink: 0;
+        
+        /* SVG Icons */
+        .icon-svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
         }
-        .status-bar .status-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 4px 0;
-            color: #aaa;
-        }
-        .status-bar .status-value {
-            color: #00d9ff;
-            font-weight: bold;
-        }
-        .status-bar.gps-locked .status-value {
-            color: #00ff88;
-        }
+        
+        /* Responsive adjustments */
         @media (max-width: 600px) {
-            #sidebar { width: 260px; }
+            .icon-bar {
+                left: 8px;
+                padding: 10px 6px;
+            }
+            .icon-btn {
+                width: 44px;
+                height: 44px;
+            }
+            .status-bar {
+                font-size: 0.8em;
+                padding: 0 12px;
+            }
+        }
+        
+        /* Landscape mode adjustments */
+        @media (max-height: 500px) {
+            .icon-bar {
+                flex-direction: row;
+                top: auto;
+                bottom: 56px; /* Above status bar */
+                left: 50%;
+                transform: translateX(-50%);
+                border-radius: 25px;
+            }
+            .icon-btn::after {
+                bottom: 100%;
+                left: 50%;
+                transform: translateX(-50%) translateY(-8px);
+            }
+            .icon-btn:hover::after {
+                transform: translateX(-50%) translateY(-12px);
+            }
         }
     </style>
 </head>
 <body>
     <div id="app">
-        <div id="sidebar">
-            <h1>🎧 Map Player <span class="version">v6.60</span></h1>
-            <p class="subtitle">Walk and listen</p>
-
-            <!-- User Info (read-only - login via index.html) -->
-            <div id="userPanel" style="margin: 10px 0; display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin: 10px 0;">
-                    <span id="userEmail" style="color: #00ff88; font-size: 0.9em;"></span>
-                    <button id="logoutBtn" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85em;">🚪 Logout</button>
-                </div>
+        <!-- Full-screen map -->
+        <div id="map"></div>
+        
+        <!-- Icon Bar - Vertical floating toolbar (Session 10) -->
+        <div class="icon-bar">
+            <button class="icon-btn" id="logoutBtn" data-tooltip="Logout">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                    <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
+                </svg>
+            </button>
+            <button class="icon-btn" id="backBtn" data-tooltip="Back to Soundscapes">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                </svg>
+            </button>
+            <button class="icon-btn" id="startBtn" data-tooltip="Start Audio">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+            </button>
+            <button class="icon-btn" id="debugBtn" data-tooltip="Show Debug Log">
+                <svg class="icon-svg" viewBox="0 0 24 24">
+                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                </svg>
+            </button>
+        </div>
+        
+        <!-- Bottom Status Bar (Session 10) -->
+        <div class="status-bar" id="statusBar">
+            <div class="status-item">
+                <span class="status-label">GPS:</span>
+                <span class="status-value" id="gpsStatus">--</span>
             </div>
-
-            <!-- Player UI: Start button only -->
-            <button id="backBtn" class="btn" style="background: rgba(255,255,255,0.1);">← Back to Soundscapes</button>
-            <button id="startBtn" class="btn btn-primary">▶️ Start</button>
-
-            <!-- Debug console with copy button -->
-            <div class="debug-console-header" id="debugConsoleHeader">
-                <span class="debug-console-title">📋 Debug Log</span>
+            <div class="status-item">
+                <span class="status-label">Heading:</span>
+                <span class="status-value" id="headingStatus">--</span>
             </div>
-            <div id="debugConsole">
-                <div id="debugConsoleContent">Ready - tap Start to begin...</div>
-                <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋</button>
-            </div>
-
-            <!-- Status bar -->
-            <div class="status-bar" id="statusBar">
-                <div class="status-item">
-                    <span>📍 GPS:</span>
-                    <span class="status-value" id="gpsStatus">--</span>
-                </div>
-                <div class="status-item">
-                    <span>🧭 Heading:</span>
-                    <span class="status-value" id="headingStatus">--</span>
-                </div>
-                <div class="status-item">
-                    <span>🔊 Sounds:</span>
-                    <span class="status-value" id="soundsStatus">0</span>
-                </div>
+            <div class="status-item">
+                <span class="status-label">Sounds:</span>
+                <span class="status-value" id="soundsStatus">0</span>
             </div>
         </div>
-        <div id="map"></div>
+        
+        <!-- Debug Console Modal (Session 10) -->
+        <div class="debug-modal" id="debugModal">
+            <div class="debug-modal-header">
+                <span class="debug-modal-title">📋 Debug Log</span>
+                <div class="debug-modal-actions">
+                    <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋</button>
+                    <button class="debug-modal-close" id="debugCloseBtn">×</button>
+                </div>
+            </div>
+            <div class="debug-modal-content" id="debugModalContent">
+<span class="debug-line info">[player] 🗺️ Map initialized</span>
+<span class="debug-line info">[player] 📍 Waiting for GPS...</span>
+<span class="debug-line info">[player] 🧭 Waiting for compass...</span>
+<span class="debug-line info">[player] 🔊 Audio engine ready</span>
+<span class="debug-line info">[player] 🎵 Loaded 0 waypoints</span>
+<span class="debug-line info">[player] 🎧 Ready to start</span>
+            </div>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -214,12 +385,12 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    <script src="api-client.js?v=20260316161224"></script>
-    <script src="soundscape.js?v=20260316161224"></script>
-    <script src="spatial_audio.js?v=20260316161224"></script>
-    <script src="spatial_audio_app.js?v=20260316161224"></script>
-    <script src="wake_lock_helper.js?v=20260316161224"></script>
-    <script src="map_shared.js?v=20260316161224"></script>
-    <script src="map_player.js?v=20260316161224"></script>
+    <script src="api-client.js?v=20260316165814"></script>
+    <script src="soundscape.js?v=20260316165814"></script>
+    <script src="spatial_audio.js?v=20260316165814"></script>
+    <script src="spatial_audio_app.js?v=20260316165814"></script>
+    <script src="wake_lock_helper.js?v=20260316165814"></script>
+    <script src="map_shared.js?v=20260316165814"></script>
+    <script src="map_player.js?v=20260316165814"></script>
 </body>
 </html>

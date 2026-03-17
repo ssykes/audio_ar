@@ -1320,21 +1320,34 @@ class MapAppShared {
     // =====================================================================
 
     /**
-     * Debug logging
+     * Debug logging with color-coded levels (Session 10 mockup style)
      * @param {string} message
      */
     debugLog(message) {
-        if (!this.debugConsoleContent) return;
+        if (!this.debugModalContent) return;
 
         const timestamp = new Date().toLocaleTimeString();
-        const line = `[${timestamp}] ${message}\n`;
+        
+        // Detect log level from message content
+        let level = 'info';
+        if (message.includes('❌') || message.includes('Error') || message.includes('Failed')) {
+            level = 'error';
+        } else if (message.includes('⚠️') || message.includes('Warning') || message.includes('WARN')) {
+            level = 'warn';
+        }
 
-        this.debugConsoleContent.textContent = line + this.debugConsoleContent.textContent;
+        // Create styled line
+        const line = `<span class="debug-line ${level}">[${timestamp}] ${message}</span>`;
+
+        this.debugModalContent.innerHTML = line + this.debugModalContent.innerHTML;
 
         // Limit lines
-        const lines = this.debugConsoleContent.textContent.split('\n');
-        if (lines.length > this.maxDebugLines) {
-            this.debugConsoleContent.textContent = lines.slice(0, this.maxDebugLines).join('\n');
+        const maxLines = 100;
+        const lines = this.debugModalContent.querySelectorAll('.debug-line');
+        if (lines.length > maxLines) {
+            for (let i = maxLines; i < lines.length; i++) {
+                lines[i].remove();
+            }
         }
     }
 
