@@ -3687,6 +3687,83 @@ See Session 10 implementation for current debug modal code.
 None currently - all Session 10 bugs fixed:
 - ✅ Start button toggles correctly
 - ✅ Waypoints stay visible when audio starts
+
+---
+
+## ✅ Session 11: Edit Waypoint Duplicate Bug Fix - COMPLETED (v6.11)
+
+**Status:** ✅ **COMPLETE** - Fixed duplicate waypoints and circles on edit
+
+**Problem:**
+When editing a waypoint in `map_editor.html`:
+- Old blue circle remained on map, new circle appeared
+- Duplicate waypoint entry appeared in waypoint list
+- Duplicates persisted after browser refresh (saved to server)
+
+**Root Cause:**
+Sequence of modal dialogs (`prompt()`/`confirm()`) during edit:
+1. User clicks "Edit" button in popup
+2. Series of 4 dialogs appear (sound URL, volume, loop, radius)
+3. After last dialog (radius) closes, popup reopens
+4. **Marker click event can still fire** (event bubbling or accidental re-click)
+5. Triggers `_editWaypoint()` **again** while first edit completes
+6. Second call creates duplicate waypoint in `this.waypoints` array
+7. Both duplicates saved to server → persist across refreshes
+
+**Solution:**
+Added `isEditing` guard flag to prevent reentrant calls:
+
+```javascript
+// map_shared.js - Added property
+this.isEditing = false;  // Line 86
+
+// _editWaypoint() - Guard at start
+if (this.isEditing) {
+    this.debugLog('⚠️ Edit already in progress - ignoring duplicate call');
+    return;
+}
+
+this.isEditing = true;
+// ... edit logic ...
+this.isEditing = false;
+```
+
+**Additional Fixes:**
+- Changed `bindPopup()` to `setPopupContent()` - prevents popup binding duplication
+- Added `event.stopPropagation()` to Edit/Delete buttons - prevents click bubbling
+
+**Files Modified:**
+
+| File | Version | Changes |
+|------|---------|---------|
+| `map_shared.js` | v6.11 | Added `isEditing` property + guard flag in `_editWaypoint()` |
+| `map_editor.html` | - | Cache-busting version update |
+
+**Testing:**
+- ✅ Edit waypoint → only one entry in list
+- ✅ Only one blue circle on map
+- ✅ Debug log shows "Edit already in progress" if clicked twice
+- ✅ Refresh page → no duplicates
+
+**Code Quality:**
+- Guard pattern prevents race conditions
+- Early return with clear error message
+- Flag properly reset on all exit paths (cancel/OK)
+
+---
+
+### 📁 Current File Versions (Updated)
+
+| File | Version | Last Updated |
+|------|---------|--------------|
+| `map_player.html` | v7.2 | 2026-03-16 18:30 |
+| `map_player.js` | v7.2 | 2026-03-16 18:30 |
+| `map_editor.html` | v6.59+ | 2026-03-16 |
+| `map_shared.js` | v6.11 | 2026-03-16 |
+| `soundscape.js` | v3.0 | 2026-03-16 |
+| `api-client.js` | - | 2026-03-16 |
+| `index.html` | v6.8 | 2026-03-16 |
+| `soundscape_picker.html` | - | 2026-03-16 |
 - ✅ SVG icons render properly
 - ✅ Debug logs color-coded
 - ✅ Auto-sync works with timestamps

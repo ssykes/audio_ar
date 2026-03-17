@@ -2,7 +2,7 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.9 - Added _checkGPSAndCompass() and _checkCompass() methods
+ * @version 6.11 - Fixed duplicate waypoints: added isEditing guard to prevent reentrant _editWaypoint calls
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -19,7 +19,7 @@
  *   }
  */
 
-console.log('[map_shared.js] Loading v6.8...');
+console.log('[map_shared.js] Loading v6.11...');
 
 /**
  * Mode Presets - Pre-configured behavior bundles
@@ -83,6 +83,7 @@ class MapAppShared {
         this.listenerHeading = 0;
         this.listenerMarker = null;
         this.isDragging = false;
+        this.isEditing = false;  // Prevent reentrant _editWaypoint calls
 
         // Default activation radius (meters)
         this.defaultActivationRadius = 20;
@@ -797,8 +798,8 @@ class MapAppShared {
                         <div>🎵 Sound: ${waypoint.soundUrl.split('/').pop()}</div>
                     </div>
                     <div style="display: flex; gap: 5px;">
-                        <button onclick="app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
-                        <button onclick="app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
+                        <button onclick="event.stopPropagation(); app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
+                        <button onclick="event.stopPropagation(); app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
                     </div>
                 </div>
             `;
@@ -813,16 +814,25 @@ class MapAppShared {
      * @protected
      */
     _editWaypoint(waypointId) {
+        // Prevent reentrant calls (user clicking marker while edit dialog is open)
+        if (this.isEditing) {
+            this.debugLog('⚠️ Edit already in progress - ignoring duplicate call');
+            return;
+        }
+        
         if (this.state !== 'editor') return;
         const waypoint = this.waypoints.find(wp => wp.id === waypointId);
         if (!waypoint) return;
 
+        this.isEditing = true;
+        this.debugLog(`✏️ Editing waypoint ${waypointId} (${waypoint.name})`);
+
         const newSoundUrl = prompt('Sound file URL:', waypoint.soundUrl);
-        if (newSoundUrl === null) return;
+        if (newSoundUrl === null) { this.isEditing = false; return; }
         if (newSoundUrl) waypoint.soundUrl = newSoundUrl;
 
         const newVolume = prompt('Volume (0.0 - 1.0):', waypoint.volume);
-        if (newVolume === null) return;
+        if (newVolume === null) { this.isEditing = false; return; }
         const vol = parseFloat(newVolume);
         if (!isNaN(vol) && vol >= 0 && vol <= 1) waypoint.volume = vol;
 
@@ -830,7 +840,7 @@ class MapAppShared {
         waypoint.loop = newLoop;
 
         const newRadius = prompt('Activation radius (meters):', waypoint.activationRadius);
-        if (newRadius === null) return;
+        if (newRadius === null) { this.isEditing = false; return; }
         const radius = parseInt(newRadius);
         if (!isNaN(radius) && radius > 0) {
             waypoint.activationRadius = radius;
@@ -853,7 +863,7 @@ class MapAppShared {
         const marker = this.markers.get(waypointId);
         if (marker) {
             marker.closePopup();
-            marker.bindPopup(this._createPopupContent(waypoint));
+            marker.setPopupContent(this._createPopupContent(waypoint));
             marker.openPopup();
         }
 
@@ -861,6 +871,9 @@ class MapAppShared {
         this._markSoundscapeDirty();
         this._scheduleAutoSave();  // Debounced save after edit
         this._showToast('✅ Waypoint updated', 'success');
+        
+        this.isEditing = false;
+        this.debugLog('✅ Edit complete');
     }
 
     /**
@@ -869,19 +882,12 @@ class MapAppShared {
      * @protected
      */
     _updateRadiusCircle(waypoint) {
-        this.debugLog(`🔵 _updateRadiusCircle called for ${waypoint.name}`);
-        this.debugLog(`   Position: [${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}]`);
-        this.debugLog(`   Existing circle: ${waypoint.circleMarker ? 'found' : 'NOT FOUND'}`);
-        
         // If circle exists, update its position (more efficient than remove/recreate)
         if (waypoint.circleMarker) {
-            this.debugLog(`   Updating existing circle position...`);
             waypoint.circleMarker.setLatLng([waypoint.lat, waypoint.lon]);
             waypoint.circleMarker.setRadius(waypoint.activationRadius);
-            this.debugLog(`   ✅ Circle position updated`);
         } else {
             // Create new circle
-            this.debugLog(`   Creating new circle...`);
             waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], {
                 radius: waypoint.activationRadius,
                 color: waypoint.color,
@@ -889,7 +895,6 @@ class MapAppShared {
                 fillOpacity: 0.15,
                 weight: 1
             }).addTo(this.map);
-            this.debugLog(`   ✅ Circle created and added to map`);
         }
     }
 
