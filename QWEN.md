@@ -3824,3 +3824,684 @@ localStorage.removeItem('player_active_soundscape_id');
 - ✅ Auto-sync works with timestamps
 - ✅ Waypoints persist on page refresh
 
+---
+
+## Session 13: Lazy Loading for Sound Walks (PLANNED)
+
+### Problem Statement
+
+**Current Behavior:**
+- All sounds in a soundscape are loaded into memory at startup
+- All sounds start playing immediately (even if gain=0 when out of range)
+- For sound walks with 20-50+ waypoints, this causes:
+  - **High memory usage**: 50-250 MB (1-5 MB per audio buffer)
+  - **High CPU usage**: 20-100% (spatial calculations + audio processing per sound)
+  - **Phone crashes**: Mobile devices run out of RAM with 50+ sounds
+
+**Resource Usage Analysis:**
+
+| Resource | Playing (gain=0) | Paused | Stopped + Disposed |
+|----------|------------------|--------|-------------------|
+| **Audio buffer (RAM)** | ✅ Loaded | ✅ Loaded | ✅ Loaded |
+| **BufferSource node** | ✅ Active | ❌ Disposed | ❌ Disposed |
+| **Gain nodes** | ✅ Active | ✅ Connected | ❌ Disconnected |
+| **Panner node** | ✅ Active | ✅ Connected | ❌ Disconnected |
+| **CPU (decoding)** | ✅ Processing | ❌ None | ❌ None |
+| **CPU (spatial calc)** | ✅ Updating | ✅ Updating | ❌ None |
+
+**Key Insight:** Pausing does NOT free significant resources. Audio buffers remain in RAM, and most nodes stay connected.
+
+### Solution: Three-Zone Lazy Loading
+
+**Architecture:**
+
+```
+User walks along route:
+  ┌─────────────────────────────────────────┐
+  │  🎵     🎵     🎵     🎵     🎵         │
+  │        ↑                                │
+  │      User                               │
+  │                                         │
+  │  Active zone (0-50m): Load + play       │
+  │  Preload zone (50-100m): Load async     │
+  │  Unload zone (>100m): Dispose completely│
+  └─────────────────────────────────────────┘
+```
+
+**Zone Specifications:**
+
+| Zone | Distance | Action | Memory | CPU |
+|------|----------|--------|--------|-----|
+| **Active** | 0-50m | Load + play (gain=0 if outside activation radius) | ~5-15 MB | ~2-5% |
+| **Preload** | 50-100m | Start loading in background (don't play) | ~5-10 MB | ~1-2% |
+| **Unload** | >100m | Dispose completely (free BufferSource + nodes) | 0 MB | 0% |
+
+**Resource Comparison:**
+
+| Approach | 20 Sounds | 50 Sounds | 100 Sounds |
+|----------|-----------|-----------|------------|
+| **Current (all playing)** | 100 MB, 40% CPU | 250 MB, 100% CPU | 🔴 Crash |
+| **All paused** | 100 MB, 10% CPU | 250 MB, 25% CPU | 🔴 Crash |
+| **Lazy loading (3-zone)** | 15 MB, 5% CPU | 15 MB, 5% CPU | 15 MB, 5% CPU ✅ |
+
+---
+
+### Implementation Plan (Divided into Sub-Sessions)
+
+| Session | Phase | Task | Files | Est. Lines | Time | Risk |
+|---------|-------|------|-------|------------|------|------|
+| **13A** | 1 | Add sound state tracking (`isLoading`, `isLoaded`, `isDisposed`) | `spatial_audio_app.js` | ~30 | 20 min | ✅ None |
+| **13B** | 2 | Implement zone detection logic | `spatial_audio_app.js` | ~80 | 40 min | ⚠️ Low |
+| **13C** | 3 | Add `_loadAndStartSound()` method | `spatial_audio_app.js` | ~50 | 25 min | ⚠️ Low |
+| **13D** | 4 | Add `_preloadSound()` method | `spatial_audio_app.js` | ~40 | 20 min | ✅ None |
+| **13E** | 5 | Add `_disposeSound()` method | `spatial_audio_app.js` | ~60 | 30 min | ⚠️ Low |
+| **13F** | 6 | Integrate zone system into `_updateSoundPositions()` | `spatial_audio_app.js` | ~50 | 25 min | ⚠️ Medium |
+| **13G** | 7 | Add debug logging + UI indicators | `spatial_audio_app.js`, `map_player.html` | ~70 | 35 min | ✅ None |
+| **13H** | 8 | Test with 20-50 waypoints (memory + CPU profiling) | Browser DevTools | - | 45 min | ✅ None |
+| **Total** | | | **4 files** | **~380 lines** | **~3h 40m** | **Low** |
+
+---
+
+### Session 13A: Add Sound State Tracking
+
+**Goal:** Track loading/loaded/disposed state for each sound
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Update Sound class or add state properties
+
+class Sound {
+    constructor(options = {}) {
+        this.id = options.id || '';
+        this.url = options.url || '';
+        this.lat = options.lat || 0;
+        this.lon = options.lon || 0;
+        this.activationRadius = options.activationRadius || 20;
+        this.volume = options.volume || 0.5;
+        this.loop = options.loop || false;
+        
+        // State tracking (NEW)
+        this.isLoading = false;    // Currently loading from network
+        this.isLoaded = false;     // Buffer loaded and ready
+        this.isDisposed = false;   // Nodes disposed (freed from memory)
+        this.loadPromise = null;   // Promise for async loading
+    }
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const sound = new Sound({ id: 'test', url: 'test.mp3' });
+console.log(sound.isLoading);   // false
+console.log(sound.isLoaded);    // false
+console.log(sound.isDisposed);  // false
+```
+
+**Risk:** ✅ None (additive, doesn't affect existing code)
+
+---
+
+### Session 13B: Implement Zone Detection Logic
+
+**Goal:** Add method to determine which zone a sound is in
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Add to SpatialAudioApp class
+
+/**
+ * Determine which zone a sound is in based on distance
+ * @param {number} distance - Distance to sound in meters
+ * @returns {{zone: string, shouldLoad: boolean, shouldPlay: boolean}}
+ */
+_getSoundZone(distance) {
+    const ACTIVE_RADIUS = 50;    // Load + play within 50m
+    const PRELOAD_RADIUS = 100;  // Preload 50-100m
+    
+    if (distance < ACTIVE_RADIUS) {
+        return { zone: 'active', shouldLoad: true, shouldPlay: true };
+    } else if (distance < PRELOAD_RADIUS) {
+        return { zone: 'preload', shouldLoad: true, shouldPlay: false };
+    } else {
+        return { zone: 'unload', shouldLoad: false, shouldPlay: false };
+    }
+}
+
+/**
+ * Update zone states for all sounds
+ * @returns {{toLoad: Sound[], toPreload: Sound[], toDispose: Sound[]}}
+ */
+_updateSoundZones() {
+    const toLoad = [];
+    const toPreload = [];
+    const toDispose = [];
+    
+    this.sounds.forEach(sound => {
+        const distance = this.getSoundDistance(sound.id);
+        const zone = this._getSoundZone(distance);
+        
+        // Store current zone for debugging
+        sound.currentZone = zone.zone;
+        
+        if (zone.shouldLoad && !sound.isLoaded && !sound.isLoading) {
+            if (zone.zone === 'active') {
+                toLoad.push(sound);
+            } else if (zone.zone === 'preload') {
+                toPreload.push(sound);
+            }
+        }
+        
+        if (zone.shouldDispose && !sound.isDisposed) {
+            toDispose.push(sound);
+        }
+    });
+    
+    return { toLoad, toPreload, toDispose };
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const app = window.audioApp;  // Assuming exposed globally
+const zones = app._updateSoundZones();
+console.log('To load:', zones.toLoad.length);
+console.log('To preload:', zones.toPreload.length);
+console.log('To dispose:', zones.toDispose.length);
+```
+
+**Risk:** ✅ None (new methods, doesn't affect existing code)
+
+---
+
+### Session 13C: Add `_loadAndStartSound()` Method
+
+**Goal:** Load and start a single sound on-demand
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Add method
+
+/**
+ * Load and start a single sound on-demand
+ * @param {Sound} sound - Sound to load
+ * @returns {Promise<void>}
+ */
+async _loadAndStartSound(sound) {
+    if (sound.isLoading || sound.isLoaded) {
+        this.debugLog(`⏳ ${sound.id} already loading/loaded`);
+        return;
+    }
+    
+    sound.isLoading = true;
+    this.debugLog(`📥 Loading ${sound.id} (${sound.url})...`);
+    
+    try {
+        const source = await this.engine.createSampleSource(sound.id, {
+            url: sound.url,
+            lat: sound.lat,
+            lon: sound.lon,
+            loop: sound.loop,
+            gain: sound.volume,
+            activationRadius: sound.activationRadius
+        });
+        
+        if (source) {
+            const started = source.start();
+            if (started) {
+                sound.sourceNode = source;
+                sound.gainNode = source.gain;
+                sound.pannerNode = source.panner;
+                sound.isPlaying = true;
+                sound.isLoaded = true;
+                this.debugLog(`✅ ${sound.id} loaded + started`);
+            } else {
+                this.debugLog(`❌ ${sound.id} failed to start`);
+            }
+        } else {
+            this.debugLog(`❌ ${sound.id} failed to create source`);
+        }
+    } catch (error) {
+        this.debugLog(`❌ ${sound.id} load error: ${error.message}`);
+        console.error(`[SpatialAudioApp] Failed to load ${sound.id}:`, error);
+    } finally {
+        sound.isLoading = false;
+    }
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const app = window.audioApp;
+const sound = app.sounds[0];
+await app._loadAndStartSound(sound);
+console.log('Sound loaded:', sound.isLoaded);
+```
+
+**Risk:** ⚠️ Low (modifies sound loading flow, but well-contained)
+
+---
+
+### Session 13D: Add `_preloadSound()` Method
+
+**Goal:** Preload sound in background without playing
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Add method
+
+/**
+ * Preload sound in background (don't play yet)
+ * @param {Sound} sound - Sound to preload
+ * @returns {Promise<void>}
+ */
+async _preloadSound(sound) {
+    if (sound.isLoading || sound.isLoaded) {
+        return;  // Already loading or loaded
+    }
+    
+    sound.isLoading = true;
+    this.debugLog(`📥 Preloading ${sound.id} (background)...`);
+    
+    try {
+        // Create source and load buffer, but don't start playback
+        const source = await this.engine.createSampleSource(sound.id, {
+            url: sound.url,
+            lat: sound.lat,
+            lon: sound.lon,
+            loop: sound.loop,
+            gain: 0,  // Muted until moved to active zone
+            activationRadius: sound.activationRadius
+        });
+        
+        if (source) {
+            // Don't start - just keep buffer loaded
+            sound.sourceNode = source;
+            sound.gainNode = source.gain;
+            sound.pannerNode = source.panner;
+            sound.isLoaded = true;
+            sound.isPlaying = false;
+            this.debugLog(`✅ ${sound.id} preloaded (muted)`);
+        }
+    } catch (error) {
+        this.debugLog(`⚠️ ${sound.id} preload failed: ${error.message}`);
+    } finally {
+        sound.isLoading = false;
+    }
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const app = window.audioApp;
+const sound = app.sounds[5];  // Pick a distant sound
+await app._preloadSound(sound);
+console.log('Sound preloaded:', sound.isLoaded);
+console.log('Sound playing:', sound.isPlaying);  // Should be false
+```
+
+**Risk:** ✅ None (additive, doesn't affect existing code)
+
+---
+
+### Session 13E: Add `_disposeSound()` Method
+
+**Goal:** Completely dispose of a sound to free memory
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Add method
+
+/**
+ * Completely dispose of a sound to free memory
+ * @param {Sound} sound - Sound to dispose
+ */
+_disposeSound(sound) {
+    if (sound.isDisposed || !sound.isLoaded) {
+        return;  // Already disposed or never loaded
+    }
+    
+    this.debugLog(`🗑️ Disposing ${sound.id}...`);
+    
+    if (sound.sourceNode) {
+        sound.sourceNode.stop();
+        sound.sourceNode.disconnect();
+        sound.sourceNode = null;
+    }
+    
+    if (sound.gainNode) {
+        sound.gainNode.disconnect();
+        sound.gainNode = null;
+    }
+    
+    if (sound.pannerNode) {
+        sound.pannerNode.disconnect();
+        sound.pannerNode = null;
+    }
+    
+    // Keep buffer in memory (can reload quickly if needed)
+    // But dispose all active nodes
+    
+    sound.isPlaying = false;
+    sound.isDisposed = true;
+    sound.isLoaded = false;  // Mark as not loaded (needs reload to play)
+    
+    this.debugLog(`✅ ${sound.id} disposed`);
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const app = window.audioApp;
+const sound = app.sounds[0];
+app._disposeSound(sound);
+console.log('Sound disposed:', sound.isDisposed);
+console.log('Source node:', sound.sourceNode);  // Should be null
+```
+
+**Risk:** ⚠️ Low (modifies sound lifecycle, need to ensure reload works)
+
+---
+
+### Session 13F: Integrate Zone System into Update Loop
+
+**Goal:** Call zone detection in `_updateSoundPositions()`
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Update _updateSoundPositions()
+
+_updateSoundPositions() {
+    if (!this.engine || !this.listener) return;
+
+    // Update engine's listener position
+    this.engine.updateListenerPosition(
+        this.listener.lat,
+        this.listener.lon,
+        this.listener.heading
+    );
+
+    // Update all sound positions
+    this.engine.updateAllGpsSources(
+        this.listener.lat,
+        this.listener.lon,
+        this.listener.heading
+    );
+
+    // NEW: Update sound zones (lazy loading)
+    this._updateSoundZonesAndLoad();
+
+    // Update gain for active sounds
+    this.sounds.forEach(sound => {
+        if (sound.isLoaded && !sound.isDisposed) {
+            const source = this.engine.getSource(sound.id);
+            if (source && source.updateGainByDistance) {
+                source.updateGainByDistance(
+                    this.listener.lat,
+                    this.listener.lon,
+                    sound.volume
+                );
+            }
+        }
+    });
+}
+
+/**
+ * Update zones and trigger load/dispose actions
+ * @private
+ */
+async _updateSoundZonesAndLoad() {
+    // Throttle zone checks to once per second (avoid excessive loading)
+    const now = Date.now();
+    if (!this.lastZoneCheck || (now - this.lastZoneCheck) > 1000) {
+        this.lastZoneCheck = now;
+        
+        const zones = this._updateSoundZones();
+        
+        // Load active zone sounds immediately
+        for (const sound of zones.toLoad) {
+            this._loadAndStartSound(sound);
+        }
+        
+        // Preload preload-zone sounds in background (non-blocking)
+        for (const sound of zones.toPreload) {
+            this._preloadSound(sound);  // Don't await - background task
+        }
+        
+        // Dispose unload-zone sounds
+        for (const sound of zones.toDispose) {
+            this._disposeSound(sound);
+        }
+        
+        // Debug: Log zone distribution
+        if (Math.random() < 0.1) {
+            const active = this.sounds.filter(s => s.currentZone === 'active').length;
+            const preload = this.sounds.filter(s => s.currentZone === 'preload').length;
+            const unload = this.sounds.filter(s => s.currentZone === 'unload').length;
+            this.debugLog(`📊 Zones: ${active} active, ${preload} preload, ${unload} unloaded`);
+        }
+    }
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+// Walk around (or drag simulation avatar)
+// Watch debug log for zone changes
+```
+
+**Risk:** ⚠️ Medium (modifies core update loop - test thoroughly)
+
+---
+
+### Session 13G: Add Debug Logging + UI Indicators
+
+**Goal:** Show which sounds are loaded/active in debug console
+
+**Changes:**
+
+```javascript
+// spatial_audio_app.js - Enhanced debug logging
+
+debugLog(message) {
+    // Existing debug log implementation
+    // Add timestamp + sound ID color coding
+}
+
+// Add visual indicator in map_player.html
+<div id="soundStatus">
+    <span class="sound-indicator active">🟢 Active: 3</span>
+    <span class="sound-indicator preload">🟡 Preload: 5</span>
+    <span class="sound-indicator unload">⚪ Unload: 12</span>
+</div>
+```
+
+**CSS:**
+```css
+#soundStatus {
+    display: flex;
+    gap: 15px;
+    padding: 8px 15px;
+    background: rgba(0,0,0,0.8);
+    font-size: 0.85em;
+}
+
+.sound-indicator::before {
+    margin-right: 5px;
+}
+```
+
+**Testing:**
+1. Open `map_player.html`
+2. Tap Start
+3. Verify sound status bar shows counts
+4. Walk around → verify counts update
+
+**Risk:** ✅ None (UI-only addition)
+
+---
+
+### Session 13H: Test with 20-50 Waypoints
+
+**Test Checklist:**
+
+| Test | Expected Result | Status |
+|------|-----------------|--------|
+| Load soundscape with 20 waypoints | All preload quickly, only nearby play | ⬜ |
+| Load soundscape with 50 waypoints | Memory stays ~15 MB, CPU ~5% | ⬜ |
+| Walk toward distant sound | Sound loads as you approach | ⬜ |
+| Walk away from sound | Sound disposes after 100m | ⬜ |
+| Rapid walking (back/forth) | No audio glitches, smooth transitions | ⬜ |
+| Phone with limited RAM (1GB) | No crashes, stable performance | ⬜ |
+| Debug log shows zone changes | Correct zone transitions logged | ⬜ |
+
+**Performance Profiling:**
+
+```javascript
+// Open Chrome DevTools → Performance tab
+// Record while walking through soundscape
+// Check:
+// - Memory usage (should stay flat ~15 MB)
+// - CPU usage (should stay ~5%)
+// - No garbage collection spikes
+```
+
+**Risk:** ✅ None (testing only)
+
+---
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **Constant memory usage** | ~15 MB regardless of total soundscape size |
+| **Constant CPU usage** | ~5% for 3-5 active sounds |
+| **Scalable** | Works with 20 or 200 waypoints |
+| **Smooth playback** | No gaps as you walk (preload zone handles this) |
+| **Phone-friendly** | Won't crash mobile devices with limited RAM |
+| **Debug-friendly** | Zone logging shows what's loading/unloading |
+
+---
+
+### Dependencies
+
+| Dependency | Status |
+|------------|--------|
+| Session 10: Icon bar UI | ✅ Complete |
+| Session 11: Debug log copy | ✅ Complete (integrated in S10) |
+| Session 12: Refresh bug fix | ✅ Complete |
+| `spatial_audio.js`: SampleSource class | ✅ Existing |
+| `spatial_audio_app.js`: SpatialAudioApp class | ✅ Existing |
+
+**No blocking dependencies** - can implement anytime
+
+---
+
+### Rollback Plan
+
+If issues arise:
+
+1. **Disable lazy loading** - Comment out `_updateSoundZonesAndLoad()` call
+2. **Revert `spatial_audio_app.js`** - Restore from backup
+3. **Fallback** - Use current behavior (all sounds load at startup)
+
+**Mitigation:** Test with small soundscape (5 sounds) first, then scale up
+
+---
+
+### Future Enhancements (Post-Session 13)
+
+| Enhancement | Description | Effort |
+|-------------|-------------|--------|
+| **Configurable zone radii** | UI sliders for active/preload/unload distances | ~30 lines |
+| **Sound priority** | Keep important sounds loaded longer | ~50 lines |
+| **Progressive loading** | Load low-quality first, then high-quality | ~100 lines |
+| **Offline caching** | Cache loaded sounds in IndexedDB | ~150 lines |
+| **Smart prefetch** | Predict walking direction, preload ahead | ~80 lines |
+
+---
+
+### Success Criteria
+
+| Criterion | How to Verify |
+|-----------|---------------|
+| Memory stays ~15 MB | Chrome DevTools Memory tab |
+| CPU stays ~5% | Chrome DevTools Performance tab |
+| No audio glitches | Walk through soundscape, listen for gaps |
+| Sounds load as you approach | Debug log shows loading at ~50m |
+| Sounds dispose as you leave | Debug log shows disposing at >100m |
+| Phone doesn't crash | Test on mobile with 50+ waypoints |
+| Debug log shows zone counts | "📊 Zones: X active, Y preload, Z unloaded" |
+
+---
+
+**Total Effort:** ~380 lines across 8 sub-sessions (~3h 40m)
+
+---
+
+## Current Project Status (2026-03-16)
+
+### ✅ Completed Sessions
+
+| Session | Feature | Status | Files |
+|---------|---------|--------|-------|
+| **1-3** | SoundScape persistence + phone mode | ✅ Complete | `soundscape.js`, `map_placer.js` |
+| **4** | Hit list cleanup | ✅ Complete | Multiple |
+| **5A-5D** | Multi-soundscape support | ✅ Complete | `map_player.js`, `map_editor.js` |
+| **5E** | Auto-sync with timestamps | ✅ Complete | `api-client.js`, `map_player.js` |
+| **6** | Separate editor/player pages | ✅ Complete | `map_editor.html`, `map_player.html` |
+| **7** | Data Mapper pattern (repositories) | ✅ Complete | `api/repositories/`, `api/models/` |
+| **8** | Device-aware auto-routing | ✅ Complete | `index.html` |
+| **9** | Soundscape selector page | ✅ Complete | `soundscape_picker.html` |
+| **10** | Icon bar UI redesign | ✅ Complete | `map_player.html` v7.2, `map_player.js` v7.2 |
+| **11** | Debug log copy (integrated in S10) | ✅ Complete | `map_shared.js` |
+| **12** | Edit waypoint duplicate fix + refresh persistence | ✅ Complete | `map_shared.js`, `map_player.js` |
+
+### 📋 Planned Sessions
+
+| Session | Feature | Priority | Status |
+|---------|---------|----------|--------|
+| **13** | Lazy loading for sound walks | High | 📋 Planned |
+| **14** | Behavior editing UI | Medium | 📋 Planned |
+| **15** | Multi-user collaboration | Low | 📋 Planned |
+| **16** | Offline-first architecture | Low | 📋 Planned |
+
+### 📁 Current File Versions
+
+| File | Version | Last Updated |
+|------|---------|--------------|
+| `map_player.html` | v7.2 | 2026-03-16 19:00 |
+| `map_player.js` | v7.2+ | 2026-03-16 19:00 |
+| `map_editor.html` | v6.59+ | 2026-03-16 |
+| `map_shared.js` | v6.11 | 2026-03-16 |
+| `soundscape.js` | v3.0 | 2026-03-16 |
+| `api-client.js` | - | 2026-03-16 |
+| `index.html` | v6.8 | 2026-03-16 |
+| `soundscape_picker.html` | - | 2026-03-16 |
+| `spatial_audio.js` | v5.1 | - |
+| `spatial_audio_app.js` | - | - |
+
+### 🎯 Next Priority Items
+
+1. **Session 13: Lazy loading** - Critical for sound walks with many waypoints
+2. **Test on mobile devices** - Verify GPS/compass work on phones
+3. **Update map_editor.html** - Apply Session 10 UI redesign to editor
+4. **Behavior editing UI** - Visual timeline for behavior configuration
+
+### 🐛 Known Issues
+
+None currently - all Session 12 bugs fixed:
+- ✅ Edit waypoint duplicate bug fixed
+- ✅ Waypoints persist on page refresh
+
