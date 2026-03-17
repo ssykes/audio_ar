@@ -728,7 +728,7 @@ class MapAppShared {
     _createMarker(waypoint) {
         const icon = L.divIcon({
             className: 'waypoint-marker',
-            html: '<div style="font-size: 24px; cursor: grab;">' + waypoint.icon + '</div>',
+            html: '<div style="font-size: 24px; cursor: grab; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">' + waypoint.icon + '</div>',
             iconSize: [32, 32],
             iconAnchor: [16, 16]
         });
