@@ -47,6 +47,15 @@ class MapPlayerApp extends MapAppShared {
             this.debugLog(`📱 Using selected soundscape: ${selectedId}`);
             this.activeSoundscapeId = selectedId;
             localStorage.removeItem('selected_soundscape_id');  // Clear after use
+            // Persist active soundscape for page refresh (Bug fix: waypoints disappear on refresh)
+            localStorage.setItem('player_active_soundscape_id', selectedId);
+        } else {
+            // Restore active soundscape from previous session (Bug fix: waypoints disappear on refresh)
+            const persistedId = localStorage.getItem('player_active_soundscape_id');
+            if (persistedId) {
+                this.debugLog(`📱 Restoring active soundscape from previous session: ${persistedId}`);
+                this.activeSoundscapeId = persistedId;
+            }
         }
 
         // Load soundscape
@@ -160,6 +169,9 @@ class MapPlayerApp extends MapAppShared {
         this.markers.forEach(marker => marker.remove());
         this.markers.clear();
         this._updateWaypointList();
+
+        // Clear persisted active soundscape ID (Bug fix: prevent stale data on next login)
+        localStorage.removeItem('player_active_soundscape_id');
 
         this._showToast('🚪 Logged out successfully', 'info');
         this.debugLog('🚪 Logged out');

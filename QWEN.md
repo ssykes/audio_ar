@@ -3752,19 +3752,75 @@ this.isEditing = false;
 
 ---
 
+## ✅ Session 12: Map Player Refresh Bug Fix - COMPLETED (v7.2+)
+
+**Status:** ✅ **COMPLETE** - Waypoints now persist on page refresh
+
+**Problem:**
+When refreshing `map_player.html`, all waypoints disappeared and debug log showed "No server soundscape selected". User had to go back to soundscape picker to restore waypoints.
+
+**Root Cause:**
+1. `selected_soundscape_id` is a one-time token (cleared after use)
+2. `activeSoundscapeId` was not persisted across page refreshes
+3. On refresh: `activeSoundscapeId` = null → `_loadSoundscapeFromServer()` returned early → no waypoints loaded
+
+**Solution:**
+Persist `activeSoundscapeId` in localStorage for page refresh restoration
+
+**Files Modified:**
+
+| File | Changes |
+|------|---------|
+| `map_player.js` | Save/restore `player_active_soundscape_id` in localStorage |
+| `map_player.html` | Cache-busting version update (v=20260316190000) |
+
+**Code Changes:**
+
+```javascript
+// On page load - restore from localStorage
+const persistedId = localStorage.getItem('player_active_soundscape_id');
+if (persistedId) {
+    this.debugLog(`📱 Restoring active soundscape from previous session: ${persistedId}`);
+    this.activeSoundscapeId = persistedId;
+}
+
+// On logout - clear persisted ID
+localStorage.removeItem('player_active_soundscape_id');
+```
+
+**User Flow (After Fix):**
+
+| Action | Behavior |
+|--------|----------|
+| Select soundscape from picker | → Loads in player + persisted to localStorage |
+| Refresh page | → Restores same soundscape from localStorage ✅ |
+| Go back to picker + select different | → Loads new soundscape + updates localStorage |
+| Logout | → Clears persisted ID (prevents stale data) |
+
+**Testing:**
+- ✅ Select soundscape → refresh → waypoints persist
+- ✅ Debug log shows "Restoring active soundscape from previous session"
+- ✅ Back to picker → select different → loads correctly
+- ✅ Logout → login → starts fresh (no stale soundscape)
+
+---
+
 ### 📁 Current File Versions (Updated)
 
 | File | Version | Last Updated |
 |------|---------|--------------|
-| `map_player.html` | v7.2 | 2026-03-16 18:30 |
-| `map_player.js` | v7.2 | 2026-03-16 18:30 |
+| `map_player.html` | v7.2 | 2026-03-16 19:00 |
+| `map_player.js` | v7.2+ | 2026-03-16 19:00 |
 | `map_editor.html` | v6.59+ | 2026-03-16 |
 | `map_shared.js` | v6.11 | 2026-03-16 |
 | `soundscape.js` | v3.0 | 2026-03-16 |
 | `api-client.js` | - | 2026-03-16 |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-16 |
+
+**Status:**
 - ✅ SVG icons render properly
 - ✅ Debug logs color-coded
 - ✅ Auto-sync works with timestamps
+- ✅ Waypoints persist on page refresh
 
