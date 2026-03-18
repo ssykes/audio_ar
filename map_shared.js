@@ -1058,6 +1058,12 @@ class MapAppShared {
             return;
         }
 
+        // Prevent quick-clicking before audio is ready
+        if (this.isInitializing) {
+            this._showToast('⏳ Please wait - audio is initializing...', 'info');
+            return;
+        }
+
         console.log('[MapShared] 🎮 Starting Simulation Mode...');
 
         this.simulationMode = true;

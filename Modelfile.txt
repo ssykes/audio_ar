@@ -1,0 +1,3 @@
+FROM deepseek-coder-v2:latest
+PARAMETER num_gpu 40
+PARAMETER num_thread 8
