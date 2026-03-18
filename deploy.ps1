@@ -101,17 +101,17 @@ $HTML_FILES = @(
     "soundscape_picker.html"
 )
 
-# Patterns to match existing versioned script tags
-$JS_VERSION_PATTERN = "spatial_audio\.js\?v=[\d]+"
-$DEBUG_LOGGER_PATTERN = "debug_logger\.js\?v=[\d]+"
-$APP_VERSION_PATTERN = "spatial_audio_app\.js\?v=[\d]+"
-$WAKE_LOCK_PATTERN = "wake_lock_helper\.js\?v=[\d]+"
-$MAP_PLACER_PATTERN = "map_placer\.js\?v=[\d]+"
-$MAP_SHARED_PATTERN = "map_shared\.js\?v=[\d]+"
-$MAP_EDITOR_PATTERN = "map_editor\.js\?v=[\d]+"
-$MAP_PLAYER_PATTERN = "map_player\.js\?v=[\d]+"
-$SOUNDSCAPE_PATTERN = "soundscape\.js\?v=[\d]+"
-$API_CLIENT_PATTERN = "api-client\.js\?v=[\d]+"
+# Patterns to match existing versioned script tags (using proper regex)
+$JS_VERSION_PATTERN = 'spatial_audio\.js\?v=\d+'
+$DEBUG_LOGGER_PATTERN = 'debug_logger\.js\?v=\d+'
+$APP_VERSION_PATTERN = 'spatial_audio_app\.js\?v=\d+'
+$WAKE_LOCK_PATTERN = 'wake_lock_helper\.js\?v=\d+'
+$MAP_PLACER_PATTERN = 'map_placer\.js\?v=\d+'
+$MAP_SHARED_PATTERN = 'map_shared\.js\?v=\d+'
+$MAP_EDITOR_PATTERN = 'map_editor\.js\?v=\d+'
+$MAP_PLAYER_PATTERN = 'map_player\.js\?v=\d+'
+$SOUNDSCAPE_PATTERN = 'soundscape\.js\?v=\d+'
+$API_CLIENT_PATTERN = 'api-client\.js\?v=\d+'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -192,6 +192,46 @@ foreach ($htmlFile in $HTML_FILES) {
 
 Write-Host ""
 
+# CRITICAL: Create temporary copies of HTML files with cache-busting versions for deployment
+# (Git pre-commit hook strips versions from working directory, but server needs them)
+Write-Host "Creating deployment copies with cache-busting versions..." -ForegroundColor Yellow
+
+$HTML_FILES_WITH_VERSIONS = @(
+    "map_player.html",
+    "map_editor.html",
+    "map_placer.html",
+    "index.html",
+    "single_sound_v2.html",
+    "soundscape_picker.html",
+    "auto_rotate.html"
+)
+
+foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
+    $filePath = Join-Path $LOCAL_PATH $htmlFile
+    $tempPath = Join-Path $LOCAL_PATH "${htmlFile}.deploy"
+    
+    if (Test-Path $filePath) {
+        $content = Get-Content $filePath -Raw
+        
+        # Add cache-busting version to all script/link tags
+        $content = $content -replace '(spatial_audio\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(spatial_audio_app\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(api-client\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(soundscape\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_shared\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_player\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_editor\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_placer\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(debug_logger\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""
+        
+        Set-Content $tempPath $content -NoNewline
+        Write-Host "  Created: ${htmlFile}.deploy (v=$VERSION)" -ForegroundColor Green
+    }
+}
+
+Write-Host ""
+
 # Files to deploy (core files without version - HTML files get updated inline)
 $ALL_FILES = @(
     ".htaccess",
@@ -234,24 +274,42 @@ $failedCount = 0
 foreach ($file in $ALL_FILES) {
     $localFile = Join-Path $LOCAL_PATH $file
     $remotePath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/${file}"
-    
-    if (Test-Path $localFile) {
+
+    # Check if deployment version exists (for HTML files)
+    $deployVersion = Join-Path $LOCAL_PATH "${file}.deploy"
+    if (Test-Path $deployVersion) {
+        # Use deployment version with cache-busting
+        $localFile = $deployVersion
+        Write-Host "   Uploading: $file (with cache-busting)" -NoNewline
+    } elseif (Test-Path $localFile) {
         Write-Host "   Uploading: $file" -NoNewline
-        
-        # Upload with scp
-        & scp $localFile $remotePath 2>$null
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host " [OK]" -ForegroundColor Green
-            $uploadedCount++
-        } else {
-            Write-Host " [FAILED]" -ForegroundColor Red
-            $failedCount++
-        }
     } else {
-        Write-Host " [NOT FOUND]" -ForegroundColor Yellow
+        Write-Host "   Skipping: $file (not found)" -ForegroundColor Yellow
+        continue
+    }
+
+    # Upload with scp
+    & scp $localFile $remotePath 2>$null
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " [OK]" -ForegroundColor Green
+        $uploadedCount++
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        $failedCount++
     }
 }
+
+# Cleanup deployment files
+Write-Host ""
+Write-Host "Cleaning up deployment files..." -ForegroundColor Yellow
+foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
+    $deployPath = Join-Path $LOCAL_PATH "${htmlFile}.deploy"
+    if (Test-Path $deployPath) {
+        Remove-Item $deployPath -Force
+    }
+}
+Write-Host "  Cleanup complete" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "========================================"
