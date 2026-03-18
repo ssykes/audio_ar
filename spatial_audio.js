@@ -333,8 +333,13 @@ class GpsSoundSource extends OscillatorSource {
         const gainDistance = Math.max(dist, 2);
 
         if (this.gain) {
-            if (gainDistance < this.activationRadius) {
-                // Inside activation radius: panner handles smooth falloff via inverse square law
+            // === HYBRID FADE ZONE (20m transition) ===
+            // Works with any activation radius
+            const fadeZone = 20; // meters
+            const fadeStart = Math.max(0, this.activationRadius - fadeZone);
+
+            if (gainDistance < fadeStart) {
+                // Full volume zone (inside activation radius, away from edge)
                 // Boost gain when very close (< 2m) for maximum volume at closest approach
                 const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
                 this.gain.gain.value = targetGain * distanceBoost;
@@ -347,35 +352,31 @@ class GpsSoundSource extends OscillatorSource {
                 if (Math.random() < 0.05) {
                     console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
                 }
+            } else if (dist < this.activationRadius) {
+                // Inside activation radius but in fade zone (near edge): 100% → ~30%
+                const fadeProgress = (dist - fadeStart) / fadeZone; // 0.0 to 1.0
+
+                // Hybrid curve: 70% exponential + 30% quadratic
+                const exponentialFade = Math.pow(0.1, fadeProgress);  // -20dB curve
+                const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);  // Gentle quadratic
+                const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
+
+                const currentGain = targetGain * hybridFade;
+                this.gain.gain.value = currentGain;
+
+                // Apply distance-based reverb wet mix
+                this._updateReverbWetMix(dist);
+
+                // Debug: Log fade zone transitions
+                if (Math.random() < 0.1) {
+                    console.log(`[Audio] ${dist.toFixed(1)}m, fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)} (hybrid fade zone)`);
+                }
             } else {
-                // Outside activation radius: HYBRID fade over 20m zone
-                // 70% exponential (matches human hearing) + 30% quadratic (smooth lingering)
-                // Works with any activation radius (fixed 20m fade distance)
-                const fadeZone = 20; // meters
-                const fadeStart = Math.max(0, this.activationRadius - fadeZone);
+                // Outside activation radius: continue fade to silence over 20m
                 const distPastEdge = dist - this.activationRadius;
 
-                if (dist < this.activationRadius) {
-                    // Inside activation radius but in fade zone (near edge)
-                    const fadeProgress = (dist - fadeStart) / fadeZone; // 0.0 to 1.0
-
-                    // Hybrid curve: 70% exponential + 30% quadratic
-                    const exponentialFade = Math.pow(0.1, fadeProgress);  // -20dB curve
-                    const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);  // Gentle quadratic
-                    const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
-
-                    const currentGain = targetGain * hybridFade;
-                    this.gain.gain.value = currentGain;
-
-                    // Apply distance-based reverb wet mix
-                    this._updateReverbWetMix(dist);
-
-                    // Debug: Log fade zone transitions
-                    if (Math.random() < 0.1) {
-                        console.log(`[Audio] ${dist.toFixed(1)}m, fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)} (hybrid fade zone)`);
-                    }
-                } else if (distPastEdge < fadeZone) {
-                    // Just outside activation radius: continue fade to silence
+                if (distPastEdge < fadeZone) {
+                    // Just outside activation radius: ~30% → 0%
                     const fadeProgress = distPastEdge / fadeZone; // 0.0 to 1.0
 
                     // Continue hybrid curve to silence
