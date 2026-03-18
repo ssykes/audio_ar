@@ -697,7 +697,7 @@ class SpatialAudioApp {
         );
 
         // Update gain/volume based on distance (fade in/out as you approach)
-        // Also auto-stop/restart sounds to prevent browser suspension
+        // Fade zone handles smooth transitions (no abrupt stops)
         this.sounds.forEach(sound => {
             const source = this.engine.getSource(sound.id);
             if (source && source.updateGainByDistance) {
@@ -708,40 +708,16 @@ class SpatialAudioApp {
                     sound.lon
                 );
 
-                // Stop sounds immediately when outside activation radius (no fade zone)
-                const outsideRadius = distance > sound.activationRadius;
-
-                // Auto-stop sounds outside activation radius to prevent browser suspension
-                if (outsideRadius && sound.isPlaying) {
-                    console.log(`[AudioApp] 🛑 Stopping ${sound.id} - ${distance.toFixed(1)}m (outside activation radius)`);
-                    if (source.stop) {
-                        source.stop();
-                    }
-                    sound.isPlaying = false;
-                } else if (!outsideRadius && !sound.isPlaying && source.start) {
-                    // Auto-restart sounds when listener comes back inside radius
-                    console.log(`[AudioApp] ▶️ Restarting ${sound.id} - ${distance.toFixed(1)}m (inside activation radius)`);
-                    source.start();
-                    sound.isPlaying = true;
-                    // Update gain immediately after restart (start() resets gain)
-                    source.updateGainByDistance(
-                        this.listener.lat,
-                        this.listener.lon,
-                        sound.volume
-                    );
-                    return;  // Skip the second updateGainByDistance call below
-                }
-                
-                // Update gain based on distance
+                // Update gain based on distance (fade zone handles smooth transitions)
                 source.updateGainByDistance(
                     this.listener.lat,
                     this.listener.lon,
                     sound.volume  // Max volume at close range
                 );
-                
-                // Debug: Log gain after update
-                if (source.gain) {
-                    console.log(`[AudioApp] ${sound.id} gain set to: ${source.gain.gain.value.toFixed(3)} (distance: ${distance.toFixed(1)}m)`);
+
+                // Debug: Log gain after update (throttled)
+                if (source.gain && Math.random() < 0.05) {
+                    console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m`);
                 }
             }
         });
