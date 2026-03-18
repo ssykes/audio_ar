@@ -521,6 +521,10 @@ class MapPlayerApp extends MapAppShared {
                 // }
             };
 
+            this.app.onDebugLog = (message) => {
+                this.debugLog(`[Drift] ${message}`);
+            };
+
             this.app.onStateChange = (state) => {
                 console.log('[MapPlayer] 📊 State changed to:', state);
                 this._updateStartButton(state);

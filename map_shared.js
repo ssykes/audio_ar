@@ -1200,6 +1200,10 @@ class MapAppShared {
             this._updateSimDisplay();
         };
 
+        this.app.onDebugLog = (message) => {
+            this.debugLog(`[Drift] ${message}`);
+        };
+
         this.app.onStateChange = (state) => {
             console.log('[MapShared] 📊 Sim audio state:', state);
             if (state === 'running') {

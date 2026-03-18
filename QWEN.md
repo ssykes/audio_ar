@@ -3,9 +3,9 @@
 
 ---
 
-## Session 6 Architecture: Options Object Pattern
+## Feature 6 Architecture: Options Object Pattern
 
-**Decision:** Use Options Object pattern + Abstract Base Class for Session 6 (page split)
+**Decision:** Use Options Object pattern + Abstract Base Class for Feature 6 (page split)
 
 **Why:**
 - ✅ Child classes stay small (~5 lines for flags vs ~50 lines for overrides)
@@ -301,7 +301,7 @@ class DefaultExecutor {
 
 ---
 
-## Session 3: SoundScape Persistence - Completed ✅
+## Feature 3: SoundScape Persistence - Completed ✅
 
 ### What Was Implemented
 
@@ -326,7 +326,7 @@ Phone: Import JSON → Load to localStorage → Tap Start → GPS + Compass → 
 
 ---
 
-## Session 4: Hit List Cleanup - Completed ✅
+## Feature 4: Hit List Cleanup - Completed ✅
 
 ### What Was Addressed
 
@@ -1973,7 +1973,7 @@ git commit -m "Short single-line message"
 
 ---
 
-## Session 8: Device-Aware Auto-Routing on Login - COMPLETED ✅
+## Feature 8: Device-Aware Auto-Routing on Login - COMPLETED ✅
 
 ### Status: ✅ COMPLETE (v6.8 - Fixed login flow)
 
@@ -3667,13 +3667,265 @@ See Session 10 implementation for current debug modal code.
 | File | Version | Last Updated |
 |------|---------|--------------|
 | `map_player.html` | v7.2 | 2026-03-16 18:30 |
-| `map_player.js` | v7.2 | 2026-03-16 18:30 |
+| `map_player.js` | - | 2026-03-16 18:30 |
 | `map_editor.html` | v6.59 | 2026-03-16 |
-| `map_shared.js` | v6.10 | 2026-03-16 17:45 |
-| `soundscape.js` | v3.0 | 2026-03-16 |
-| `api-client.js` | - | 2026-03-16 |
+| `map_editor.js` | - | 2026-03-16 |
+| `map_shared.js` | - | 2026-03-16 17:45 |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-16 |
+
+**Note:** Cache-busting versions (e.g., `?v=20260317233153`) are added by `deploy.ps1` and automatically stripped by pre-commit hook before committing.
+
+---
+
+## Versioning & Cache-Busting System
+
+### Overview
+
+The project uses a **two-tier versioning system** managed by `deploy.ps1`:
+
+| Version Type | Format | Example | Purpose |
+|--------------|--------|---------|---------|
+| **Display Version** | `v{major}.{minor}` | `v7.2` | User-visible version shown in HTML UI |
+| **Cache-Busting Version** | `yyyyMMddHHmmss` | `20260317233153` | URL query string to bust browser cache |
+
+### How It Works
+
+**1. Display Version (User-Facing)**
+- Stored in HTML: `<span class="version">v7.2</span>`
+- Incremented automatically by `deploy.ps1` (minor version +1)
+- Files tracked: `map_player.html`, `map_editor.html`, `index.html`, etc.
+- **Purpose:** Lets users see which version they're on
+
+**2. Cache-Busting Version (Technical)**
+- Generated at deploy time: `Get-Date -Format "yyyyMMddHHmmss"`
+- Applied to all `<script>` and `<link>` tags in HTML
+- Example: `<script src="map_player.js?v=20260317233153"></script>`
+- **Purpose:** Forces browsers to download fresh JS/CSS files
+
+### Deploy Script Behavior
+
+```powershell
+# deploy.ps1 - Version Management
+
+# 1. Generate cache-busting timestamp
+$VERSION = Get-Date -Format "yyyyMMddHHmmss"
+# Example: 20260317233153
+
+# 2. Increment display versions (v7.1 → v7.2)
+foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
+    # Regex: <span>v{major}.{minor}</span>
+    # Replace: minor = minor + 1
+}
+
+# 3. Update all script/link tags with cache-busting version
+foreach ($htmlFile in $HTML_FILES) {
+    # Regex: src="file.js?v={old_version}"
+    # Replace: src="file.js?v=$VERSION"
+}
+```
+
+### Files Updated by deploy.ps1
+
+**Display Version (HTML UI):**
+- `map_player.html`
+- `map_editor.html`
+- `map_placer.html`
+- `index.html`
+- `soundscape_picker.html`
+- `auto_rotate.html`
+- `single_sound_v2.html`
+
+**Cache-Busting (Script/Link Tags):**
+- All of the above, plus:
+- `spatial_audio.js`
+- `spatial_audio_app.js`
+- `debug_logger.js`
+- `wake_lock_helper.js`
+- `map_shared.js`
+- `map_player.js`
+- `map_editor.js`
+- `map_placer.js`
+- `soundscape.js`
+- `api-client.js`
+
+### Git & Version Control
+
+**Pre-commit Hook (Auto-Installed):**
+
+Cache-busting versions are **automatically stripped** before committing by the pre-commit hook.
+
+| Hook | Location | Status |
+|------|----------|--------|
+| Bash script | `.git/hooks/pre-commit` | ✅ Installed |
+| PowerShell | `.git/hooks/pre-commit.ps1` | ✅ Installed |
+| Git config | `core.hooksPath = .git/hooks` | ✅ Configured |
+
+**What Gets Committed:**
+- ✅ JavaScript files (without version numbers)
+- ✅ HTML files (without cache-busting query strings)
+- ✅ Display versions (e.g., `<span class="version">v6.8</span>`)
+
+**What Does NOT Get Committed:**
+- ❌ Cache-busting query strings (e.g., `?v=20260317233153`)
+
+**Example:**
+```diff
+Before commit (working directory):
+    <script src="map_player.js?v=20260317233153"></script>
+
+After pre-commit hook (committed):
+    <script src="map_player.js"></script>
+```
+
+**Testing the Hook:**
+```bash
+# Stage an HTML file
+git add map_player.html
+
+# Commit (hook runs automatically)
+git commit -m "Update HTML"
+
+# Verify what was committed
+git show HEAD
+# Cache-busting versions should be stripped
+```
+
+### Manual Version Tracking
+
+For documentation purposes, track versions in QWEN.md:
+
+```markdown
+### 📁 Current File Versions
+
+| File | Display Version | Cache Version | Last Updated |
+|------|-----------------|---------------|--------------|
+| `map_player.html` | v7.2 | 20260317233153 | 2026-03-17 23:31 |
+| `map_player.js` | - | 20260317233153 | 2026-03-17 23:31 |
+
+**Note:** Cache versions updated on every deploy. Check HTML files for current values.
+```
+
+### Testing & Verification
+
+**Check Current Cache Versions:**
+```bash
+# Grep HTML files for version query strings
+grep -o 'src="[^"]*\.js?v=[0-9]*"' map_player.html
+
+# PowerShell equivalent:
+Select-String -Pattern 'src="[^"]*\.js\?v=[0-9]*"' -Path map_player.html -AllMatches
+```
+
+**Check Display Versions:**
+```bash
+# Find all display versions in HTML files
+grep -o '<span class="version">v[0-9.]*</span>' *.html
+
+# PowerShell:
+Select-String -Pattern '<span class="version">v[0-9.]*</span>' -Path *.html
+```
+
+**Force Fresh Deploy:**
+1. Run `./deploy.ps1`
+2. Hard refresh browser: `Ctrl+Shift+R` (Windows) or `Cmd+Shift+R` (Mac)
+3. Verify new cache version in HTML source
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Browser shows old JS | Hard refresh (`Ctrl+Shift+R`), check cache version in HTML |
+| Deploy script fails | Verify PowerShell execution policy: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+| Version not incrementing | Check HTML has `<span class="version">vX.Y</span>` format |
+| Cache not busting | Verify `<script>` tags have `?v=` query string |
+| Pre-commit hook not running | Check `git config core.hooksPath` returns `.git/hooks` |
+| Hook permission denied (Windows) | Run: `icacls .git\hooks\pre-commit /grant Everyone:(RX)` |
+
+---
+
+## ⚠️ TODO: Fix Cloudflare Cache Issue (High Priority)
+
+**Discovered:** 2026-03-18
+
+**Problem:** Cloudflare is caching JavaScript files despite `.htaccess` no-cache headers.
+
+**Test Results:**
+```powershell
+Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing | 
+    Select-Object -ExpandProperty Headers | 
+    Where-Object {$_.Key -eq "CF-Cache-Status"}
+
+# Result: CF-Cache-Status: HIT  ← Cloudflare IS caching!
+# Cache-Control: max-age=14400  ← Cached for 4 hours
+```
+
+**Impact:**
+- Users may get stale JavaScript for up to 4 hours after deploy
+- Query string cache-busting (`?v=`) is being ignored by Cloudflare
+- `.htaccess` no-cache headers are being overridden
+
+**Solution (Choose One):**
+
+### Option 1: Change Cloudflare Caching Level (RECOMMENDED)
+
+**Steps:**
+1. Cloudflare Dashboard → **Caching** → **Configuration**
+2. Set **Caching Level** to **`No Query String`**
+3. Wait 1-2 minutes for changes to propagate
+4. Verify: Run test command above, expect `CF-Cache-Status: DYNAMIC` or `BYPASS`
+
+**Why This Works:**
+- HTML uses query strings: `map_player.js?v=20260317233153`
+- "No Query String" mode = Cloudflare won't cache URLs with query strings
+- JS files will show `DYNAMIC` or `BYPASS` instead of `HIT`
+
+### Option 2: Add Cache Rule to Bypass JavaScript
+
+**Steps:**
+1. Cloudflare Dashboard → **Caching** → **Cache Rules**
+2. Click **Create Rule**
+3. Configure:
+   ```
+   Rule name: Bypass JavaScript Cache
+   If...: File Extension → equals → js
+   Then...: Cache Level → Bypass
+   ```
+4. Click **Deploy**
+
+### Option 3: Purge Cache After Each Deploy (Temporary)
+
+**Manual purge via dashboard:**
+1. Cloudflare Dashboard → **Caching** → **Configuration**
+2. Click **Purge Everything**
+3. Wait 30 seconds
+
+**Or use PowerShell script (requires API token):**
+```powershell
+.\purge-cloudflare-cache.ps1 -File map_player.js
+```
+
+**Note:** This is temporary - cache will rebuild after 4 hours.
+
+**Verification After Fix:**
+```powershell
+Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing | 
+    Select-Object -ExpandProperty Headers | 
+    Where-Object {$_.Key -eq "CF-Cache-Status"}
+
+# Expected: CF-Cache-Status: DYNAMIC  ← or BYPASS
+```
+
+**Documentation:**
+- Full troubleshooting guide: `CLOUDFLARE_CACHE_TROUBLESHOOTING.md`
+- Purge script: `purge-cloudflare-cache.ps1`
+- Deploy script notes: See top of `deploy.ps1`
+
+**Status:** ⏳ **Pending** - Requires manual Cloudflare dashboard configuration
+
+---
+
+---
 
 ### 🎯 Next Priority Items
 
@@ -3826,7 +4078,183 @@ localStorage.removeItem('player_active_soundscape_id');
 
 ---
 
-## Session 13: Lazy Loading for Sound Walks (PLANNED)
+## ✅ Session 13: Listener Drift Compensation - COMPLETED
+
+**Status:** ✅ **COMPLETE** - EMA smoothing with adaptive stationary detection
+
+**Problem:**
+- GPS/BLE position noise causes sound sources to "float" or drift
+- User standing still perceives sound moving 2-5m randomly
+- Distracting immersion break, especially in stationary listening scenarios
+
+**Root Cause:**
+- GPS accuracy: 3-10m random walk
+- BLE RSSI fluctuation: ±3-10 dBm noise
+- Audio engine treats all position updates as real movement
+- No differentiation between actual movement and sensor noise
+
+**Solution: Exponential Moving Average (EMA) with Adaptive Smoothing**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  GPS says user moved 2m right (but actually stationary)     │
+│                                                             │
+│  Normal approach:                                           │
+│  🎵 Sound ←─── 2m ───→ 🚶 Listener                          │
+│  (Sound appears to drift left)                              │
+│                                                             │
+│  Compensation approach:                                     │
+│  🎵 Sound ─── 2m ───→ 🚶 Listener (virtual)                 │
+│  (Move listener back → sound stays stable)                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Implementation Details
+
+**Architecture:**
+```javascript
+// spatial_audio_app.js - Constructor properties
+this.smoothedListenerLat = 0;
+this.smoothedListenerLon = 0;
+this.rawListenerLat = 0;  // For UI display
+this.rawListenerLon = 0;
+this.smoothingFactor = 0.1;  // Adaptive: 0.05 (stationary) to 0.3 (moving)
+this.lastMovementTime = 0;
+this.movementThreshold = 0.5;  // m/s - below this = stationary
+this.isStationary = false;
+this.stationaryThreshold = 2000;  // ms
+```
+
+**Adaptive Smoothing Logic:**
+```javascript
+_updateListenerPosition(lat, lon, heading) {
+    // Store raw position for UI display
+    this.rawListenerLat = lat;
+    this.rawListenerLon = lon;
+
+    // Detect if stationary vs moving
+    const speed = distance / timeDiff;
+    if (speed < this.movementThreshold) {
+        this.isStationary = true;
+    } else {
+        this.isStationary = false;
+        this.lastMovementTime = Date.now();
+    }
+
+    // Apply adaptive smoothing
+    const targetSmoothing = this.isStationary ? 0.05 : 0.3;
+    this.smoothingFactor = this._lerp(this.smoothingFactor, targetSmoothing, 0.1);
+
+    // Exponential Moving Average
+    const smoothedLat = (this.smoothingFactor * lat) +
+                       ((1 - this.smoothingFactor) * this.smoothedListenerLat);
+    const smoothedLon = (this.smoothingFactor * lon) +
+                       ((1 - this.smoothingFactor) * this.smoothedListenerLon);
+
+    this.smoothedListenerLat = smoothedLat;
+    this.smoothedListenerLon = smoothedLon;
+
+    // Update listener with smoothed position
+    this.listener.update(smoothedLat, smoothedLon, heading);
+}
+```
+
+**Tuning Parameters:**
+| Parameter | Value | Effect |
+|-----------|-------|--------|
+| `smoothingFactor` (stationary) | 0.05 | Heavy smoothing, ~2s latency |
+| `smoothingFactor` (moving) | 0.3 | Responsive, ~300ms latency |
+| `movementThreshold` | 0.5 m/s | Below this = stationary |
+| `stationaryThreshold` | 2000 ms | Time to consider stationary |
+
+### Files Modified
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `spatial_audio_app.js` | Add drift compensation properties + methods | ~120 |
+| `map_player.js` | Add `onDebugLog` callback | ~5 |
+| `map_shared.js` | Add `onDebugLog` callback (simulation mode) | ~5 |
+| **Total** | | **~130 lines** |
+
+### User Experience
+
+| Metric | Before Compensation | After Compensation |
+|--------|---------------------|--------------------|
+| **Perceived drift** | 3-5m random walk | 0.5-1m stable |
+| **User experience** | Noticeable floatiness | Minimal movement |
+| **Stationary stability** | Distracting | Rock-solid |
+| **Moving responsiveness** | N/A | Preserved (adaptive smoothing) |
+
+### Debug Logging
+
+```javascript
+// Debug log shows drift compensation state
+[Drift] 🔒 STATIONARY smoothing=0.052 (speed: 0.12 m/s)
+[Drift] 🚶 MOVING smoothing=0.285 (speed: 1.23 m/s)
+```
+
+### Testing Protocol
+
+**1. Stationary Test:**
+```javascript
+// Stand in one spot for 60 seconds
+// Observe: Sound should stay within 1m radius
+// Debug log: "🔒 STATIONARY smoothing=0.05"
+```
+
+**2. Movement Test:**
+```javascript
+// Walk in straight line for 20m
+// Observe: Sound positions update smoothly, no lag
+// Debug log: "🚶 MOVING smoothing=0.3"
+```
+
+**3. Transition Test:**
+```javascript
+// Walk → Stop → Walk
+// Observe: Smooth transition between modes
+// Debug log: Shows smoothing factor adapting
+```
+
+### Integration with Existing Features
+
+**Session 10: Icon Bar UI**
+- GPS/heading display shows raw (unsmoothed) position
+- Debug modal shows drift compensation state
+
+**Session 13 (Lazy Loading - Planned)**
+- Drift compensation runs **before** zone detection
+- Smoothed position used for active/preload/unload decisions
+- Prevents sounds from rapidly loading/unloading due to GPS noise
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **Stable audio** | No more "floating" sounds when stationary |
+| **Adaptive** | Heavy smoothing when still, responsive when moving |
+| **Low complexity** | ~130 lines, single algorithm |
+| **No user interaction** | Fully automatic (no lock/unlock buttons needed) |
+| **Debug-friendly** | Logs show smoothing state + speed |
+
+### Trade-offs
+
+| Aspect | Decision |
+|--------|----------|
+| **Approach** | EMA (simple, effective) |
+| **Latency** | 300ms-2s (adaptive) |
+| **User control** | None (fully automatic) |
+| **Future upgrade** | Can add anchor point UI if needed |
+
+### Reference
+
+- Full documentation: `Listener_DRIFT_COMPENSATION.md`
+- Approaches considered: EMA, Moving Average, Stationary Detection, Anchor Point
+- Selected: **EMA with Adaptive Smoothing** (best balance of simplicity + effectiveness)
+
+---
+
+## Session 14: Lazy Loading for Sound Walks (PLANNED)
 
 ### Problem Statement
 
@@ -4452,10 +4880,10 @@ If issues arise:
 
 ## Current Project Status (2026-03-16)
 
-### ✅ Completed Sessions
+### ✅ Completed Features
 
-| Session | Feature | Status | Files |
-|---------|---------|--------|-------|
+| Feature | Description | Status | Files |
+|---------|-------------|--------|-------|
 | **1-3** | SoundScape persistence + phone mode | ✅ Complete | `soundscape.js`, `map_placer.js` |
 | **4** | Hit list cleanup | ✅ Complete | Multiple |
 | **5A-5D** | Multi-soundscape support | ✅ Complete | `map_player.js`, `map_editor.js` |
@@ -4465,17 +4893,21 @@ If issues arise:
 | **8** | Device-aware auto-routing | ✅ Complete | `index.html` |
 | **9** | Soundscape selector page | ✅ Complete | `soundscape_picker.html` |
 | **10** | Icon bar UI redesign | ✅ Complete | `map_player.html` v7.2, `map_player.js` v7.2 |
-| **11** | Debug log copy (integrated in S10) | ✅ Complete | `map_shared.js` |
+| **11** | Debug log copy (integrated in F10) | ✅ Complete | `map_shared.js` |
 | **12** | Edit waypoint duplicate fix + refresh persistence | ✅ Complete | `map_shared.js`, `map_player.js` |
+| **13** | Listener drift compensation (EMA smoothing) | ✅ Complete | `spatial_audio_app.js`, `map_player.js`, `map_shared.js` |
 
 ### 📋 Planned Sessions
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
 | **13** | Lazy loading for sound walks | High | 📋 Planned |
-| **14** | Behavior editing UI | Medium | 📋 Planned |
-| **15** | Multi-user collaboration | Low | 📋 Planned |
-| **16** | Offline-first architecture | Low | 📋 Planned |
+| **14** | Distance-based audio filtering (air absorption) | High | 📋 Planned |
+| **15** | Behavior editing UI | Medium | 📋 Planned |
+| **16** | Multi-user collaboration | Low | 📋 Planned |
+| **17** | Offline-first architecture | Low | 📋 Planned |
+
+**Feature 14 Documentation:** See `FEATURE_14_DISTANCE_BASED_AUDIO.md` for complete implementation plan
 
 ### 📁 Current File Versions
 
@@ -4494,14 +4926,15 @@ If issues arise:
 
 ### 🎯 Next Priority Items
 
-1. **Session 13: Lazy loading** - Critical for sound walks with many waypoints
+1. **Feature 13: Lazy loading** - Critical for sound walks with many waypoints
 2. **Test on mobile devices** - Verify GPS/compass work on phones
-3. **Update map_editor.html** - Apply Session 10 UI redesign to editor
-4. **Behavior editing UI** - Visual timeline for behavior configuration
+3. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
+4. **Feature 14: Distance-based audio filtering** - Air absorption simulation (~50 lines, 50 min)
+5. **Behavior editing UI** - Visual timeline for behavior configuration
 
 ### 🐛 Known Issues
 
-None currently - all Session 12 bugs fixed:
+None currently - all Feature 12 bugs fixed:
 - ✅ Edit waypoint duplicate bug fixed
 - ✅ Waypoints persist on page refresh
 

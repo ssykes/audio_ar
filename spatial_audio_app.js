@@ -197,6 +197,19 @@ class SpatialAudioApp {
         this.onStateChange = null;
         this.onError = null;
         this.onGPSUpdate = null;  // GPS position updates (for map marker)
+        this.onDebugLog = null;   // Debug log messages (for drift compensation logging)
+
+        // === Listener Drift Compensation (EMA Smoothing) ===
+        // Reference: Listener_DRIFT_COMPENSATION.md
+        this.smoothedListenerLat = 0;
+        this.smoothedListenerLon = 0;
+        this.rawListenerLat = 0;  // Store raw GPS for UI display
+        this.rawListenerLon = 0;
+        this.smoothingFactor = 0.1;  // 0.1 = heavy smoothing, 0.9 = minimal
+        this.lastMovementTime = 0;
+        this.movementThreshold = 0.5;  // m/s - below this = stationary
+        this.isStationary = false;
+        this.stationaryThreshold = 2000;  // ms - time to consider stationary
     }
 
     /**
@@ -572,10 +585,11 @@ class SpatialAudioApp {
                     position.coords.longitude
                 );
 
-                // Update listener position (keep compass heading!)
-                this.listener.update(pos.lat, pos.lon, this.listener.heading);
+                // === NEW: Apply drift compensation (EMA smoothing) ===
+                // This smooths out GPS noise while preserving real movement
+                this._updateListenerPosition(pos.lat, pos.lon, this.listener.heading);
 
-                // Notify UI of GPS update (for map marker)
+                // Notify UI of GPS update (for map marker) - use RAW position
                 if (this.onGPSUpdate) {
                     this.onGPSUpdate(pos.lat, pos.lon, pos.locked);
                 }
@@ -825,6 +839,113 @@ class SpatialAudioApp {
             });
         }
         // else: Default behavior (all sounds together) is handled by start()
+    }
+
+    /**
+     * Update listener position with drift compensation (EMA smoothing)
+     * Reference: Listener_DRIFT_COMPENSATION.md
+     * 
+     * This method applies Exponential Moving Average (EMA) smoothing to reduce
+     * perceived drift from GPS noise. The virtual listener moves smoothly,
+     * canceling out random GPS walk while preserving real movement.
+     * 
+     * @param {number} lat - Raw latitude from GPS
+     * @param {number} lon - Raw longitude from GPS
+     * @param {number} heading - Heading from compass (not smoothed)
+     */
+    _updateListenerPosition(lat, lon, heading) {
+        // Store raw position for UI display
+        this.rawListenerLat = lat;
+        this.rawListenerLon = lon;
+
+        // Initialize smoothed position on first call
+        if (this.smoothedListenerLat === 0 && this.smoothedListenerLon === 0) {
+            this.smoothedListenerLat = lat;
+            this.smoothedListenerLon = lon;
+        }
+
+        // === Adaptive Smoothing (Stationary Detection) ===
+        // Detect if user is stationary vs moving
+        const now = Date.now();
+        const distance = this._calculateDistance(
+            this.smoothedListenerLat,
+            this.smoothedListenerLon,
+            lat,
+            lon
+        );
+        const timeDiff = this.lastMovementTime > 0 ? (now - this.lastMovementTime) / 1000 : 1;
+        const speed = distance / timeDiff;
+
+        // Detect if stationary (speed below threshold)
+        if (speed < this.movementThreshold) {
+            this.isStationary = true;
+        } else {
+            this.isStationary = false;
+            this.lastMovementTime = now;
+        }
+
+        // Apply adaptive smoothing: aggressive when stationary, responsive when moving
+        const targetSmoothing = this.isStationary ? 0.05 : 0.3;
+        this.smoothingFactor = this._lerp(this.smoothingFactor, targetSmoothing, 0.1);
+
+        // Debug logging (occasionally)
+        if (Math.random() < 0.02 && this.onDebugLog) {
+            const mode = this.isStationary ? '🔒 STATIONARY' : '🚶 MOVING';
+            this.onDebugLog(`${mode} smoothing=${this.smoothingFactor.toFixed(3)} (speed: ${speed.toFixed(2)} m/s)`);
+        }
+
+        // === Exponential Moving Average (EMA) ===
+        const smoothedLat = (this.smoothingFactor * lat) +
+                           ((1 - this.smoothingFactor) * this.smoothedListenerLat);
+        const smoothedLon = (this.smoothingFactor * lon) +
+                           ((1 - this.smoothingFactor) * this.smoothedListenerLon);
+
+        this.smoothedListenerLat = smoothedLat;
+        this.smoothedListenerLon = smoothedLon;
+
+        // Update listener with smoothed position
+        if (this.listener) {
+            this.listener.update(smoothedLat, smoothedLon, heading);
+        }
+
+        // Debug: Log what heading we're using
+        if (Math.random() < 0.05) {
+            console.log(`[AudioApp] _updateListenerPosition: lat=${smoothedLat.toFixed(6)}, lon=${smoothedLon.toFixed(6)}, heading=${heading.toFixed(0)}°`);
+        }
+    }
+
+    /**
+     * Calculate distance between two GPS coordinates (Haversine formula)
+     * @param {number} lat1 - Latitude 1
+     * @param {number} lon1 - Longitude 1
+     * @param {number} lat2 - Latitude 2
+     * @param {number} lon2 - Longitude 2
+     * @returns {number} Distance in meters
+     */
+    _calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3; // Earth's radius in meters
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        return R * c;
+    }
+
+    /**
+     * Linear interpolation
+     * @param {number} start - Start value
+     * @param {number} end - End value
+     * @param {number} t - Interpolation factor (0-1)
+     * @returns {number} Interpolated value
+     */
+    _lerp(start, end, t) {
+        return start + (end - start) * t;
     }
 
     /**

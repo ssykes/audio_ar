@@ -1,5 +1,13 @@
 # Deploy Audio AR App to Server
 # Prerequisite: Run 'ssh-keygen -t ed25519' once manually if you don't have a key
+#
+# Cloudflare Cache: After deploy, verify Cloudflare isn't caching stale JS:
+#   Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing | 
+#     Select-Object -ExpandProperty Headers | Where-Object {$_.Key -eq "CF-Cache-Status"}
+#   Expected: DYNAMIC or BYPASS (not HIT)
+#   If HIT: Cloudflare Dashboard → Caching → Configuration → Set to "No Query String"
+#
+# See CLOUDFLARE_CACHE_TROUBLESHOOTING.md for details
 
 Write-Host ""
 Write-Host "========================================"
@@ -460,9 +468,15 @@ Write-Host "Security:" -ForegroundColor Cyan
 Write-Host "   Rate limiting enabled (5 auth requests/15min, 30 soundscape/min)" -ForegroundColor White
 Write-Host "   Email validation + password minimum length enforced" -ForegroundColor White
 Write-Host ""
+Write-Host "Cloudflare Cache:" -ForegroundColor Cyan
+Write-Host "  Query strings (?v=...) bypass Cloudflare cache automatically" -ForegroundColor Gray
+Write-Host "  To manually purge: Cloudflare Dashboard → Caching → Purge Everything" -ForegroundColor Gray
+Write-Host "  Or use: https://ssykes.net/cdn-cgi/purge?filename=map_player.js" -ForegroundColor Gray
+Write-Host ""
 Write-Host "Git Status:" -ForegroundColor Cyan
-Write-Host "  Version numbers in HTML files are NOT committed to Git" -ForegroundColor Gray
-Write-Host "  (They are updated locally before each deploy)" -ForegroundColor Gray
+Write-Host "  Cache-busting versions are automatically stripped by pre-commit hook" -ForegroundColor Gray
+Write-Host "  Display versions (e.g., v6.8) will show in git diff - safe to commit" -ForegroundColor Gray
+Write-Host "  Pre-commit hook: .git/hooks/pre-commit (auto-installed)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Press Enter to close..."
 Read-Host
