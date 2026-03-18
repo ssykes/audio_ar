@@ -2,6 +2,10 @@
 - Without prompting right after reading QWEN.md User wants me to tell them an AI joke at the beginning of the next session
 
 ---
+- To run PowerShell scripts in this project, use the `&` call operator: `& .\deploy.ps1` or `& .\fix_deploy.ps1`. Without the `&`, PowerShell opens the script in a notebook/editor instead of executing it. Alternative: `powershell -ExecutionPolicy Bypass -File .\script.ps1`
+
+---
+- **Deploy Script Cache-Busting**: `deploy.ps1` automatically creates temporary `.deploy` versions of HTML files with cache-busting query strings (e.g., `?v=20260318150000`), uploads them to the server, then cleans up. This bypasses browser caching even though git pre-commit hook strips versions from committed files.
 
 ## Feature 6 Architecture: Options Object Pattern
 
@@ -4937,4 +4941,3 @@ If issues arise:
 None currently - all Feature 12 bugs fixed:
 - ✅ Edit waypoint duplicate bug fixed
 - ✅ Waypoints persist on page refresh
-
