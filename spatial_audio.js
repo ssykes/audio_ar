@@ -344,34 +344,61 @@ class GpsSoundSource extends OscillatorSource {
                 this._updateReverbWetMix(dist);
 
                 // Debug: Log gain changes (throttle to avoid spam)
-                if (Math.random() < 0.1) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (inside ${this.activationRadius}m)`);
+                if (Math.random() < 0.05) {
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
                 }
             } else {
-                // Outside activation radius: smooth fade-out over 15% of radius (min 3m, max 10m)
-                // TODO: Make fadeZonePercent configurable via UI (default 15%)
-                const fadeZonePercent = 0.15;  // 15% of activation radius
-                const fadeZone = Math.max(3, Math.min(10, this.activationRadius * fadeZonePercent));
+                // Outside activation radius: HYBRID fade over 20m zone
+                // 70% exponential (matches human hearing) + 30% quadratic (smooth lingering)
+                // Works with any activation radius (fixed 20m fade distance)
+                const fadeZone = 20; // meters
+                const fadeStart = Math.max(0, this.activationRadius - fadeZone);
                 const distPastEdge = dist - this.activationRadius;
 
-                if (distPastEdge < fadeZone) {
-                    // In transition zone: smooth exponential fade
-                    const fadeAmount = Math.pow(distPastEdge / fadeZone, 2);  // Quadratic fade
-                    const currentGain = targetGain * (1 - fadeAmount);
-                    this.gain.gain.value = currentGain;
+                if (dist < this.activationRadius) {
+                    // Inside activation radius but in fade zone (near edge)
+                    const fadeProgress = (dist - fadeStart) / fadeZone; // 0.0 to 1.0
                     
-                    // Maintain max wet value in fade zone (reverb lingers as sound fades)
+                    // Hybrid curve: 70% exponential + 30% quadratic
+                    const exponentialFade = Math.pow(0.1, fadeProgress);  // -20dB curve
+                    const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);  // Gentle quadratic
+                    const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
+                    
+                    const currentGain = targetGain * hybridFade;
+                    this.gain.gain.value = currentGain;
+
+                    // Apply distance-based reverb wet mix
                     this._updateReverbWetMix(dist);
+
+                    // Debug: Log fade zone transitions
+                    if (Math.random() < 0.1) {
+                        console.log(`[Audio] ${dist.toFixed(1)}m, fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)} (hybrid fade zone)`);
+                    }
+                } else if (distPastEdge < fadeZone) {
+                    // Just outside activation radius: continue fade to silence
+                    const fadeProgress = distPastEdge / fadeZone; // 0.0 to 1.0
+                    
+                    // Continue hybrid curve to silence
+                    const exponentialFade = Math.pow(0.1, fadeProgress);
+                    const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);
+                    const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
+                    
+                    // Scale down to near-zero at edge of fade zone
+                    const currentGain = targetGain * hybridFade * (1 - fadeProgress);
+                    this.gain.gain.value = currentGain;
+
+                    // Maintain reverb in fade zone (ambient persistence)
+                    this._updateReverbWetMix(dist);
+
+                    // Debug: Log outside fade
+                    if (Math.random() < 0.1) {
+                        console.log(`[Audio] ${dist.toFixed(1)}m, outside fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)}`);
+                    }
                 } else {
-                    // Beyond transition zone: silent
+                    // Beyond fade zone: silent
                     this.gain.gain.value = 0;
                     this.wetGain.gain.value = 0;
                     this.dryGain.gain.value = 0;
-                }
-
-                // Debug: Log gain changes (throttle to avoid spam)
-                if (Math.random() < 0.1) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${this.gain.gain.value.toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (fade zone: ${fadeZone.toFixed(1)}m)`);
                 }
             }
         }
@@ -571,12 +598,32 @@ class SampleSource extends GpsSoundSource {
         this.sourceNode = this.engine.ctx.createBufferSource();
         this.sourceNode.buffer = this.buffer;
         this.sourceNode.loop = this.loop;
+        
+        // === RANDOM MICRO-VARIATIONS (Organic Playback) ===
+        // Prevents mechanical repetition and "machine gun" effect
+        // Each loop iteration has subtle variations (like live performance)
+        
+        // ±2 cents random detune (0.9998 to 1.0002)
+        // Prevents exact unison when multiple similar sounds play
+        const randomDetune = 0.9998 + Math.random() * 0.0004;
+        this.sourceNode.playbackRate.value = randomDetune;
+        
+        // ±3% volume variation (0.97 to 1.03 of target)
+        // More natural than fixed volume (mimics acoustic variation)
+        if (this.gain) {
+            const randomVolume = 0.97 + Math.random() * 0.06;
+            this.gain.gain.value = this.targetGain * randomVolume;
+            
+            console.log(`[SampleSource] ${this.id}: detune=${randomDetune.toFixed(4)}, vol=${(this.targetGain * randomVolume).toFixed(3)}`);
+        }
+        // ===================================================
+        
         this.sourceNode.connect(this.gain);
         this.sourceNode.start();
 
         this.sourceNode.onended = () => {
             if (this.loop && this.isPlaying) {
-                this.start();
+                this.start();  // Re-apply random variations on each loop
             }
         };
 
