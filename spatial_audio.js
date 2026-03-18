@@ -334,32 +334,10 @@ class GpsSoundSource extends OscillatorSource {
 
         if (this.gain) {
             if (gainDistance < this.activationRadius) {
-                // Inside activation radius: HYBRID attenuation model
-                // Combines inverse square law (physics) + logarithmic (perception)
-                // 70% exponential (inverse square law - physical accuracy)
-                // 30% logarithmic (human hearing perception)
-                
-                // Normalize distance: 0.0 = center, 1.0 = edge
-                const normalizedDist = Math.max(0.01, dist / this.activationRadius);
-                
-                // Inverse square law component (exponential falloff)
-                // Sound pressure decreases with square of distance
-                const inverseSquareGain = 1 / (normalizedDist * normalizedDist);
-                
-                // Logarithmic component (human perception)
-                // Human hearing responds logarithmically to sound pressure
-                const logGain = 1 - Math.log10(normalizedDist + 0.1) / 2;
-                
-                // Hybrid: 70% inverse square + 30% logarithmic
-                const hybridGain = (inverseSquareGain * 0.7) + (logGain * 0.3);
-                
-                // Clamp to reasonable range: 0.2 (edge) to 1.5 (center boost)
-                const clampedGain = Math.max(0.2, Math.min(1.5, hybridGain));
-                
-                // Apply 2-meter boost for very close proximity
-                const distanceBoost = dist < 2 ? 1.5 : 1.0;
-                
-                this.gain.gain.value = targetGain * clampedGain * distanceBoost;
+                // Inside activation radius: panner handles smooth falloff via inverse square law
+                // Boost gain when very close (< 2m) for maximum volume at closest approach
+                const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
+                this.gain.gain.value = targetGain * distanceBoost;
 
                 // Apply distance-based reverb wet mix
                 // Closer = drier, farther = wetter (within the activation radius)
@@ -367,14 +345,61 @@ class GpsSoundSource extends OscillatorSource {
 
                 // Debug: Log gain changes (throttle to avoid spam)
                 if (Math.random() < 0.05) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m/${this.activationRadius}m, gain: ${(targetGain * clampedGain * distanceBoost).toFixed(3)} (hybrid inverse+log)`);
+                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
                 }
             } else {
-                // Outside activation radius: SILENT (no fade zone)
-                // Sound is only audible WITHIN the activation radius
-                this.gain.gain.value = 0;
-                this.wetGain.gain.value = 0;
-                this.dryGain.gain.value = 0;
+                // Outside activation radius: HYBRID fade over 20m zone
+                // 70% exponential (matches human hearing) + 30% quadratic (smooth lingering)
+                // Works with any activation radius (fixed 20m fade distance)
+                const fadeZone = 20; // meters
+                const fadeStart = Math.max(0, this.activationRadius - fadeZone);
+                const distPastEdge = dist - this.activationRadius;
+
+                if (dist < this.activationRadius) {
+                    // Inside activation radius but in fade zone (near edge)
+                    const fadeProgress = (dist - fadeStart) / fadeZone; // 0.0 to 1.0
+
+                    // Hybrid curve: 70% exponential + 30% quadratic
+                    const exponentialFade = Math.pow(0.1, fadeProgress);  // -20dB curve
+                    const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);  // Gentle quadratic
+                    const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
+
+                    const currentGain = targetGain * hybridFade;
+                    this.gain.gain.value = currentGain;
+
+                    // Apply distance-based reverb wet mix
+                    this._updateReverbWetMix(dist);
+
+                    // Debug: Log fade zone transitions
+                    if (Math.random() < 0.1) {
+                        console.log(`[Audio] ${dist.toFixed(1)}m, fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)} (hybrid fade zone)`);
+                    }
+                } else if (distPastEdge < fadeZone) {
+                    // Just outside activation radius: continue fade to silence
+                    const fadeProgress = distPastEdge / fadeZone; // 0.0 to 1.0
+
+                    // Continue hybrid curve to silence
+                    const exponentialFade = Math.pow(0.1, fadeProgress);
+                    const quadraticFade = 1 - Math.pow(fadeProgress, 1.5);
+                    const hybridFade = exponentialFade * 0.7 + quadraticFade * 0.3;
+
+                    // Scale down to near-zero at edge of fade zone
+                    const currentGain = targetGain * hybridFade * (1 - fadeProgress);
+                    this.gain.gain.value = currentGain;
+
+                    // Maintain reverb in fade zone (ambient persistence)
+                    this._updateReverbWetMix(dist);
+
+                    // Debug: Log outside fade
+                    if (Math.random() < 0.1) {
+                        console.log(`[Audio] ${dist.toFixed(1)}m, outside fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)}`);
+                    }
+                } else {
+                    // Beyond fade zone: silent
+                    this.gain.gain.value = 0;
+                    this.wetGain.gain.value = 0;
+                    this.dryGain.gain.value = 0;
+                }
             }
         }
         return dist < this.activationRadius;
