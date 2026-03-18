@@ -611,10 +611,11 @@ class SampleSource extends GpsSoundSource {
         // ±3% volume variation (0.97 to 1.03 of target)
         // More natural than fixed volume (mimics acoustic variation)
         if (this.gain) {
+            const targetGain = this.options.gain || 0.5;  // Use options.gain as base
             const randomVolume = 0.97 + Math.random() * 0.06;
-            this.gain.gain.value = this.targetGain * randomVolume;
+            this.gain.gain.value = targetGain * randomVolume;
             
-            console.log(`[SampleSource] ${this.id}: detune=${randomDetune.toFixed(4)}, vol=${(this.targetGain * randomVolume).toFixed(3)}`);
+            console.log(`[SampleSource] ${this.id}: detune=${randomDetune.toFixed(4)}, vol=${(targetGain * randomVolume).toFixed(3)}`);
         }
         // ===================================================
         
