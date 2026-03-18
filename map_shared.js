@@ -117,6 +117,7 @@ class MapAppShared {
         this.simListenerMarker = null;
         this.simListenerLat = null;
         this.simListenerLon = null;
+        this._lastSimDistance = null;  // For throttling debug logs
 
         // Debug console
         this.debugConsole = null;
@@ -1065,6 +1066,7 @@ class MapAppShared {
         }
 
         console.log('[MapShared] 🎮 Starting Simulation Mode...');
+        this.debugLog('🎮 Starting simulation mode...');
 
         this.simulationMode = true;
         this.state = 'simulator';
@@ -1073,6 +1075,9 @@ class MapAppShared {
         const center = this.map.getCenter();
         this.simListenerLat = center.lat;
         this.simListenerLon = center.lng;
+
+        this.debugLog(`📍 Initial position: [${this.simListenerLat.toFixed(4)}, ${this.simListenerLon.toFixed(4)}]`);
+        this.debugLog(`🎵 Loading ${this.waypoints.length} sounds for simulation`);
 
         // Create draggable listener marker
         this._createSimListenerMarker();
@@ -1094,6 +1099,7 @@ class MapAppShared {
         this._setWaypointsInteractive(false);
 
         this._showToast('🎮 Simulation Mode: Drag the avatar to preview', 'info');
+        this.debugLog('✅ Simulation mode started');
         console.log('[MapShared] ✅ Simulation Mode started');
     }
 
@@ -1103,6 +1109,7 @@ class MapAppShared {
      */
     _stopSimulation() {
         console.log('[MapShared] ⏹ Stopping Simulation Mode...');
+        this.debugLog('⏹ Stopping simulation mode...');
 
         this.simulationMode = false;
         this.state = 'editor';
@@ -1133,6 +1140,7 @@ class MapAppShared {
         this._setWaypointsInteractive(true);
 
         this._showToast('⏹ Simulation stopped', 'info');
+        this.debugLog('✅ Simulation mode stopped');
         console.log('[MapShared] ✅ Simulation Mode stopped');
     }
 
@@ -1173,6 +1181,7 @@ class MapAppShared {
      */
     _startSimAudio() {
         console.log('[MapShared] 🔊 Starting simulation audio...');
+        this.debugLog('🔊 Starting simulation audio engine...');
 
         const soundConfigs = this.waypoints.map(wp => ({
             id: wp.id,
@@ -1183,6 +1192,8 @@ class MapAppShared {
             volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
             loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
         }));
+
+        this.debugLog(`🎵 Creating ${soundConfigs.length} sound sources...`);
 
         // Create app with simulated position (no GPS tracking)
         this.app = new SpatialAudioApp(soundConfigs, {
@@ -1207,6 +1218,7 @@ class MapAppShared {
         this.app.onStateChange = (state) => {
             console.log('[MapShared] 📊 Sim audio state:', state);
             if (state === 'running') {
+                this.debugLog('✅ Simulation audio active - drag avatar to preview');
                 this._updateSimDisplay();
                 this._showToast('✅ Simulation audio active! Drag the avatar', 'success');
             }
@@ -1220,9 +1232,11 @@ class MapAppShared {
         // Start the audio
         this.app.start().then(() => {
             console.log('[MapShared] ✅ Simulation audio started');
+            this.debugLog('✅ Simulation audio started');
             this._updateSimDisplay();
         }).catch(err => {
             console.error('[MapShared] ❌ Sim audio start failed:', err);
+            this.debugLog('❌ Simulation audio start failed: ' + err.message);
             this._showToast('❌ Audio start failed: ' + err.message, 'error');
         });
     }
@@ -1285,6 +1299,12 @@ class MapAppShared {
                 const volumePercent = Math.round(ratio * 100);
                 volumeEl.textContent = volumePercent + '%';
             }
+
+            // Debug logging (throttled - only log if distance changed significantly)
+            if (!this._lastSimDistance || Math.abs(nearestDistance - this._lastSimDistance) > 1.0) {
+                this._lastSimDistance = nearestDistance;
+                this.debugLog(`🚶 Avatar: ${nearestDistance.toFixed(1)}m from ${nearestSound.name}`);
+            }
         } else {
             if (distanceEl) distanceEl.textContent = '--';
             if (bearingEl) bearingEl.textContent = '--';
@@ -1342,7 +1362,7 @@ class MapAppShared {
         if (!this.debugModalContent) return;
 
         const timestamp = new Date().toLocaleTimeString();
-        
+
         // Detect log level from message content
         let level = 'info';
         if (message.includes('❌') || message.includes('Error') || message.includes('Failed')) {
@@ -1351,8 +1371,8 @@ class MapAppShared {
             level = 'warn';
         }
 
-        // Create styled line
-        const line = `<span class="debug-line ${level}">[${timestamp}] ${message}</span>`;
+        // Create styled line with block display for proper line breaks
+        const line = `<div class="debug-line ${level}">[${timestamp}] ${message}</div>`;
 
         this.debugModalContent.innerHTML = line + this.debugModalContent.innerHTML;
 
@@ -1382,6 +1402,48 @@ class MapAppShared {
         const simulateBtn = document.getElementById('simulateBtn');
         if (simulateBtn) {
             simulateBtn.style.display = this.showSimulator ? 'block' : 'none';
+        }
+
+        // Initialize debug console
+        this._initDebugConsole();
+    }
+
+    /**
+     * Initialize debug console
+     * @protected
+     */
+    _initDebugConsole() {
+        this.debugConsole = document.getElementById('debugConsole');
+        this.debugModalContent = document.getElementById('debugConsoleContent');
+        
+        if (this.debugModalContent) {
+            // Wire up copy button
+            const copyBtn = document.getElementById('debugCopyBtn');
+            if (copyBtn) {
+                copyBtn.addEventListener('click', () => this._copyLogs());
+            }
+        }
+    }
+
+    /**
+     * Copy debug logs to clipboard
+     * @protected
+     */
+    async _copyLogs() {
+        if (!this.debugModalContent) return;
+        
+        try {
+            await navigator.clipboard.writeText(this.debugModalContent.innerText);
+            this._showToast('✅ Copied to clipboard', 'success');
+        } catch (err) {
+            // Fallback for older browsers
+            const range = document.createRange();
+            range.selectNode(this.debugModalContent);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            document.execCommand('copy');
+            window.getSelection().removeAllRanges();
+            this._showToast('✅ Copied to clipboard', 'success');
         }
     }
 

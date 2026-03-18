@@ -730,7 +730,9 @@ class MapEditorApp extends MapAppShared {
      */
     _initDebugConsole() {
         this.debugConsole = document.getElementById('debugConsole');
-        if (this.debugConsole) {
+        this.debugModalContent = document.getElementById('debugConsoleContent');
+        
+        if (this.debugModalContent) {
             this.debugLog('🗺️ Map Editor v6.0 ready');
             this.debugLog('📍 Waiting for GPS...');
             this.debugLog('🎯 Auto-copy: 1000 lines, copies 3s after you stop');

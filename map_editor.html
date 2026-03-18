@@ -11,11 +11,11 @@
         #app { display: flex; height: 100vh; }
         #sidebar { width: 350px; background: rgba(0,0,0,0.3); padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; }
         #sidebar-header { flex-shrink: 0; }
-        #waypointList { flex: 0 0 auto; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+        #waypointList { flex: 0 0 auto; max-height: 150px; overflow-y: auto; margin-top: 10px; }
         #debugConsole {
             position: relative;
             flex: 1;
-            min-height: 0;
+            min-height: 200px;  /* Ensure minimum height for visibility */
             margin-top: 15px;
             background: #0d0d1a;
             border: 1px solid #333;
@@ -23,6 +23,7 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            z-index: 100;  /* Ensure it's above other elements */
         }
         #debugConsoleContent {
             flex: 1;
@@ -32,8 +33,6 @@
             font-size: 11px;
             color: #00ff88;
             overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
         }
         .debug-copy-btn {
             position: absolute;
@@ -51,7 +50,7 @@
             align-items: center;
             justify-content: center;
             transition: all 0.2s;
-            z-index: 10;
+            z-index: 1000;  /* Ensure button is above console content */
         }
         .debug-copy-btn:hover {
             background: rgba(0, 217, 255, 0.3);
@@ -82,6 +81,26 @@
             opacity: 1;
             transform: translateX(-50%) translateY(-8px);
         }
+
+        /* Debug line color coding */
+        .debug-line {
+            margin: 4px 0;
+            font-size: 10px;
+            line-height: 1.4;
+        }
+
+        .debug-line.error {
+            color: #ff4757;
+        }
+
+        .debug-line.warn {
+            color: #ffa502;
+        }
+
+        .debug-line.info {
+            color: #00ff88;
+        }
+
         #map { flex: 1; height: 100%; }
         h1 { font-size: 1.5em; margin-bottom: 10px; color: #00d9ff; }
         .subtitle { color: #888; font-size: 0.9em; margin-bottom: 20px; }
@@ -104,6 +123,9 @@
             padding: 12px;
             margin-top: 10px;
             font-size: 0.85em;
+            flex-shrink: 0;  /* Don't shrink simulation panel */
+            z-index: 50;  /* Below debug console */
+            position: relative;
         }
         .sim-panel h3 {
             color: #00ff88;
@@ -188,7 +210,7 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Editor <span class="version">v6.88</span></h1>
+                <h1>🗺️ Map Editor <span class="version">v6.112</span></h1>
                 <p class="subtitle">Create and edit soundscapes</p>
 
                 <!-- User Info (read-only - login via index.html) -->

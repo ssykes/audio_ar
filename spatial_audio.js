@@ -369,13 +369,6 @@ class GpsSoundSource extends OscillatorSource {
                 // Apply distance-based reverb wet mix
                 this._updateReverbWetMix(dist);
 
-                // Debug: Log fade zone (throttled)
-                if (Math.random() < 0.1) {
-                    const zoneLabel = dist < this.activationRadius ? 'fade (inside)' : 
-                                     dist < this.activationRadius + fadeZone ? 'fade (outside)' : 'silent';
-                    console.log(`[Audio] ${dist.toFixed(1)}m, fade: ${(fadeProgress * 100).toFixed(0)}%, gain: ${currentGain.toFixed(3)} (${zoneLabel})`);
-                }
-
                 // Beyond fade zone: silent
                 if (dist >= this.activationRadius + fadeZone) {
                     this.gain.gain.value = 0;
@@ -1057,9 +1050,9 @@ class SpatialAudioEngine {
         if (Math.random() < 0.1) {
             console.log(`[Audio] Listener: heading=${this.listener.heading.toFixed(0)}°, forwardX=${listener.forwardX.value.toFixed(2)}, forwardZ=${listener.forwardZ.value.toFixed(2)}`);
         }
-        
+
         // Verbose debug: Log every orientation update (uncomment for debugging)
-        console.log(`[Audio] Listener UPDATE: heading=${this.listener.heading.toFixed(1)}°, rad=${rad.toFixed(3)}, forwardX=${listener.forwardX.value.toFixed(3)}, forwardZ=${listener.forwardZ.value.toFixed(3)}`);
+        // console.log(`[Audio] Listener UPDATE: heading=${this.listener.heading.toFixed(1)}°, rad=${rad.toFixed(3)}, forwardX=${listener.forwardX.value.toFixed(3)}, forwardZ=${listener.forwardZ.value.toFixed(3)}`);
     }
 
     getState() { return this.ctx ? this.ctx.state : 'not-initialized'; }

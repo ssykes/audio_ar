@@ -1,15 +1,34 @@
 /**
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
- * 
- * @version 2.5 (Z-Axis Fix Support)
+ *
+ * @version 2.7 (Feature 13: Added Hysteresis to Prevent Rapid Load/Dispose Cycles)
  * @depends spatial_audio.js v5.1+
- * 
+ *
+ * Changelog:
+ * - v2.7: Added hysteresis to disposal logic (prevents cycling at zone boundaries)
+ * - v2.6: Fixed preloaded sounds not starting when entering active zone
+ * - v2.5: Z-Axis Fix Support
+ *
  * Manages:
  * - GPS tracking with auto-lock when stationary
  * - Compass integration for device orientation
  * - Sound source lifecycle (create, start, stop, update)
  * - UI callbacks for position/state updates
+ * - FEATURE 13: Lazy loading with 3-zone system (active/preload/unload)
+ * 
+ * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m unload)
+ * =================================================
+ * 0-20m:   ACTIVE ZONE    → Load + Play (gain fades at edge)
+ * 20-30m:  PRELOAD ZONE   → Load muted (10m = ~6 sec walk time @ 4mph)
+ * 30-40m:  UNLOAD ZONE    → Keep loaded, still playing (faded out)
+ * >40m:    DISPOSE ZONE   → Dispose + free memory
+ * 
+ * HYSTERESIS (prevents rapid cycling at boundaries):
+ * - Disposal threshold: unloadDistance + hysteresis (40m + 10m = 50m)
+ * - User must walk 50m away before disposal (not 40m)
+ * - User walking back: sound reloads at 30m (preload zone)
+ * - This creates a 10m "no man's land" where sound stays loaded
  */
 
 /**
@@ -98,6 +117,26 @@ class Sound {
         this.volume = config.volume !== undefined ? config.volume : 1.0;
         this.loop = config.loop || false;
 
+        // === FEATURE 13: Audio Type Discriminator ===
+        this.type = config.type || 'buffer';  // 'buffer' | 'oscillator' | 'stream'
+
+        // === FEATURE 13: Oscillator-Specific Properties ===
+        this.oscillatorType = config.oscillatorType || 'sine';  // 'sine' | 'square' | 'triangle' | 'sawtooth'
+        this.frequency = config.frequency || 440;  // Hz
+        this.detune = config.detune || 0;  // cents
+
+        // === FEATURE 13: Stream-Specific Properties ===
+        this.isLive = config.isLive || false;  // Live stream vs on-demand HLS
+        this.streamBitrate = config.streamBitrate || 128;  // kbps
+
+        // === FEATURE 13: State Tracking (Lazy Loading) ===
+        this.isLoading = false;    // Currently loading from network
+        this.isLoaded = false;     // Buffer/source ready
+        this.isDisposed = false;   // Nodes disposed (freed from memory)
+        this.isPaused = false;     // Stream paused (connection kept)
+        this.loadPromise = null;   // Promise for async loading
+        this.currentZone = null;   // 'active' | 'preload' | 'unload' | 'paused'
+
         // Runtime state (managed by engine)
         this.sourceNode = null;
         this.isPlaying = false;
@@ -137,7 +176,69 @@ class Sound {
     setActivationRadius(radius) {
         this.activationRadius = radius;
     }
+
+    /**
+     * Serialize sound to JSON (for persistence)
+     * @returns {Object} JSON-serializable sound data
+     */
+    toJSON() {
+        return {
+            id: this.id,
+            url: this.url,
+            lat: this.lat,
+            lon: this.lon,
+            activationRadius: this.activationRadius,
+            volume: this.volume,
+            loop: this.loop,
+            type: this.type,
+            oscillatorType: this.oscillatorType,
+            frequency: this.frequency,
+            detune: this.detune,
+            isLive: this.isLive,
+            streamBitrate: this.streamBitrate
+        };
+    }
+
+    /**
+     * Deserialize sound from JSON
+     * @param {Object} data - JSON data
+     * @returns {Sound} New Sound instance
+     */
+    static fromJSON(data) {
+        return new Sound(data);
+    }
 }
+
+/**
+ * FEATURE 13: Zone Configuration for Lazy Loading
+ * Defines distances for active/preload/unload zones by audio type
+ * Uses FIXED MARGINS for consistent loading time regardless of radius size
+ */
+const ZoneConfig = {
+    // Buffers (MP3/WAV): Standard 3-zone lazy loading
+    buffer: {
+        activeMultiplier: 1.0,    // Active within 100% of activation radius (plays throughout)
+        preloadMargin: 10,        // Fixed 10m preload (5.6 seconds at 4 mph walking speed)
+        unloadMargin: 10,         // Fixed 10m hysteresis (dispose 10m after preload zone)
+        hysteresis: 10            // Prevent rapid load/unload cycles
+    },
+
+    // Oscillators: Instant creation, no preload needed
+    oscillator: {
+        activeMultiplier: 1.0,    // Active within 100% of activation radius
+        preloadMargin: 0,         // No preload needed (instant creation)
+        unloadMargin: 5,          // Small hysteresis (5m)
+        hysteresis: 5
+    },
+
+    // Streams (HLS): Pause-only strategy (prevent rebuffering)
+    stream: {
+        activeMultiplier: 1.0,    // Play within 100% of activation radius
+        pauseMargin: 50,          // Pause 50m beyond activation radius (keep connection)
+        unloadMargin: 100,        // Dispose 100m beyond pause zone
+        hysteresis: 20
+    }
+};
 
 /**
  * SpatialAudioApp - Main application class
@@ -210,6 +311,9 @@ class SpatialAudioApp {
         this.movementThreshold = 0.5;  // m/s - below this = stationary
         this.isStationary = false;
         this.stationaryThreshold = 2000;  // ms - time to consider stationary
+
+        // === FEATURE 13: Lazy Loading Zone Management ===
+        this.lastZoneCheck = 0;  // Timestamp of last zone update (throttle to 1/sec)
     }
 
     /**
@@ -312,16 +416,15 @@ class SpatialAudioApp {
 
             console.log('[SpatialAudioApp] Sounds created:', this.sounds.length);
 
-            // Place sounds at their GPS positions
-            console.log('[SpatialAudioApp] Initializing sounds...');
-            await this._initializeSounds();
-            console.log('[SpatialAudioApp] Sounds initialized - created', this.sounds.length, 'sounds');
-
-            // Verify sounds are playing
-            console.log('[SpatialAudioApp] Verifying sounds...');
-            this.sounds.forEach((sound, i) => {
-                console.log(`[SpatialAudioApp] Sound ${i}: ${sound.id}, playing=${sound.isPlaying}, volume=${sound.volume}`);
-            });
+            // FEATURE 13: True Lazy Loading - Don't eagerly load all sounds
+            // Sounds will be loaded on-demand when listener enters activation radius
+            // This prevents immediate disposal of distant sounds and reduces startup time
+            console.log('[SpatialAudioApp] Skipping eager load - using true lazy loading');
+            
+            // Check for sounds already in range at startup (e.g., simulator avatar on waypoint)
+            // This ensures immediate playback if listener starts within activation radius
+            console.log('[SpatialAudioApp] Checking for sounds already in range...');
+            this._updateSoundZonesAndLoad();
 
             // Start GPS tracking
             console.log('[SpatialAudioApp] Starting GPS tracking...');
@@ -511,6 +614,12 @@ class SpatialAudioApp {
 
     /**
      * Initialize sounds at their GPS positions
+     * 
+     * DEPRECATED: This method is no longer called during normal startup.
+     * True lazy loading is now used - sounds load on-demand when listener
+     * enters activation radius (see _updateSoundZonesAndLoad()).
+     * 
+     * Kept for potential future use or backward compatibility.
      * @private
      */
     async _initializeSounds() {
@@ -701,12 +810,25 @@ class SpatialAudioApp {
         this.sounds.forEach(sound => {
             const source = this.engine.getSource(sound.id);
             if (source && source.updateGainByDistance) {
+                // Skip gain update for disposed or unloaded sounds
+                // This prevents "ghost playback" after disposal
+                if (!sound.isLoaded || sound.isDisposed) {
+                    return;
+                }
+                
                 const distance = GPSUtils.distance(
                     this.listener.lat,
                     this.listener.lon,
                     sound.lat,
                     sound.lon
                 );
+
+                // Skip gain update if well outside activation radius + fade zone
+                // This ensures sound stops when user exits the area
+                const fadeZone = 20;  // Match spatial_audio.js fade zone (line 339)
+                if (distance > sound.activationRadius + fadeZone) {
+                    return;  // Too far outside, skip gain update
+                }
 
                 // Update gain based on distance (fade zone handles smooth transitions)
                 source.updateGainByDistance(
@@ -721,6 +843,488 @@ class SpatialAudioApp {
                 }
             }
         });
+
+        // FEATURE 13: Update zones and trigger load/dispose (lazy loading)
+        this._updateSoundZonesAndLoad();
+    }
+
+    /**
+     * FEATURE 13: Update zones and trigger load/dispose actions
+     * Throttled to once per second to avoid excessive loading
+     * @private
+     */
+    async _updateSoundZonesAndLoad() {
+        // Throttle zone checks to once per second (avoid excessive loading)
+        const now = Date.now();
+        if (!this.lastZoneCheck || (now - this.lastZoneCheck) > 1000) {
+            this.lastZoneCheck = now;
+
+            if (this.onDebugLog) {
+                this.onDebugLog(`🔄 Checking sound zones...`);
+            }
+
+            const zones = this._updateSoundZones();
+
+            // Load active zone sounds immediately
+            if (zones.toLoad.length > 0) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`📥 Loading ${zones.toLoad.length} active zone sound(s)...`);
+                }
+                for (const sound of zones.toLoad) {
+                    this._loadAndStartSound(sound);
+                }
+            }
+
+            // Preload preload-zone sounds in background (non-blocking)
+            if (zones.toPreload.length > 0) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`📦 Preloading ${zones.toPreload.length} sound(s)...`);
+                }
+                for (const sound of zones.toPreload) {
+                    this._preloadSound(sound);  // Don't await - background task
+                }
+            }
+
+            // Resume paused streams in active zone
+            if (zones.toResume.length > 0) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`▶️ Resuming ${zones.toResume.length} stream(s)...`);
+                }
+                for (const sound of zones.toResume) {
+                    this._resumePausedStream(sound);
+                }
+            }
+
+            // Dispose unload-zone sounds
+            if (zones.toDispose.length > 0) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`🗑️ Disposing ${zones.toDispose.length} sound(s)...`);
+                }
+                for (const sound of zones.toDispose) {
+                    this._disposeSound(sound);
+                }
+            }
+
+            // Debug: Log zone distribution (10% sampling)
+            if (Math.random() < 0.1 && this.onDebugLog) {
+                this._debugLogZoneDistribution();
+            }
+        }
+    }
+
+    /**
+     * FEATURE 13: Resume a paused stream (quick resume from pause state)
+     * @param {Sound} sound - Stream to resume
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _resumePausedStream(sound) {
+        if (!sound.isPaused || !sound.sourceNode) {
+            return;  // Not paused or no source
+        }
+
+        if (this.onDebugLog) {
+            this.onDebugLog(`▶️ Resuming stream ${sound.id}...`);
+        }
+
+        try {
+            // Resume stream playback
+            if (sound.sourceNode.play) {
+                await sound.sourceNode.play();
+            }
+
+            // Restore gain (unmute)
+            if (sound.gainNode) {
+                sound.gainNode.gain.value = sound.volume;
+            }
+
+            sound.isPlaying = true;
+            sound.isPaused = false;
+
+            if (this.onDebugLog) {
+                this.onDebugLog(`✅ Stream ${sound.id} resumed`);
+            }
+        } catch (error) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`⚠️ Stream ${sound.id} resume failed: ${error.message}`);
+            }
+            // Fallback: reload stream from scratch
+            sound.isPaused = false;
+            sound.isLoaded = false;
+            this._loadAndStartSound(sound);
+        }
+    }
+
+    /**
+     * FEATURE 13: Log zone distribution for debugging
+     * @private
+     */
+    _debugLogZoneDistribution() {
+        const byType = {
+            buffer: { active: 0, preload: 0, unload: 0 },
+            oscillator: { active: 0, inactive: 0 },
+            stream: { active: 0, paused: 0, unloaded: 0 }
+        };
+
+        this.sounds.forEach(sound => {
+            if (byType[sound.type]) {
+                byType[sound.type][sound.currentZone]++;
+            }
+        });
+
+        if (this.onDebugLog) {
+            this.onDebugLog(`📊 Zone Distribution:`);
+            this.onDebugLog(`  Buffers: ${byType.buffer.active} active, ${byType.buffer.preload} preload, ${byType.buffer.unload} unload`);
+            this.onDebugLog(`  Oscillators: ${byType.oscillator.active} active`);
+            this.onDebugLog(`  Streams: ${byType.stream.active} active, ${byType.stream.paused} paused, ${byType.stream.unloaded} unloaded`);
+        }
+    }
+
+    /**
+     * FEATURE 13: Determine which zone a sound is in based on distance and type
+     * @param {Sound} sound - Sound object
+     * @param {number} distance - Distance to sound in meters
+     * @returns {{
+     *   zone: string,
+     *   shouldLoad: boolean,
+     *   shouldPlay: boolean,
+     *   shouldDispose: boolean,
+     *   isInstant: boolean,
+     *   keepAlive: boolean
+     * }}
+     * @private
+     */
+    _getSoundZone(sound, distance) {
+        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
+        const activationRadius = sound.activationRadius || 30;
+
+        // Calculate zone boundaries using FIXED MARGINS (not multipliers)
+        // This gives consistent loading time regardless of radius size
+        const preloadStart = activationRadius + config.preloadMargin;
+        const unloadDistance = activationRadius + config.preloadMargin + config.unloadMargin;
+
+        // Oscillators: Instant creation, no preload needed
+        if (sound.type === 'oscillator') {
+            const inActiveZone = distance < activationRadius;
+            
+            // === HYSTERESIS: Prevent rapid create/destroy cycles ===
+            const disposeThreshold = unloadDistance + config.hysteresis;
+            const wasInactive = sound.currentZone === 'inactive';
+            const shouldDispose = wasInactive 
+                ? distance > disposeThreshold
+                : distance > unloadDistance;
+            
+            return {
+                zone: inActiveZone ? 'active' : 'inactive',
+                shouldLoad: inActiveZone,
+                shouldPlay: inActiveZone,
+                shouldDispose: shouldDispose,
+                isInstant: true,  // Skip preload
+                keepAlive: false
+            };
+        }
+
+        // Streams: Pause-only strategy (prevent rebuffering)
+        if (sound.type === 'stream') {
+            const pauseStart = activationRadius + config.pauseMargin;
+            const inActiveZone = distance < activationRadius;
+            const inPauseZone = distance < pauseStart;
+            
+            // === HYSTERESIS: Prevent rapid pause/dispose cycles ===
+            const disposeThreshold = unloadDistance + config.hysteresis;
+            const wasInUnloadZone = sound.currentZone === 'unloaded';
+            const shouldDispose = wasInUnloadZone 
+                ? distance > disposeThreshold
+                : distance > unloadDistance;
+
+            return {
+                zone: inActiveZone ? 'active' :
+                      inPauseZone ? 'paused' : 'unloaded',
+                shouldLoad: inPauseZone,  // Load/pause within pause zone
+                shouldPlay: inActiveZone,
+                shouldDispose: shouldDispose,
+                isInstant: false,
+                keepAlive: inPauseZone  // Keep connection alive in pause zone
+            };
+        }
+
+        // Buffers: Standard 3-zone lazy loading with fixed margins
+        const inActiveZone = distance < activationRadius;
+        const inPreloadZone = distance < preloadStart;
+        
+        // === HYSTERESIS: Prevent rapid load/dispose cycles at boundary ===
+        // Only dispose if sound was already in unload zone AND user walked further
+        // This prevents cycling when user stands near the disposal boundary
+        const disposeThreshold = unloadDistance + config.hysteresis;
+        const wasInUnloadZone = sound.currentZone === 'unload';
+        const shouldDispose = wasInUnloadZone 
+            ? distance > disposeThreshold  // Use hysteresis if was in unload zone
+            : distance > unloadDistance;   // Normal disposal if newly entering
+
+        return {
+            zone: inActiveZone ? 'active' :
+                  inPreloadZone ? 'preload' : 'unload',
+            shouldLoad: inPreloadZone,
+            shouldPlay: inActiveZone,
+            shouldDispose: shouldDispose,
+            isInstant: false,
+            keepAlive: false
+        };
+    }
+
+    /**
+     * FEATURE 13: Update zone states for all sounds
+     * @returns {{toLoad: Sound[], toPreload: Sound[], toDispose: Sound[], toResume: Sound[]}}
+     * @private
+     */
+    _updateSoundZones() {
+        const toLoad = [];
+        const toPreload = [];
+        const toDispose = [];
+        const toResume = [];
+
+        this.sounds.forEach(sound => {
+            const distance = this.getSoundDistance(sound.id);
+            const zone = this._getSoundZone(sound, distance);
+            const activationRadius = sound.activationRadius || 30;
+            const fadeZone = 20;  // Match spatial_audio.js fade zone
+
+            // Store current zone for debugging
+            const previousZone = sound.currentZone;
+            sound.currentZone = zone.zone;
+
+            // Detect zone changes (for logging)
+            if (previousZone !== zone.zone && this.onDebugLog) {
+                this.onDebugLog(`📍 ${sound.id} (${sound.type}): ${previousZone || 'unknown'} → ${zone.zone} (${distance.toFixed(1)}m, radius=${activationRadius}m)`);
+            }
+
+            // Log detailed state when entering loading zone (preload or active)
+            if (zone.shouldLoad && !sound.isLoaded && !sound.isLoading && this.onDebugLog) {
+                const zoneType = zone.zone === 'active' ? '🔊 WITHIN RADIUS' : '📦 PRELOAD ZONE';
+                this.onDebugLog(`🎯 ${zoneType}: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | shouldLoad=${zone.shouldLoad} | isLoaded=${sound.isLoaded} | isLoading=${sound.isLoading} | isPlaying=${sound.isPlaying} | isDisposed=${sound.isDisposed}`);
+            }
+
+            // Log when sound is within activation radius (should play)
+            if (zone.shouldPlay && this.onDebugLog) {
+                const state = sound.isLoaded ? (sound.isPlaying ? '✅ PLAYING' : '⏸️ STOPPED') : '⏳ NOT LOADED';
+                this.onDebugLog(`🔊 WITHIN RADIUS (${distance.toFixed(1)}m < ${activationRadius}m): ${sound.id} | ${state} | gain=${sound.gainNode ? sound.gainNode.gain.value.toFixed(3) : 'N/A'}`);
+            }
+
+            // Log when sound is in fade zone (just outside activation radius)
+            const inFadeZone = distance > activationRadius && distance <= (activationRadius + fadeZone);
+            if (inFadeZone && this.onDebugLog) {
+                this.onDebugLog(`🌗 FADE ZONE: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | fadeZone=${fadeZone}m | isLoaded=${sound.isLoaded} | isPlaying=${sound.isPlaying}`);
+            }
+
+            // Log when sound is well outside (beyond fade zone)
+            const wellOutside = distance > (activationRadius + fadeZone);
+            if (wellOutside && zone.zone === 'unload' && this.onDebugLog && Math.random() < 0.05) {
+                this.onDebugLog(`❌ OUTSIDE: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | fadeZone=${fadeZone}m | shouldDispose=${zone.shouldDispose}`);
+            }
+
+            // CRITICAL: Clear isDisposed when entering active/preload zone
+            // This must happen BEFORE classification logic below
+            if ((zone.zone === 'active' || zone.zone === 'preload') && sound.isDisposed) {
+                sound.isDisposed = false;
+                if (this.onDebugLog) {
+                    this.onDebugLog(`🔄 ${sound.id} cleared disposed flag (entering ${zone.zone} zone)`);
+                }
+            }
+
+            // Classify sounds by required action
+            if (zone.shouldLoad && !sound.isLoading) {
+                // === ACTIVE ZONE: Load and play ===
+                if (zone.zone === 'active') {
+                    if (!sound.isLoaded) {
+                        // Not loaded yet - load and start
+                        toLoad.push(sound);
+                    } else if (!sound.isPlaying) {
+                        // Already loaded (was preloaded) but not playing - start it
+                        toLoad.push(sound);
+                        if (this.onDebugLog) {
+                            this.onDebugLog(`▶️ ${sound.id} preloaded → starting (active zone, ${distance.toFixed(1)}m)`);
+                        }
+                    }
+                    // else: Already loaded and playing - do nothing
+                }
+                // === PRELOAD ZONE: Load but don't play ===
+                else if (zone.zone === 'preload') {
+                    if (!sound.isLoaded) {
+                        toPreload.push(sound);
+                    }
+                    // else: Already preloaded - do nothing
+                }
+                // === PAUSED ZONE (streams): Resume paused streams ===
+                else if (zone.zone === 'paused' && sound.isPaused) {
+                    toResume.push(sound);
+                }
+            } else if (zone.shouldLoad && this.onDebugLog) {
+                // Log why sound is NOT being loaded
+                this.onDebugLog(`⚠️ ${sound.id} SKIPPED: zone=${zone.zone}, shouldLoad=${zone.shouldLoad}, isLoaded=${sound.isLoaded}, isLoading=${sound.isLoading}, isPlaying=${sound.isPlaying}`);
+            }
+
+            if (zone.shouldDispose && !sound.isDisposed) {
+                toDispose.push(sound);
+            }
+        });
+
+        if (this.onDebugLog && (toLoad.length > 0 || toPreload.length > 0 || toDispose.length > 0)) {
+            this.onDebugLog(`📦 Zone results: ${toLoad.length} to load, ${toPreload.length} to preload, ${toDispose.length} to dispose`);
+        }
+
+        return { toLoad, toPreload, toDispose, toResume };
+    }
+
+    /**
+     * FEATURE 13: Load and start a single sound on-demand (type-aware)
+     * @param {Sound} sound - Sound to load
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _loadAndStartSound(sound) {
+        // === Handle Preloaded Sounds (Unmute Existing Source) ===
+        // If sound was preloaded (isLoaded=true, isPlaying=false), just unmute and start
+        if (sound.isLoaded && !sound.isPlaying && sound.sourceNode) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`▶️ Starting preloaded sound ${sound.id} (unmuting existing source)...`);
+            }
+
+            try {
+                // Unmute the existing source (set gain to actual volume)
+                if (sound.gainNode) {
+                    sound.gainNode.gain.value = sound.volume;
+                }
+
+                // Start playback if source has start method
+                if (sound.sourceNode.start && !sound.isPlaying) {
+                    sound.sourceNode.start();
+                }
+
+                sound.isPlaying = true;
+                if (this.onDebugLog) {
+                    this.onDebugLog(`✅ ${sound.id} started (was preloaded)`);
+                }
+                return;
+            } catch (error) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`⚠️ ${sound.id} unmute failed: ${error.message}`);
+                }
+                // Fallback: dispose and reload from scratch
+                this._disposeSound(sound);
+                // Continue to normal load path below
+            }
+        }
+
+        // Guard: prevent duplicate loading
+        // Check isPlaying (not just isLoaded) - sound may be loaded but stopped
+        if (sound.isLoading || (sound.isLoaded && sound.isPlaying)) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`⏳ ${sound.id} already loading/playing (isLoading=${sound.isLoading}, isLoaded=${sound.isLoaded}, isPlaying=${sound.isPlaying})`);
+            }
+            return;
+        }
+
+        if (this.onDebugLog) {
+            this.onDebugLog(`📥 STARTING LOAD: ${sound.id} (type=${sound.type}, url=${sound.url.substring(0, 50)}..., isDisposed=${sound.isDisposed}, isLoaded=${sound.isLoaded}, isPlaying=${sound.isPlaying})`);
+        }
+
+        // CRITICAL: Reset isDisposed flag when starting to reload
+        // This allows sounds to be reloaded after being disposed
+        if (sound.isDisposed) {
+            sound.isDisposed = false;
+            if (this.onDebugLog) {
+                this.onDebugLog(`🔄 ${sound.id} reloading after disposal`);
+            }
+        }
+
+        // === Oscillators: Instant Creation ===
+        // TODO: Implement when createOscillatorSource is added to spatial_audio.js
+        if (sound.type === 'oscillator') {
+            if (this.onDebugLog) {
+                this.onDebugLog(`🎹 Creating oscillator ${sound.id} (${sound.oscillatorType} ${sound.frequency}Hz)...`);
+            }
+
+            try {
+                // For now, treat oscillators like buffers (fallback)
+                // TODO: Replace with actual oscillator creation
+                sound.isLoading = true;
+
+                const source = await this.engine.createSampleSource(sound.id, {
+                    url: sound.url,
+                    lat: sound.lat,
+                    lon: sound.lon,
+                    loop: sound.loop,
+                    gain: sound.volume,
+                    activationRadius: sound.activationRadius
+                });
+
+                if (source && source.start()) {
+                    sound.sourceNode = source;
+                    sound.gainNode = source.gain;
+                    sound.pannerNode = source.panner;
+                    sound.isPlaying = true;
+                    sound.isLoaded = true;
+                    if (this.onDebugLog) {
+                        this.onDebugLog(`✅ ${sound.id} loaded + started (oscillator fallback)`);
+                    }
+                }
+            } catch (error) {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`❌ ${sound.id} oscillator error: ${error.message}`);
+                }
+                console.error(`[SpatialAudioApp] Oscillator ${sound.id} error:`, error);
+            } finally {
+                sound.isLoading = false;
+            }
+            return;
+        }
+
+        // === Buffers + Streams: Network Loading ===
+        sound.isLoading = true;
+        if (this.onDebugLog) {
+            this.onDebugLog(`📥 Loading ${sound.type} ${sound.id} (${sound.url})...`);
+        }
+
+        try {
+            const source = await this.engine.createSampleSource(sound.id, {
+                url: sound.url,
+                lat: sound.lat,
+                lon: sound.lon,
+                loop: sound.loop,
+                gain: sound.volume,
+                activationRadius: sound.activationRadius,
+                isStream: sound.type === 'stream'
+            });
+
+            if (source) {
+                const started = source.start();
+                if (started) {
+                    sound.sourceNode = source;
+                    sound.gainNode = source.gain;
+                    sound.pannerNode = source.panner;
+                    sound.isPlaying = true;
+                    sound.isLoaded = true;
+                    if (this.onDebugLog) {
+                        this.onDebugLog(`✅ ${sound.id} loaded + started`);
+                    }
+                } else {
+                    if (this.onDebugLog) {
+                        this.onDebugLog(`❌ ${sound.id} failed to start`);
+                    }
+                }
+            } else {
+                if (this.onDebugLog) {
+                    this.onDebugLog(`❌ ${sound.id} failed to create source`);
+                }
+            }
+        } catch (error) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`❌ ${sound.id} load error: ${error.message}`);
+            }
+            console.error(`[SpatialAudioApp] Failed to load ${sound.id}:`, error);
+        } finally {
+            sound.isLoading = false;
+        }
     }
 
     /**
@@ -750,6 +1354,136 @@ class SpatialAudioApp {
         };
 
         this.onPositionUpdate(data);
+    }
+
+    /**
+     * FEATURE 13: Preload sound in background (don't play yet)
+     * Only for buffers - oscillators are instant, streams use pause-only strategy
+     * @param {Sound} sound - Sound to preload
+     * @returns {Promise<void>}
+     * @private
+     */
+    async _preloadSound(sound) {
+        // Only preload buffers (oscillators instant, streams pause-only)
+        if (sound.type !== 'buffer') {
+            return;
+        }
+
+        // Guard: prevent duplicate loading
+        if (sound.isLoading || sound.isLoaded) {
+            return;
+        }
+
+        sound.isLoading = true;
+        if (this.onDebugLog) {
+            this.onDebugLog(`📥 Preloading ${sound.id} (background)...`);
+        }
+
+        try {
+            // Create source and load buffer, but don't start playback
+            const source = await this.engine.createSampleSource(sound.id, {
+                url: sound.url,
+                lat: sound.lat,
+                lon: sound.lon,
+                loop: sound.loop,
+                gain: 0,  // Muted until moved to active zone
+                activationRadius: sound.activationRadius
+            });
+
+            if (source) {
+                // Don't start - just keep buffer loaded and ready
+                sound.sourceNode = source;
+                sound.gainNode = source.gain;
+                sound.pannerNode = source.panner;
+                sound.isLoaded = true;
+                sound.isPlaying = false;
+                if (this.onDebugLog) {
+                    this.onDebugLog(`✅ ${sound.id} preloaded (muted)`);
+                }
+            }
+        } catch (error) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`⚠️ ${sound.id} preload failed: ${error.message}`);
+            }
+        } finally {
+            sound.isLoading = false;
+        }
+    }
+
+    /**
+     * FEATURE 13: Dispose of a sound to free resources (type-aware)
+     * @param {Sound} sound - Sound to dispose
+     * @private
+     */
+    _disposeSound(sound) {
+        // Guard: already disposed or never loaded
+        if (sound.isDisposed || !sound.isLoaded) {
+            return;
+        }
+
+        // === Streams: Pause-Only Strategy (50-200m) ===
+        // Keep connection alive for quick resume (prevent rebuffering)
+        if (sound.type === 'stream' && sound.currentZone === 'paused') {
+            if (this.onDebugLog) {
+                this.onDebugLog(`⏸️ Pausing stream ${sound.id} (keeping connection)...`);
+            }
+
+            if (sound.sourceNode) {
+                // Pause stream if method exists (keep connection alive)
+                if (sound.sourceNode.pause) {
+                    sound.sourceNode.pause();
+                }
+                // Mute output (prevent audio until resumed)
+                if (sound.gainNode) {
+                    sound.gainNode.gain.value = 0;
+                }
+            }
+
+            sound.isPlaying = false;
+            sound.isPaused = true;
+            // Don't set isDisposed = true (keep "loaded" state for quick resume)
+            // Don't disconnect nodes (quick resume when user returns)
+
+            return;
+        }
+
+        // === Buffers + Oscillators: Full Disposal ===
+        if (this.onDebugLog) {
+            this.onDebugLog(`🗑️ Disposing ${sound.type} ${sound.id}...`);
+        }
+
+        if (sound.sourceNode) {
+            // CRITICAL: Disable loop BEFORE stopping, or loop continues playing
+            if (sound.sourceNode.loop !== undefined) {
+                sound.sourceNode.loop = false;
+            }
+            // Stop immediately (0 = stop now)
+            // Note: BufferSourceNode doesn't have disconnect(), only stop()
+            sound.sourceNode.stop(0);
+            sound.sourceNode = null;
+        }
+
+        if (sound.gainNode) {
+            sound.gainNode.disconnect();
+            sound.gainNode = null;
+        }
+
+        if (sound.pannerNode) {
+            sound.pannerNode.disconnect();
+            sound.pannerNode = null;
+        }
+
+        // Keep buffer in memory (can reload quickly if needed)
+        // But dispose all active nodes
+
+        sound.isPlaying = false;
+        sound.isDisposed = true;
+        sound.isLoaded = false;  // Mark as not loaded (needs reload to play)
+        sound.isPaused = false;
+
+        if (this.onDebugLog) {
+            this.onDebugLog(`✅ ${sound.id} disposed`);
+        }
     }
 
     /**

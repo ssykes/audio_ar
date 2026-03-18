@@ -4258,7 +4258,7 @@ _updateListenerPosition(lat, lon, heading) {
 
 ---
 
-## Session 14: Lazy Loading for Sound Walks (PLANNED)
+## Session 13: Lazy Loading for Sound Walks (PLANNED - Phase 1)
 
 ### Problem Statement
 
@@ -4283,7 +4283,7 @@ _updateListenerPosition(lat, lon, heading) {
 
 **Key Insight:** Pausing does NOT free significant resources. Audio buffers remain in RAM, and most nodes stay connected.
 
-### Solution: Three-Zone Lazy Loading
+### Solution: Three-Zone Lazy Loading (Phase 1: Core Types)
 
 **Architecture:**
 
@@ -4296,17 +4296,17 @@ User walks along route:
   │                                         │
   │  Active zone (0-50m): Load + play       │
   │  Preload zone (50-100m): Load async     │
-  │  Unload zone (>100m): Dispose completely│
+  │  Unload zone (>100m): Dispose/pause     │
   └─────────────────────────────────────────┘
 ```
 
-**Zone Specifications:**
+**Zone Specifications by Audio Type:**
 
-| Zone | Distance | Action | Memory | CPU |
-|------|----------|--------|--------|-----|
-| **Active** | 0-50m | Load + play (gain=0 if outside activation radius) | ~5-15 MB | ~2-5% |
-| **Preload** | 50-100m | Start loading in background (don't play) | ~5-10 MB | ~1-2% |
-| **Unload** | >100m | Dispose completely (free BufferSource + nodes) | 0 MB | 0% |
+| Zone | Buffers (MP3) | Oscillators | Streams (HLS) |
+|------|---------------|-------------|---------------|
+| **Active** (0-50m) | Load + play | Create + play | Play (gain based on distance) |
+| **Preload** (50-100m) | Load async (muted) | N/A (instant) | Pause (keep connection) |
+| **Unload** (>100m) | Full dispose | Full dispose | Pause only (50-200m), dispose >200m |
 
 **Resource Comparison:**
 
@@ -4318,19 +4318,35 @@ User walks along route:
 
 ---
 
+### Phase 1: Implement Session 13 (Current Plan)
+
+**Core Sound Sources:**
+
+| Type | Status | Lazy Load Strategy |
+|------|--------|-------------------|
+| **Buffers (MP3)** | ✅ Session 13 | Standard lazy loading (load/preload/dispose) |
+| **Oscillators** | ✅ Session 13 | Instant create/dispose (no preload needed) |
+| **Streams (HLS)** | ✅ Session 13 | Pause-only strategy (50-200m), dispose >200m |
+
+**Phase 2+ (Future):** Multi-sample, Procedural, Granular, Physical Modeling, Binaural, Convolution, Behavioral, Spectral, Sequencer, Effects Chain
+
+**Full Documentation:** See `LAZY_LOADING_SPECIFICATION.md` for complete implementation details and `FUTURE_SOUND_SOURCES.md` for future sound source types.
+
+---
+
 ### Implementation Plan (Divided into Sub-Sessions)
 
 | Session | Phase | Task | Files | Est. Lines | Time | Risk |
 |---------|-------|------|-------|------------|------|------|
-| **13A** | 1 | Add sound state tracking (`isLoading`, `isLoaded`, `isDisposed`) | `spatial_audio_app.js` | ~30 | 20 min | ✅ None |
-| **13B** | 2 | Implement zone detection logic | `spatial_audio_app.js` | ~80 | 40 min | ⚠️ Low |
-| **13C** | 3 | Add `_loadAndStartSound()` method | `spatial_audio_app.js` | ~50 | 25 min | ⚠️ Low |
-| **13D** | 4 | Add `_preloadSound()` method | `spatial_audio_app.js` | ~40 | 20 min | ✅ None |
-| **13E** | 5 | Add `_disposeSound()` method | `spatial_audio_app.js` | ~60 | 30 min | ⚠️ Low |
-| **13F** | 6 | Integrate zone system into `_updateSoundPositions()` | `spatial_audio_app.js` | ~50 | 25 min | ⚠️ Medium |
-| **13G** | 7 | Add debug logging + UI indicators | `spatial_audio_app.js`, `map_player.html` | ~70 | 35 min | ✅ None |
+| **13A** | 1 | Add Sound type + state tracking | `spatial_audio_app.js` | ~50 | 25 min | ✅ None |
+| **13B** | 2 | Implement type-aware zone detection | `spatial_audio_app.js` | ~110 | 45 min | ⚠️ Low |
+| **13C** | 3 | Add `_loadAndStartSound()` (type-aware) | `spatial_audio_app.js` | ~80 | 35 min | ⚠️ Low |
+| **13D** | 4 | Add `_preloadSound()` (buffers only) | `spatial_audio_app.js` | ~40 | 20 min | ✅ None |
+| **13E** | 5 | Add `_disposeSound()` (type-aware) | `spatial_audio_app.js` | ~90 | 40 min | ⚠️ Low |
+| **13F** | 6 | Integrate zone system into update loop | `spatial_audio_app.js` | ~50 | 25 min | ⚠️ Medium |
+| **13G** | 7 | Add debug logging + UI indicators | `spatial_audio_app.js`, `map_player.html` | ~80 | 35 min | ✅ None |
 | **13H** | 8 | Test with 20-50 waypoints (memory + CPU profiling) | Browser DevTools | - | 45 min | ✅ None |
-| **Total** | | | **4 files** | **~380 lines** | **~3h 40m** | **Low** |
+| **Total** | | | **2 files** | **~500** | **~4h 30m** | **Low** |
 
 ---
 
@@ -4905,11 +4921,13 @@ If issues arise:
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| **13** | Lazy loading for sound walks | High | 📋 Planned |
+| **13** | Lazy loading for sound walks (Phase 1: Buffers, Oscillators, Streams) | High | 📋 Planned |
 | **14** | Distance-based audio filtering (air absorption) | High | 📋 Planned |
 | **15** | Behavior editing UI | Medium | 📋 Planned |
 | **16** | Multi-user collaboration | Low | 📋 Planned |
 | **17** | Offline-first architecture | Low | 📋 Planned |
+
+**Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md` for complete implementation plan and `FUTURE_SOUND_SOURCES.md` for future sound source types (Phase 2+)
 
 **Feature 14 Documentation:** See `FEATURE_14_DISTANCE_BASED_AUDIO.md` for complete implementation plan
 
