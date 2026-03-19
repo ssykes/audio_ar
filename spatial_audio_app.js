@@ -1061,15 +1061,21 @@ class SpatialAudioApp {
         // Buffers: Standard 3-zone lazy loading with fixed margins
         const inActiveZone = distance < activationRadius;
         const inPreloadZone = distance < preloadStart;
-        
+
         // === HYSTERESIS: Prevent rapid load/dispose cycles at boundary ===
         // Only dispose if sound was already in unload zone AND user walked further
         // This prevents cycling when user stands near the disposal boundary
         const disposeThreshold = unloadDistance + config.hysteresis;
         const wasInUnloadZone = sound.currentZone === 'unload';
-        const shouldDispose = wasInUnloadZone 
+        const shouldDispose = wasInUnloadZone
             ? distance > disposeThreshold  // Use hysteresis if was in unload zone
             : distance > unloadDistance;   // Normal disposal if newly entering
+
+        // DEBUG: Log zone calculation for buffers (20% sampling to avoid spam)
+        if (this.onDebugLog && Math.random() < 0.2) {
+            this.onDebugLog(`  🧮 [ZONE CALC] ${sound.id}: radius=${activationRadius}m, preloadStart=${preloadStart}m, unload=${unloadDistance}m, disposeThresh=${disposeThreshold}m`);
+            this.onDebugLog(`    distance=${distance.toFixed(1)}m | inActive=${inActiveZone}, inPreload=${inPreloadZone}, wasInUnload=${wasInUnloadZone} → zone=${inActiveZone ? 'active' : inPreloadZone ? 'preload' : 'unload'}, shouldDispose=${shouldDispose}`);
+        }
 
         return {
             zone: inActiveZone ? 'active' :
@@ -1093,11 +1099,21 @@ class SpatialAudioApp {
         const toDispose = [];
         const toResume = [];
 
+        // DEBUG: Log all sound states at start of zone check
+        if (this.onDebugLog) {
+            this.onDebugLog(`📊 [ZONE DEBUG] Checking ${this.sounds.length} sounds:`);
+        }
+
         this.sounds.forEach(sound => {
             const distance = this.getSoundDistance(sound.id);
             const zone = this._getSoundZone(sound, distance);
             const activationRadius = sound.activationRadius || 30;
             const fadeZone = 20;  // Match spatial_audio.js fade zone
+
+            // DEBUG: Log each sound's state
+            if (this.onDebugLog) {
+                this.onDebugLog(`  🔍 ${sound.id}: ${distance.toFixed(1)}m | loaded=${sound.isLoaded} | playing=${sound.isPlaying} | disposed=${sound.isDisposed} | zone=${sound.currentZone || 'null'}→${zone.zone}`);
+            }
 
             // Store current zone for debugging
             const previousZone = sound.currentZone;
@@ -1186,12 +1202,29 @@ class SpatialAudioApp {
             }
 
             if (zone.shouldDispose && !sound.isDisposed) {
+                // DEBUG: Log disposal decision with hysteresis info
+                if (this.onDebugLog) {
+                    const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
+                    const disposeThreshold = (activationRadius + config.preloadMargin + config.unloadMargin) + config.hysteresis;
+                    const wasInUnloadZone = previousZone === 'unload';
+                    this.onDebugLog(`  🗑️ [DISPOSE] ${sound.id}: zone=${zone.zone}, distance=${distance.toFixed(1)}m, activationRadius=${activationRadius}m, previousZone=${previousZone}, wasInUnload=${wasInUnloadZone}, disposeThreshold=${disposeThreshold}m`);
+                }
                 toDispose.push(sound);
             }
         });
 
         if (this.onDebugLog && (toLoad.length > 0 || toPreload.length > 0 || toDispose.length > 0)) {
             this.onDebugLog(`📦 Zone results: ${toLoad.length} to load, ${toPreload.length} to preload, ${toDispose.length} to dispose`);
+        }
+
+        // DEBUG: Log summary of all sound states
+        if (this.onDebugLog) {
+            const activeCount = this.sounds.filter(s => s.currentZone === 'active').length;
+            const preloadCount = this.sounds.filter(s => s.currentZone === 'preload').length;
+            const unloadCount = this.sounds.filter(s => s.currentZone === 'unload').length;
+            const loadedCount = this.sounds.filter(s => s.isLoaded && !s.isDisposed).length;
+            const disposedCount = this.sounds.filter(s => s.isDisposed).length;
+            this.onDebugLog(`📊 [ZONE SUMMARY] active=${activeCount}, preload=${preloadCount}, unload=${unloadCount} | loaded=${loadedCount}, disposed=${disposedCount}, total=${this.sounds.length}`);
         }
 
         return { toLoad, toPreload, toDispose, toResume };
