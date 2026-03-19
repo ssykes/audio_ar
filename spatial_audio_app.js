@@ -15,15 +15,15 @@
  * - Compass integration for device orientation
  * - Sound source lifecycle (create, start, stop, update)
  * - UI callbacks for position/state updates
- * - FEATURE 13: Lazy loading with 3-zone system (active/preload/unload)
- * 
- * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m unload)
+ * - FEATURE 13: Lazy loading with 3-zone system (active/preload/hysteresis)
+ *
+ * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m hysteresis)
  * =================================================
- * 0-20m:   ACTIVE ZONE    → Load + Play (gain fades at edge)
- * 20-30m:  PRELOAD ZONE   → Load muted (10m = ~6 sec walk time @ 4mph)
- * 30-40m:  UNLOAD ZONE    → Keep loaded, still playing (faded out)
- * >40m:    DISPOSE ZONE   → Dispose + free memory
- * 
+ * 0-20m:   ACTIVE ZONE      → Load + Play (gain fades at edge)
+ * 20-30m:  PRELOAD ZONE     → Load muted (10m = ~6 sec walk time @ 4mph)
+ * 30-40m:  HYSTERESIS ZONE  → Keep loaded, still playing (faded out)
+ * >40m:    DISPOSE ZONE     → Dispose + free memory
+ *
  * HYSTERESIS (prevents rapid cycling at boundaries):
  * - Disposal threshold: unloadDistance + hysteresis (40m + 10m = 50m)
  * - User must walk 50m away before disposal (not 40m)
@@ -135,7 +135,7 @@ class Sound {
         this.isDisposed = false;   // Nodes disposed (freed from memory)
         this.isPaused = false;     // Stream paused (connection kept)
         this.loadPromise = null;   // Promise for async loading
-        this.currentZone = null;   // 'active' | 'preload' | 'unload' | 'paused'
+        this.currentZone = null;   // 'active' | 'preload' | 'hysteresis' | 'paused'
 
         // Runtime state (managed by engine)
         this.sourceNode = null;
@@ -211,15 +211,15 @@ class Sound {
 
 /**
  * FEATURE 13: Zone Configuration for Lazy Loading
- * Defines distances for active/preload/unload zones by audio type
+ * Defines distances for active/preload/hysteresis zones by audio type
  * Uses FIXED MARGINS for consistent loading time regardless of radius size
  *
- * ZONE LAYOUT (for 30m activation radius, 20m preload, 10m unload):
+ * ZONE LAYOUT (for 30m activation radius, 20m preload, 10m hysteresis):
  * ================================================================
- * 0-30m:   ACTIVE ZONE    → Load + Play (full volume)
- * 30-50m:  PRELOAD ZONE   → Load + Play (faded based on distance)
- * 50-60m:  UNLOAD ZONE    → Keep loaded, still playing (faded out)
- * >60m:    DISPOSE ZONE   → Dispose + free memory (with hysteresis)
+ * 0-30m:   ACTIVE ZONE      → Load + Play (full volume)
+ * 30-50m:  PRELOAD ZONE     → Load + Play (faded based on distance)
+ * 50-60m:  HYSTERESIS ZONE  → Keep loaded, still playing (faded out)
+ * >60m:    DISPOSE ZONE     → Dispose + free memory
  *
  * CRITICAL: preloadMargin MUST match or exceed the fade zone (20m) in spatial_audio.js
  * This ensures sounds are loaded BEFORE user enters the fade zone, not after.
@@ -1039,17 +1039,17 @@ class SpatialAudioApp {
             const pauseStart = activationRadius + config.pauseMargin;
             const inActiveZone = distance < activationRadius;
             const inPauseZone = distance < pauseStart;
-            
+
             // === HYSTERESIS: Prevent rapid pause/dispose cycles ===
             const disposeThreshold = unloadDistance + config.hysteresis;
-            const wasInUnloadZone = sound.currentZone === 'unloaded';
-            const shouldDispose = wasInUnloadZone 
+            const wasInHysteresisZone = sound.currentZone === 'hysteresis';
+            const shouldDispose = wasInHysteresisZone
                 ? distance > disposeThreshold
                 : distance > unloadDistance;
 
             return {
                 zone: inActiveZone ? 'active' :
-                      inPauseZone ? 'paused' : 'unloaded',
+                      inPauseZone ? 'paused' : 'hysteresis',
                 shouldLoad: inPauseZone,  // Load/pause within pause zone
                 shouldPlay: inActiveZone,
                 shouldDispose: shouldDispose,
@@ -1063,23 +1063,23 @@ class SpatialAudioApp {
         const inPreloadZone = distance < preloadStart;
 
         // === HYSTERESIS: Prevent rapid load/dispose cycles at boundary ===
-        // Only dispose if sound was already in unload zone AND user walked further
+        // Only dispose if sound was already in hysteresis zone AND user walked further
         // This prevents cycling when user stands near the disposal boundary
         const disposeThreshold = unloadDistance + config.hysteresis;
-        const wasInUnloadZone = sound.currentZone === 'unload';
-        const shouldDispose = wasInUnloadZone
-            ? distance > disposeThreshold  // Use hysteresis if was in unload zone
+        const wasInHysteresisZone = sound.currentZone === 'hysteresis';
+        const shouldDispose = wasInHysteresisZone
+            ? distance > disposeThreshold  // Use hysteresis if was in hysteresis zone
             : distance > unloadDistance;   // Normal disposal if newly entering
 
         // DEBUG: Log zone calculation for buffers (20% sampling to avoid spam)
         if (this.onDebugLog && Math.random() < 0.2) {
             this.onDebugLog(`  🧮 [ZONE CALC] ${sound.id}: radius=${activationRadius}m, preloadStart=${preloadStart}m, unload=${unloadDistance}m, disposeThresh=${disposeThreshold}m`);
-            this.onDebugLog(`    distance=${distance.toFixed(1)}m | inActive=${inActiveZone}, inPreload=${inPreloadZone}, wasInUnload=${wasInUnloadZone} → zone=${inActiveZone ? 'active' : inPreloadZone ? 'preload' : 'unload'}, shouldDispose=${shouldDispose}`);
+            this.onDebugLog(`    distance=${distance.toFixed(1)}m | inActive=${inActiveZone}, inPreload=${inPreloadZone}, wasInHysteresis=${wasInHysteresisZone} → zone=${inActiveZone ? 'active' : inPreloadZone ? 'preload' : 'hysteresis'}, shouldDispose=${shouldDispose}`);
         }
 
         return {
             zone: inActiveZone ? 'active' :
-                  inPreloadZone ? 'preload' : 'unload',
+                  inPreloadZone ? 'preload' : 'hysteresis',
             shouldLoad: inPreloadZone,
             shouldPlay: inActiveZone,
             shouldDispose: shouldDispose,
@@ -1144,7 +1144,7 @@ class SpatialAudioApp {
 
             // Log when sound is well outside (beyond fade zone)
             const wellOutside = distance > (activationRadius + fadeZone);
-            if (wellOutside && zone.zone === 'unload' && this.onDebugLog && Math.random() < 0.05) {
+            if (wellOutside && zone.zone === 'hysteresis' && this.onDebugLog && Math.random() < 0.05) {
                 this.onDebugLog(`❌ OUTSIDE: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | fadeZone=${fadeZone}m | shouldDispose=${zone.shouldDispose}`);
             }
 
@@ -1206,8 +1206,8 @@ class SpatialAudioApp {
                 if (this.onDebugLog) {
                     const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
                     const disposeThreshold = (activationRadius + config.preloadMargin + config.unloadMargin) + config.hysteresis;
-                    const wasInUnloadZone = previousZone === 'unload';
-                    this.onDebugLog(`  🗑️ [DISPOSE] ${sound.id}: zone=${zone.zone}, distance=${distance.toFixed(1)}m, activationRadius=${activationRadius}m, previousZone=${previousZone}, wasInUnload=${wasInUnloadZone}, disposeThreshold=${disposeThreshold}m`);
+                    const wasInHysteresisZone = previousZone === 'hysteresis';
+                    this.onDebugLog(`  🗑️ [DISPOSE] ${sound.id}: zone=${zone.zone}, distance=${distance.toFixed(1)}m, activationRadius=${activationRadius}m, previousZone=${previousZone}, wasInHysteresis=${wasInHysteresisZone}, disposeThreshold=${disposeThreshold}m`);
                 }
                 toDispose.push(sound);
             }
@@ -1221,10 +1221,10 @@ class SpatialAudioApp {
         if (this.onDebugLog) {
             const activeCount = this.sounds.filter(s => s.currentZone === 'active').length;
             const preloadCount = this.sounds.filter(s => s.currentZone === 'preload').length;
-            const unloadCount = this.sounds.filter(s => s.currentZone === 'unload').length;
+            const hysteresisCount = this.sounds.filter(s => s.currentZone === 'hysteresis').length;
             const loadedCount = this.sounds.filter(s => s.isLoaded && !s.isDisposed).length;
             const disposedCount = this.sounds.filter(s => s.isDisposed).length;
-            this.onDebugLog(`📊 [ZONE SUMMARY] active=${activeCount}, preload=${preloadCount}, unload=${unloadCount} | loaded=${loadedCount}, disposed=${disposedCount}, total=${this.sounds.length}`);
+            this.onDebugLog(`📊 [ZONE SUMMARY] active=${activeCount}, preload=${preloadCount}, hysteresis=${hysteresisCount} | loaded=${loadedCount}, disposed=${disposedCount}, total=${this.sounds.length}`);
         }
 
         return { toLoad, toPreload, toDispose, toResume };
