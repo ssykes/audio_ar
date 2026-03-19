@@ -4919,19 +4919,19 @@ If issues arise:
 | **13** | Lazy loading for sound walks (Phase 1) | ✅ Complete | `spatial_audio_app.js` v2.7+ |
 | **13** | Debug logging for zone verification | ✅ Complete | `spatial_audio_app.js`, `DEBUG_LOGGING_ADDED.md` |
 | **13** | Rename 'unload zone' to 'hysteresis zone' | ✅ Complete | `spatial_audio_app.js` |
+| **14** | Distance-based audio filtering (air absorption) | ✅ Complete | `spatial_audio_app.js` v2.8 |
 
 ### 📋 Planned Sessions
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| **14** | Distance-based audio filtering (air absorption) | High | 📋 Planned |
 | **15** | Behavior editing UI | Medium | 📋 Planned |
 | **16** | Multi-user collaboration | Low | 📋 Planned |
 | **17** | Offline-first architecture | Low | 📋 Planned |
 
 **Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md`, `LAZY_LOADING_FADE_ZONE_FIX.md`, `DEBUG_LOGGING_ADDED.md`, and `FUTURE_SOUND_SOURCES.md` for complete implementation details.
 
-**Feature 14 Documentation:** See `FEATURE_14_DISTANCE_BASED_AUDIO.md` for complete implementation plan.
+**Feature 14 Documentation:** See `FEATURE_14_IMPLEMENTED.md` for implementation details and testing instructions.
 
 ### 📁 Current File Versions
 
@@ -4946,14 +4946,14 @@ If issues arise:
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-16 |
 | `spatial_audio.js` | v5.1+ | 2026-03-18 |
-| `spatial_audio_app.js` | v2.7+ | 2026-03-18 |
+| `spatial_audio_app.js` | v2.8 | 2026-03-18 (Feature 14: Air absorption filter) |
 
 ### 🎯 Next Priority Items
 
-1. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading
+1. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
 2. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
-3. **Feature 14: Distance-based audio filtering** - Air absorption simulation (~50 lines, 50 min)
-4. **Behavior editing UI** - Visual timeline for behavior configuration
+3. **Behavior editing UI** - Visual timeline for behavior configuration
+4. **Multi-user collaboration** - WebSocket-based real-time sync
 
 ### 🐛 Known Issues
 
@@ -4963,3 +4963,35 @@ None currently - all lazy loading bugs fixed:
 - ✅ Hysteresis prevents rapid load/dispose cycles
 - ✅ Zone naming clarified ('unload' → 'hysteresis')
 - ✅ Debug logging verifies zone transitions
+
+### ✅ Feature 14: Air Absorption Filter - IMPLEMENTED
+
+**What:** Distance-based low-pass filter simulation (high frequencies lost over distance)
+
+**Implementation:**
+- `spatial_audio_app.js` v2.8: Added `filterNode` to Sound class
+- Filter created on load (all paths: load, preload, oscillator)
+- Filter cutoff updated in `_updateSoundPositions()` based on distance
+- Filter disposal in `_disposeSound()`
+
+**Audio Chain:**
+```
+sourceNode → gain → [Low-Pass Filter] → panner → master
+                      ↑
+                 Distance-based
+                 cutoff frequency
+```
+
+**Frequency Mapping:**
+| Distance | Cutoff | Perception |
+|----------|--------|------------|
+| 0-10m | 18-20 kHz | Crisp, detailed |
+| 30m | 10 kHz | Slightly muted |
+| 50m | 6 kHz | Noticeably thinner |
+| 80m+ | 1 kHz | Muffled, mostly bass |
+
+**Code:** ~60 lines added to `spatial_audio_app.js`
+
+**Testing:** Use map editor simulator - drag avatar away from sounds, listen for high-frequency loss
+
+**Documentation:** `FEATURE_14_IMPLEMENTED.md`

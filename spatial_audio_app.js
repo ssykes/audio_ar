@@ -2,10 +2,11 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 2.7 (Feature 13: Added Hysteresis to Prevent Rapid Load/Dispose Cycles)
+ * @version 2.8 (Feature 14: Distance-Based Audio Filtering / Air Absorption)
  * @depends spatial_audio.js v5.1+
  *
  * Changelog:
+ * - v2.8: Added distance-based low-pass filter (simulates air absorption)
  * - v2.7: Added hysteresis to disposal logic (prevents cycling at zone boundaries)
  * - v2.6: Fixed preloaded sounds not starting when entering active zone
  * - v2.5: Z-Axis Fix Support
@@ -16,6 +17,7 @@
  * - Sound source lifecycle (create, start, stop, update)
  * - UI callbacks for position/state updates
  * - FEATURE 13: Lazy loading with 3-zone system (active/preload/hysteresis)
+ * - FEATURE 14: Air absorption simulation (low-pass filter based on distance)
  *
  * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m hysteresis)
  * =================================================
@@ -142,6 +144,9 @@ class Sound {
         this.isPlaying = false;
         this.gainNode = null;
         this.pannerNode = null;
+        
+        // === FEATURE 14: Distance-Based Audio Filtering (Air Absorption) ===
+        this.filterNode = null;  // Low-pass filter for high-frequency loss over distance
     }
 
     /**
@@ -852,6 +857,25 @@ class SpatialAudioApp {
                     console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m`);
                 }
             }
+            
+            // === FEATURE 14: Update Low-Pass Filter Based on Distance ===
+            // Simulates air absorption (high frequencies lost over distance)
+            if (sound.isLoaded && !sound.isDisposed && sound.filterNode) {
+                const distance = GPSUtils.distance(
+                    this.listener.lat,
+                    this.listener.lon,
+                    sound.lat,
+                    sound.lon
+                );
+                
+                const cutoff = this._calculateFilterCutoff(distance);
+                sound.filterNode.frequency.value = cutoff;
+                
+                // Debug: Log filter updates (throttled, 1% sampling)
+                if (Math.random() < 0.01) {
+                    console.log(`[AudioApp] ${sound.id} filter: ${cutoff.toFixed(0)}Hz @ ${distance.toFixed(1)}m`);
+                }
+            }
         });
 
         // FEATURE 13: Update zones and trigger load/dispose (lazy loading)
@@ -1322,14 +1346,28 @@ class SpatialAudioApp {
                     sound.sourceNode = source;
                     sound.gainNode = source.gain;
                     sound.pannerNode = source.panner;
+
+                    // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
+                    // Insert filter between gain and panner
+                    // Chain: sourceNode → gain → filter → panner → master
+                    sound.filterNode = this.engine.ctx.createBiquadFilter();
+                    sound.filterNode.type = 'lowpass';
+                    sound.filterNode.frequency.value = 20000;  // Start at full spectrum
+                    sound.filterNode.Q.value = 0.5;  // Smooth rolloff
+
+                    // Reconnect: gain → filter → panner
+                    source.gain.disconnect();
+                    source.gain.connect(sound.filterNode);
+                    sound.filterNode.connect(source.panner);
+
                     sound.isPlaying = true;
                     sound.isLoaded = true;
-                    
+
                     // CRITICAL: Immediately apply distance-based gain (handles fade zone)
                     this._applyDistanceGain(sound);
-                    
+
                     if (this.onDebugLog) {
-                        this.onDebugLog(`✅ ${sound.id} loaded + started (oscillator fallback)`);
+                        this.onDebugLog(`✅ ${sound.id} loaded + started (oscillator fallback + filter)`);
                     }
                 }
             } catch (error) {
@@ -1366,15 +1404,28 @@ class SpatialAudioApp {
                     sound.sourceNode = source;
                     sound.gainNode = source.gain;
                     sound.pannerNode = source.panner;
+
+                    // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
+                    // Insert filter between gain and panner
+                    // Chain: sourceNode → gain → filter → panner → master
+                    sound.filterNode = this.engine.ctx.createBiquadFilter();
+                    sound.filterNode.type = 'lowpass';
+                    sound.filterNode.frequency.value = 20000;  // Start at full spectrum
+                    sound.filterNode.Q.value = 0.5;  // Smooth rolloff
+
+                    // Reconnect: gain → filter → panner
+                    source.gain.disconnect();
+                    source.gain.connect(sound.filterNode);
+                    sound.filterNode.connect(source.panner);
+
                     sound.isPlaying = true;
                     sound.isLoaded = true;
-                    
+
                     // CRITICAL: Immediately apply distance-based gain (handles fade zone)
-                    // This ensures sound starts at correct volume if listener is already in fade zone
                     this._applyDistanceGain(sound);
-                    
+
                     if (this.onDebugLog) {
-                        this.onDebugLog(`✅ ${sound.id} loaded + started`);
+                        this.onDebugLog(`✅ ${sound.id} loaded + started (with air absorption filter)`);
                     }
                 } else {
                     if (this.onDebugLog) {
@@ -1502,18 +1553,32 @@ class SpatialAudioApp {
                 sound.sourceNode = source;
                 sound.gainNode = source.gain;
                 sound.pannerNode = source.panner;
+
+                // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
+                // Insert filter between gain and panner
+                // Chain: sourceNode → gain → filter → panner → master
+                sound.filterNode = this.engine.ctx.createBiquadFilter();
+                sound.filterNode.type = 'lowpass';
+                sound.filterNode.frequency.value = 20000;  // Start at full spectrum
+                sound.filterNode.Q.value = 0.5;  // Smooth rolloff
+
+                // Reconnect: gain → filter → panner
+                source.gain.disconnect();
+                source.gain.connect(sound.filterNode);
+                sound.filterNode.connect(source.panner);
+
                 sound.isLoaded = true;
-                
+
                 // CRITICAL: Start playback immediately (for fade zone)
                 // The gain will be set by _applyDistanceGain() below
                 const started = source.start();
                 if (started) {
                     sound.isPlaying = true;
-                    
+
                     // CRITICAL: Apply distance-based gain immediately
                     // This sets the correct faded volume based on listener position
                     this._applyDistanceGain(sound);
-                    
+
                     if (this.onDebugLog) {
                         const gain = sound.gainNode ? sound.gainNode.gain.value : 0;
                         const distance = this.getSoundDistance(sound.id);
@@ -1595,6 +1660,12 @@ class SpatialAudioApp {
         if (sound.pannerNode) {
             sound.pannerNode.disconnect();
             sound.pannerNode = null;
+        }
+
+        // === FEATURE 14: Dispose Low-Pass Filter ===
+        if (sound.filterNode) {
+            sound.filterNode.disconnect();
+            sound.filterNode = null;
         }
 
         // Keep buffer in memory (can reload quickly if needed)
@@ -1780,6 +1851,30 @@ class SpatialAudioApp {
      */
     _lerp(start, end, t) {
         return start + (end - start) * t;
+    }
+
+    /**
+     * FEATURE 14: Calculate low-pass filter cutoff frequency based on distance
+     * Simulates air absorption (high frequencies lost over distance)
+     * 
+     * Real-world physics: Air, ground, and turbulence absorb high frequencies
+     * more than low frequencies, making distant sounds seem muffled.
+     *
+     * @param {number} distance - Distance to sound in meters
+     * @returns {number} Cutoff frequency in Hz
+     */
+    _calculateFilterCutoff(distance) {
+        // Configuration constants
+        const MIN_FREQ = 1000;    // Muffled at max distance (like distant thunder)
+        const MAX_FREQ = 20000;   // Full spectrum when close (human hearing limit)
+        const MAX_DISTANCE = 80;  // Distance where sound becomes very muffled
+
+        // Linear interpolation
+        const ratio = Math.min(distance / MAX_DISTANCE, 1);
+        const cutoff = MAX_FREQ - (ratio * (MAX_FREQ - MIN_FREQ));
+
+        // Ensure minimum frequency (don't go completely muffled)
+        return Math.max(MIN_FREQ, cutoff);
     }
 
     /**
