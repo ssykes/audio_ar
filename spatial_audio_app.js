@@ -213,12 +213,22 @@ class Sound {
  * FEATURE 13: Zone Configuration for Lazy Loading
  * Defines distances for active/preload/unload zones by audio type
  * Uses FIXED MARGINS for consistent loading time regardless of radius size
+ *
+ * ZONE LAYOUT (for 30m activation radius, 20m preload, 10m unload):
+ * ================================================================
+ * 0-30m:   ACTIVE ZONE    → Load + Play (full volume)
+ * 30-50m:  PRELOAD ZONE   → Load + Play (faded based on distance)
+ * 50-60m:  UNLOAD ZONE    → Keep loaded, still playing (faded out)
+ * >60m:    DISPOSE ZONE   → Dispose + free memory (with hysteresis)
+ *
+ * CRITICAL: preloadMargin MUST match or exceed the fade zone (20m) in spatial_audio.js
+ * This ensures sounds are loaded BEFORE user enters the fade zone, not after.
  */
 const ZoneConfig = {
     // Buffers (MP3/WAV): Standard 3-zone lazy loading
     buffer: {
         activeMultiplier: 1.0,    // Active within 100% of activation radius (plays throughout)
-        preloadMargin: 10,        // Fixed 10m preload (5.6 seconds at 4 mph walking speed)
+        preloadMargin: 20,        // Fixed 20m preload (MUST match fade zone: 20m)
         unloadMargin: 10,         // Fixed 10m hysteresis (dispose 10m after preload zone)
         hysteresis: 10            // Prevent rapid load/unload cycles
     },
@@ -1138,6 +1148,9 @@ class SpatialAudioApp {
                     if (!sound.isLoaded) {
                         // Not loaded yet - load and start
                         toLoad.push(sound);
+                        if (this.onDebugLog) {
+                            this.onDebugLog(`📥 ACTIVE ZONE: ${sound.id} queued for loading (${distance.toFixed(1)}m < ${activationRadius}m)`);
+                        }
                     } else if (!sound.isPlaying) {
                         // Already loaded (was preloaded) but not playing - start it
                         toLoad.push(sound);
@@ -1147,12 +1160,21 @@ class SpatialAudioApp {
                     }
                     // else: Already loaded and playing - do nothing
                 }
-                // === PRELOAD ZONE: Load but don't play ===
+                // === PRELOAD ZONE: Load AND play (for fade zone) ===
                 else if (zone.zone === 'preload') {
                     if (!sound.isLoaded) {
                         toPreload.push(sound);
+                        if (this.onDebugLog) {
+                            this.onDebugLog(`📦 PRELOAD ZONE: ${sound.id} queued for preload (${distance.toFixed(1)}m, ${activationRadius}m < d < ${activationRadius + fadeZone}m)`);
+                        }
+                    } else if (!sound.isPlaying) {
+                        // Already loaded but not playing - start it (shouldn't happen, but handle it)
+                        toPreload.push(sound);
+                        if (this.onDebugLog) {
+                            this.onDebugLog(`▶️ ${sound.id} loaded → starting (preload zone, ${distance.toFixed(1)}m)`);
+                        }
                     }
-                    // else: Already preloaded - do nothing
+                    // else: Already preloaded and playing - do nothing
                 }
                 // === PAUSED ZONE (streams): Resume paused streams ===
                 else if (zone.zone === 'paused' && sound.isPaused) {
@@ -1201,6 +1223,11 @@ class SpatialAudioApp {
                 }
 
                 sound.isPlaying = true;
+                
+                // CRITICAL: Immediately apply distance-based gain (handles fade zone)
+                // This ensures sound starts at correct volume if listener is already in fade zone
+                this._applyDistanceGain(sound);
+                
                 if (this.onDebugLog) {
                     this.onDebugLog(`✅ ${sound.id} started (was preloaded)`);
                 }
@@ -1264,6 +1291,10 @@ class SpatialAudioApp {
                     sound.pannerNode = source.panner;
                     sound.isPlaying = true;
                     sound.isLoaded = true;
+                    
+                    // CRITICAL: Immediately apply distance-based gain (handles fade zone)
+                    this._applyDistanceGain(sound);
+                    
                     if (this.onDebugLog) {
                         this.onDebugLog(`✅ ${sound.id} loaded + started (oscillator fallback)`);
                     }
@@ -1304,6 +1335,11 @@ class SpatialAudioApp {
                     sound.pannerNode = source.panner;
                     sound.isPlaying = true;
                     sound.isLoaded = true;
+                    
+                    // CRITICAL: Immediately apply distance-based gain (handles fade zone)
+                    // This ensures sound starts at correct volume if listener is already in fade zone
+                    this._applyDistanceGain(sound);
+                    
                     if (this.onDebugLog) {
                         this.onDebugLog(`✅ ${sound.id} loaded + started`);
                     }
@@ -1324,6 +1360,40 @@ class SpatialAudioApp {
             console.error(`[SpatialAudioApp] Failed to load ${sound.id}:`, error);
         } finally {
             sound.isLoading = false;
+        }
+    }
+
+    /**
+     * Apply distance-based gain to a sound (fade zone handling)
+     * Called immediately after loading to ensure correct initial volume
+     * @param {Sound} sound - Sound to update
+     * @private
+     */
+    _applyDistanceGain(sound) {
+        if (!this.listener || !sound.sourceNode || !sound.sourceNode.updateGainByDistance) {
+            return;
+        }
+
+        // Calculate distance and apply gain immediately
+        const distance = GPSUtils.distance(
+            this.listener.lat,
+            this.listener.lon,
+            sound.lat,
+            sound.lon
+        );
+
+        // Apply gain based on distance (fade zone handles smooth transitions)
+        sound.sourceNode.updateGainByDistance(
+            this.listener.lat,
+            this.listener.lon,
+            sound.volume  // Max volume at close range
+        );
+
+        if (this.onDebugLog) {
+            const gain = sound.gainNode ? sound.gainNode.gain.value : 0;
+            const inFadeZone = distance > sound.activationRadius && distance <= (sound.activationRadius + 20);
+            const zone = distance < sound.activationRadius ? '🔊 ACTIVE' : (inFadeZone ? '🌗 FADE' : '❌ OUTSIDE');
+            this.onDebugLog(`🎚️ ${sound.id} initial gain: ${gain.toFixed(3)} @ ${distance.toFixed(1)}m (${zone})`);
         }
     }
 
@@ -1359,6 +1429,10 @@ class SpatialAudioApp {
     /**
      * FEATURE 13: Preload sound in background (don't play yet)
      * Only for buffers - oscillators are instant, streams use pause-only strategy
+     * 
+     * NOTE: Despite the name "preload", this method now STARTS playback for sounds
+     * in the fade zone. The gain is set by _applyDistanceGain() to handle fading.
+     * 
      * @param {Sound} sound - Sound to preload
      * @returns {Promise<void>}
      * @private
@@ -1380,25 +1454,42 @@ class SpatialAudioApp {
         }
 
         try {
-            // Create source and load buffer, but don't start playback
+            // Create source and load buffer
+            // NOTE: Start with gain = 0 to prevent loud burst, then fade in
             const source = await this.engine.createSampleSource(sound.id, {
                 url: sound.url,
                 lat: sound.lat,
                 lon: sound.lon,
                 loop: sound.loop,
-                gain: 0,  // Muted until moved to active zone
+                gain: 0,  // Start muted, will set correct gain below
                 activationRadius: sound.activationRadius
             });
 
             if (source) {
-                // Don't start - just keep buffer loaded and ready
                 sound.sourceNode = source;
                 sound.gainNode = source.gain;
                 sound.pannerNode = source.panner;
                 sound.isLoaded = true;
-                sound.isPlaying = false;
-                if (this.onDebugLog) {
-                    this.onDebugLog(`✅ ${sound.id} preloaded (muted)`);
+                
+                // CRITICAL: Start playback immediately (for fade zone)
+                // The gain will be set by _applyDistanceGain() below
+                const started = source.start();
+                if (started) {
+                    sound.isPlaying = true;
+                    
+                    // CRITICAL: Apply distance-based gain immediately
+                    // This sets the correct faded volume based on listener position
+                    this._applyDistanceGain(sound);
+                    
+                    if (this.onDebugLog) {
+                        const gain = sound.gainNode ? sound.gainNode.gain.value : 0;
+                        const distance = this.getSoundDistance(sound.id);
+                        this.onDebugLog(`✅ ${sound.id} preloaded + started (gain=${gain.toFixed(3)} @ ${distance.toFixed(1)}m)`);
+                    }
+                } else {
+                    if (this.onDebugLog) {
+                        this.onDebugLog(`⚠️ ${sound.id} preload start failed`);
+                    }
                 }
             }
         } catch (error) {
