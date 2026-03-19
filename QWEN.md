@@ -4898,7 +4898,7 @@ If issues arise:
 
 ---
 
-## Current Project Status (2026-03-16)
+## Current Project Status (2026-03-18)
 
 ### ✅ Completed Features
 
@@ -4916,46 +4916,50 @@ If issues arise:
 | **11** | Debug log copy (integrated in F10) | ✅ Complete | `map_shared.js` |
 | **12** | Edit waypoint duplicate fix + refresh persistence | ✅ Complete | `map_shared.js`, `map_player.js` |
 | **13** | Listener drift compensation (EMA smoothing) | ✅ Complete | `spatial_audio_app.js`, `map_player.js`, `map_shared.js` |
+| **13** | Lazy loading for sound walks (Phase 1) | ✅ Complete | `spatial_audio_app.js` v2.7+ |
+| **13** | Debug logging for zone verification | ✅ Complete | `spatial_audio_app.js`, `DEBUG_LOGGING_ADDED.md` |
+| **13** | Rename 'unload zone' to 'hysteresis zone' | ✅ Complete | `spatial_audio_app.js` |
 
 ### 📋 Planned Sessions
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| **13** | Lazy loading for sound walks (Phase 1: Buffers, Oscillators, Streams) | High | 📋 Planned |
 | **14** | Distance-based audio filtering (air absorption) | High | 📋 Planned |
 | **15** | Behavior editing UI | Medium | 📋 Planned |
 | **16** | Multi-user collaboration | Low | 📋 Planned |
 | **17** | Offline-first architecture | Low | 📋 Planned |
 
-**Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md` for complete implementation plan and `FUTURE_SOUND_SOURCES.md` for future sound source types (Phase 2+)
+**Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md`, `LAZY_LOADING_FADE_ZONE_FIX.md`, `DEBUG_LOGGING_ADDED.md`, and `FUTURE_SOUND_SOURCES.md` for complete implementation details.
 
-**Feature 14 Documentation:** See `FEATURE_14_DISTANCE_BASED_AUDIO.md` for complete implementation plan
+**Feature 14 Documentation:** See `FEATURE_14_DISTANCE_BASED_AUDIO.md` for complete implementation plan.
 
 ### 📁 Current File Versions
 
 | File | Version | Last Updated |
 |------|---------|--------------|
-| `map_player.html` | v7.2 | 2026-03-16 19:00 |
-| `map_player.js` | v7.2+ | 2026-03-16 19:00 |
-| `map_editor.html` | v6.59+ | 2026-03-16 |
+| `map_player.html` | v7.2 | 2026-03-18 |
+| `map_player.js` | v7.2+ | 2026-03-18 |
+| `map_editor.html` | v6.119+ | 2026-03-18 |
 | `map_shared.js` | v6.11 | 2026-03-16 |
 | `soundscape.js` | v3.0 | 2026-03-16 |
 | `api-client.js` | - | 2026-03-16 |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-16 |
-| `spatial_audio.js` | v5.1 | - |
-| `spatial_audio_app.js` | - | - |
+| `spatial_audio.js` | v5.1+ | 2026-03-18 |
+| `spatial_audio_app.js` | v2.7+ | 2026-03-18 |
 
 ### 🎯 Next Priority Items
 
-1. **Feature 13: Lazy loading** - Critical for sound walks with many waypoints
-2. **Test on mobile devices** - Verify GPS/compass work on phones
-3. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
-4. **Feature 14: Distance-based audio filtering** - Air absorption simulation (~50 lines, 50 min)
-5. **Behavior editing UI** - Visual timeline for behavior configuration
+1. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading
+2. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
+3. **Feature 14: Distance-based audio filtering** - Air absorption simulation (~50 lines, 50 min)
+4. **Behavior editing UI** - Visual timeline for behavior configuration
 
 ### 🐛 Known Issues
 
-None currently - all Feature 12 bugs fixed:
-- ✅ Edit waypoint duplicate bug fixed
-- ✅ Waypoints persist on page refresh
+None currently - all lazy loading bugs fixed:
+- ✅ Preload margin matches fade zone (20m)
+- ✅ Preloaded sounds start playing immediately
+- ✅ Hysteresis prevents rapid load/dispose cycles
+- ✅ Zone naming clarified ('unload' → 'hysteresis')
+- ✅ Debug logging verifies zone transitions
