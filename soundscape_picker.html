@@ -107,9 +107,340 @@
         .icon {
             margin-right: 8px;
         }
+
+        /* Download button and progress */
+        .soundscape-actions {
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .download-btn {
+            background: rgba(0, 217, 255, 0.2);
+            border: 1px solid rgba(0, 217, 255, 0.5);
+            color: #00d9ff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .download-btn:hover {
+            background: rgba(0, 217, 255, 0.3);
+            border-color: #00d9ff;
+        }
+
+        .download-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .download-progress {
+            flex: 1;
+            min-width: 150px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            transition: width 0.3s ease-out;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 0.75em;
+            color: #00ff88;
+            min-width: 40px;
+            white-space: nowrap;
+        }
+
+        .offline-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #00ff88;
+            font-size: 0.85em;
+            background: rgba(0, 255, 136, 0.1);
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .delete-offline-btn {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            cursor: pointer;
+            font-size: 1em;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            padding: 2px 6px;
+        }
+
+        .delete-offline-btn:hover {
+            opacity: 1;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 480px) {
+            .soundscape-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .download-progress {
+                min-width: auto;
+            }
+        }
+
+        /* Toast animations */
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateX(-50%) translateY(20px);
+            }
+        }
+
+        /* Debug Toggle Icon (lower left corner) */
+        .debug-toggle {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #00d9ff;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            transition: all 0.2s;
+            z-index: 999;
+        }
+
+        .debug-toggle:hover {
+            background: rgba(0, 217, 255, 0.3);
+            border-color: #00d9ff;
+            transform: scale(1.1);
+        }
+
+        .debug-toggle.hidden {
+            opacity: 0.5;
+        }
+
+        /* Debug Console Modal */
+        .debug-modal {
+            display: none;
+            position: fixed;
+            bottom: 60px;
+            left: 10px;
+            width: calc(100% - 20px);
+            max-width: 500px;
+            max-height: 60vh;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            z-index: 1000;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .debug-modal.visible {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .debug-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .debug-modal-title {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #00d9ff;
+        }
+
+        .debug-modal-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .debug-copy-btn {
+            background: rgba(0, 217, 255, 0.2);
+            border: 1px solid rgba(0, 217, 255, 0.5);
+            color: #00d9ff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+
+        .debug-copy-btn:hover {
+            background: rgba(0, 217, 255, 0.3);
+        }
+
+        .debug-modal-close {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.5em;
+            cursor: pointer;
+            padding: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+        }
+
+        .debug-modal-close:hover {
+            opacity: 0.7;
+        }
+
+        .debug-modal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8em;
+            line-height: 1.5;
+            background: #0d0d1a;
+        }
+
+        .debug-line {
+            display: block;
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .debug-line.error {
+            color: #ff6b6b;
+        }
+
+        .debug-line.warn {
+            color: #ffd93d;
+        }
+
+        .debug-line.info {
+            color: #00ff88;
+        }
+
+        .debug-line.debug {
+            color: #888;
+        }
     </style>
 </head>
 <body>
+    <!-- Error Overlay (must be first to catch all errors) -->
+    <div id="errorOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.95);z-index:99999;padding:20px;overflow-y:auto;">
+        <div style="background:#1a1a2e;border:2px solid #ff6b6b;border-radius:8px;padding:20px;max-width:600px;margin:20px auto;">
+            <h2 style="color:#ff6b6b;margin-top:0;">⚠️ JavaScript Error</h2>
+            <div id="errorContent" style="font-family:monospace;font-size:0.85em;color:#fff;white-space:pre-wrap;word-break:break-all;"></div>
+            <button onclick="location.reload()" style="margin-top:15px;background:#00d9ff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:1em;">🔄 Reload Page</button>
+            <button onclick="document.getElementById('errorOverlay').style.display='none'" style="margin-top:10px;margin-left:10px;background:#666;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:1em;color:#fff;">✕ Close</button>
+        </div>
+    </div>
+
+    <script>
+        // Global error handler - catches ALL JavaScript errors
+        window.onerror = function(msg, url, line, col, error) {
+            console.error('Global error:', msg, error);
+            
+            const errorOverlay = document.getElementById('errorOverlay');
+            const errorContent = document.getElementById('errorContent');
+            
+            if (errorOverlay && errorContent) {
+                const errorDetails = [
+                    'Message: ' + msg,
+                    'File: ' + url,
+                    'Line: ' + line,
+                    'Column: ' + col,
+                    '',
+                    'Stack:',
+                    error ? error.stack : 'No stack trace'
+                ].join('\n');
+                
+                errorContent.textContent = errorDetails;
+                errorOverlay.style.display = 'block';
+                
+                // Also log to debug window if it exists
+                if (window.app && typeof window.app._debugLog === 'function') {
+                    window.app._debugLog('❌ Fatal error: ' + msg, 'error');
+                }
+            }
+            
+            return false; // Don't suppress default error handling
+        };
+
+        // Catch unhandled promise rejections
+        window.onunhandledrejection = function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+            
+            const errorOverlay = document.getElementById('errorOverlay');
+            const errorContent = document.getElementById('errorContent');
+            
+            if (errorOverlay && errorContent) {
+                const errorDetails = [
+                    'Unhandled Promise Rejection',
+                    '',
+                    'Reason:',
+                    event.reason ? (event.reason.message || event.reason) : 'Unknown',
+                    '',
+                    'Stack:',
+                    event.reason ? event.reason.stack : 'No stack trace'
+                ].join('\n');
+                
+                errorContent.textContent = errorDetails;
+                errorOverlay.style.display = 'block';
+            }
+        };
+
+        console.log('[soundscape_picker.html] Error handlers installed');
+    </script>
+
     <button class="logout-btn" id="logoutBtn">Logout</button>
     
     <div class="container">
@@ -122,9 +453,35 @@
             <li class="loading">Loading soundscapes...</li>
         </ul>
     </div>
+
+    <!-- Debug Toggle Icon (lower left corner) -->
+    <button class="debug-toggle" id="debugToggleBtn" title="Toggle debug log">
+        📋
+    </button>
+
+    <!-- Debug Console Modal -->
+    <div class="debug-modal" id="debugModal">
+        <div class="debug-modal-header">
+            <span class="debug-modal-title">📋 Debug Log</span>
+            <div class="debug-modal-actions">
+                <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋 Copy</button>
+                <button class="debug-modal-close" id="debugCloseBtn">×</button>
+            </div>
+        </div>
+        <div class="debug-modal-content" id="debugModalContent">
+<span class="debug-line info">[picker] 🗺️ Soundscape Picker initializing...</span>
+<span class="debug-line info">[picker] 🔧 Checking login status...</span>
+<span class="debug-line info">[picker] 📡 Fetching soundscapes from server...</span>
+        </div>
+    </div>
     
     <script src="api-client.js"></script>
+    <script>
+        // Use relative URL - Cloudflare will handle HTTPS
+        window.API_BASE_URL = '/api';
+    </script>
     <script src="soundscape.js"></script>
+    <script src="download_manager.js"></script>
     <script>
         /**
          * SoundscapePickerApp - List soundscapes and allow user to select one
@@ -137,21 +494,59 @@
          */
         class SoundscapePickerApp {
             constructor() {
-                this.api = new ApiClient('/api');
-                this.soundscapes = [];
+                console.log('[SoundscapePicker] Constructor starting...');
+                
+                try {
+                    this.api = new ApiClient('/api');
+                    console.log('[SoundscapePicker] ApiClient created');
+                    
+                    this.soundscapes = [];
+                    console.log('[SoundscapePicker] soundscapes array initialized');
+                    
+                    this.downloadManager = new OfflineDownloadManager();
+                    console.log('[SoundscapePicker] OfflineDownloadManager created');
+
+                    // Listen for progress events
+                    window.addEventListener('offline-download-progress', (e) => {
+                        this._onDownloadProgress(e.detail);
+                    });
+                    console.log('[SoundscapePicker] Progress event listener added');
+                    
+                    console.log('[SoundscapePicker] Constructor complete');
+                } catch (error) {
+                    console.error('[SoundscapePicker] Constructor error:', error);
+                    throw error;
+                }
             }
             
             /**
              * Initialize the picker app
              */
             async init() {
-                console.log('[SoundscapePicker] Initializing...');
-                
-                await this._checkLoginStatus();
-                await this._loadSoundscapes();
-                this._setupEventListeners();
-                
-                console.log('[SoundscapePicker] Ready');
+                try {
+                    this._debugLog('[picker] 🗺️ Soundscape Picker initializing...', 'info');
+                    console.log('[SoundscapePicker] Initializing...');
+
+                    await this._checkLoginStatus();
+                    await this._loadSoundscapes();
+                    this._setupEventListeners();
+
+                    this._debugLog('[picker] ✅ Ready', 'info');
+                    console.log('[SoundscapePicker] Ready');
+                } catch (error) {
+                    this._debugLog('[picker] ❌ Initialization error: ' + error.message, 'error');
+                    console.error('[SoundscapePicker] Initialization error:', error);
+                    const listEl = document.getElementById('soundscapeList');
+                    if (listEl) {
+                        listEl.innerHTML = `
+                            <li class="error">
+                                <strong>Failed to initialize</strong><br><br>
+                                ${error.message || 'Unknown error'}<br><br>
+                                <small>Check console (F12) for details</small>
+                            </li>
+                        `;
+                    }
+                }
             }
             
             /**
@@ -159,25 +554,44 @@
              * @private
              */
             async _checkLoginStatus() {
+                this._debugLog('[picker] 🔧 Checking login status...', 'info');
+                
                 const token = localStorage.getItem('audio_ar_token');
                 if (!token) {
+                    this._debugLog('[picker] ⚠️ No token - redirecting to login', 'warn');
                     console.log('[SoundscapePicker] Not logged in - redirecting to index.html');
                     window.location.href = 'index.html';
                     return;
                 }
-                
+
                 this.api.token = token;
-                
-                // Verify token is still valid
-                const valid = await this.api.verifyToken();
-                if (!valid) {
-                    console.log('[SoundscapePicker] Token invalid - redirecting to index.html');
-                    localStorage.removeItem('audio_ar_token');
-                    window.location.href = 'index.html';
-                    return;
+                this._debugLog('[picker] ✓ Token found', 'info');
+
+                // Verify token is still valid (with timeout)
+                try {
+                    this._debugLog('[picker] 📡 Verifying token...', 'info');
+                    const valid = await Promise.race([
+                        this.api.verifyToken(),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Token verification timeout')), 5000)
+                        )
+                    ]);
+                    
+                    if (!valid) {
+                        this._debugLog('[picker] ❌ Token invalid - redirecting to login', 'warn');
+                        console.log('[SoundscapePicker] Token invalid - redirecting to index.html');
+                        localStorage.removeItem('audio_ar_token');
+                        window.location.href = 'index.html';
+                        return;
+                    }
+
+                    this._debugLog('[picker] ✅ User logged in', 'info');
+                    console.log('[SoundscapePicker] User logged in');
+                } catch (error) {
+                    this._debugLog('[picker] ❌ Token verification failed: ' + error.message, 'error');
+                    console.error('[SoundscapePicker] Token verification failed:', error);
+                    // Don't redirect - let user try again
                 }
-                
-                console.log('[SoundscapePicker] User logged in');
             }
             
             /**
@@ -186,11 +600,19 @@
              */
             async _loadSoundscapes() {
                 const listEl = document.getElementById('soundscapeList');
-                
+                this._debugLog('[picker] 📡 Fetching soundscapes from server...', 'info');
+
                 try {
-                    console.log('[SoundscapePicker] Fetching soundscapes from server...');
-                    this.soundscapes = await this.api.getSoundscapes();
-                    
+                    // Fetch with timeout (10 seconds)
+                    this.soundscapes = await Promise.race([
+                        this.api.getSoundscapes(),
+                        new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Network timeout - server not responding')), 10000)
+                        )
+                    ]);
+
+                    this._debugLog(`[picker] ✅ Loaded ${this.soundscapes.length} soundscape(s)`, 'info');
+
                     if (this.soundscapes.length === 0) {
                         listEl.innerHTML = `
                             <li class="empty">
@@ -198,17 +620,25 @@
                                 Create a soundscape in the Editor first, then come back here to play it.
                             </li>
                         `;
+                        this._debugLog('[picker] ⚠️ No soundscapes found', 'warn');
                         return;
                     }
-                    
+
                     this._renderList();
+
+                    // Check which soundscapes are available offline
+                    await this._checkOfflineStatus();
+
+                    this._debugLog('[picker] ✅ Ready', 'info');
                     console.log(`[SoundscapePicker] Loaded ${this.soundscapes.length} soundscape(s)`);
                 } catch (err) {
+                    this._debugLog('[picker] ❌ Failed: ' + err.message, 'error');
                     console.error('[SoundscapePicker] Failed to load soundscapes:', err);
                     listEl.innerHTML = `
                         <li class="error">
                             <strong>Failed to load soundscapes</strong><br><br>
-                            ${err.message || 'Network error - please check your connection'}
+                            ${err.message}<br><br>
+                            <button onclick="location.reload()" style="background:#00d9ff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">🔄 Retry</button>
                         </li>
                     `;
                 }
@@ -220,12 +650,12 @@
              */
             _renderList() {
                 const listEl = document.getElementById('soundscapeList');
-                
+
                 // Sort by updatedAt (most recent first)
                 const sorted = [...this.soundscapes].sort((a, b) => {
                     return new Date(b.updatedAt) - new Date(a.updatedAt);
                 });
-                
+
                 listEl.innerHTML = sorted.map(ss => `
                     <li class="soundscape-item" data-id="${ss.id}">
                         <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
@@ -233,18 +663,304 @@
                             <span><span class="icon">🔊</span>${ss.waypointCount || 0} sound(s)</span>
                             <span><span class="icon">📅</span>${this._formatDate(ss.updatedAt)}</span>
                         </div>
+
+                        <!-- Download actions -->
+                        <div class="soundscape-actions">
+                            <button class="download-btn"
+                                    title="Download for offline playback"
+                                    data-soundscape-id="${ss.id}">
+                                📥 Download
+                            </button>
+
+                            <div class="download-progress" style="display: none;">
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: 0%"></div>
+                                </div>
+                                <span class="progress-text">0%</span>
+                            </div>
+
+                            <div class="offline-status" style="display: none;">
+                                ✅ Available Offline
+                                <button class="delete-offline-btn" title="Remove offline copy">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
                     </li>
                 `).join('');
-                
-                // Add click handlers
+
+                // Add click handlers for soundscape selection
                 listEl.querySelectorAll('.soundscape-item').forEach(item => {
-                    item.addEventListener('click', () => {
+                    item.addEventListener('click', (e) => {
+                        // Don't select if clicking download/delete buttons
+                        if (e.target.closest('.download-btn') || e.target.closest('.delete-offline-btn')) {
+                            return;
+                        }
                         const id = item.dataset.id;
                         this._selectSoundscape(id);
                     });
                 });
+
+                // Add click handlers for download buttons
+                listEl.querySelectorAll('.download-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = btn.dataset.soundscapeId;
+                        this._downloadSoundscape(id);
+                    });
+                });
+
+                // Add click handlers for delete buttons
+                listEl.querySelectorAll('.delete-offline-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = btn.closest('[data-soundscape-id]').dataset.soundscapeId;
+                        this._deleteOfflineCache(id);
+                    });
+                });
             }
-            
+
+            /**
+             * Download soundscape for offline playback
+             * @param {string} soundscapeId - Soundscape ID
+             * @private
+             */
+            async _downloadSoundscape(soundscapeId) {
+                const soundscape = this.soundscapes.find(ss => ss.id === soundscapeId);
+                if (!soundscape) {
+                    console.error('[OfflineDownload] Soundscape not found:', soundscapeId);
+                    return;
+                }
+
+                // Fetch full soundscape data (with waypoints)
+                const btn = document.querySelector(`.download-btn[data-soundscape-id="${soundscapeId}"]`);
+                const originalText = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = '⏳ Downloading...';
+
+                try {
+                    console.log(`[OfflineDownload] Fetching full soundscape data: ${soundscapeId}`);
+                    const fullData = await this.api.getSoundscape(soundscapeId);
+                    const waypoints = fullData.waypoints || [];
+
+                    if (waypoints.length === 0) {
+                        alert('This soundscape has no sounds to download');
+                        btn.disabled = false;
+                        btn.textContent = originalText;
+                        return;
+                    }
+
+                    // Extract unique URLs for logging and size check
+                    const urls = [...new Set(waypoints.map(wp => wp.soundUrl).filter(url => url))];
+                    console.log(`[OfflineDownload] Will download ${urls.length} unique file(s):`, urls);
+
+                    // Check for large files (>50 MB) and warn user
+                    const largeFiles = [];
+                    for (const url of urls) {
+                        try {
+                            const headResponse = await fetch(url, { method: 'HEAD' });
+                            const contentLength = headResponse.headers.get('content-length');
+                            if (contentLength) {
+                                const sizeMB = parseInt(contentLength) / 1024 / 1024;
+                                if (sizeMB > 50) {
+                                    largeFiles.push({ url, size: sizeMB.toFixed(1) });
+                                }
+                            }
+                        } catch (err) {
+                            console.warn(`[OfflineDownload] Could not check size for: ${url}`);
+                        }
+                    }
+
+                    if (largeFiles.length > 0) {
+                        const sizeList = largeFiles.map(f => `${f.size} MB`).join(', ');
+                        const confirmMsg = `⚠️ This soundscape contains large audio files (${sizeList}).\n\nDownload size: ~${largeFiles.reduce((sum, f) => sum + parseFloat(f.size), 0).toFixed(0)} MB\n\nThis may take several minutes and use significant mobile data.\n\nDo you want to continue?`;
+                        if (!confirm(confirmMsg)) {
+                            btn.disabled = false;
+                            btn.textContent = originalText;
+                            return;
+                        }
+                    }
+
+                    // Show progress bar immediately
+                    const progressEl = document.querySelector(`[data-soundscape-id="${soundscapeId}"] .download-progress`);
+                    if (progressEl) {
+                        progressEl.style.display = 'flex';
+                        progressEl.querySelector('.progress-fill').style.width = `0%`;
+                        progressEl.querySelector('.progress-text').textContent = `Starting...`;
+                    }
+
+                    // Start download
+                    console.log(`[OfflineDownload] Calling downloadSoundscape()...`);
+
+                    const result = await this.downloadManager.downloadSoundscape(
+                        soundscapeId,
+                        soundscape.name,
+                        waypoints
+                    );
+
+                    console.log(`[OfflineDownload] downloadSoundscape() returned:`, result);
+
+                    // Hide progress bar after completion
+                    if (progressEl) {
+                        progressEl.style.display = 'none';
+                    }
+
+                    if (result.success) {
+                        this._markAsOffline(soundscapeId);
+                        this._showToast(`✅ Downloaded ${result.downloaded} audio file(s)`, 'success');
+                    } else {
+                        // Show which files failed in the toast (just filenames, not full URLs)
+                        const failedNames = result.failedUrls
+                            .map(url => url.split('/').pop())
+                            .slice(0, 3) // Show max 3 filenames
+                            .join(', ');
+                        
+                        const msg = `⚠️ ${result.downloaded}/${result.total} downloaded. Failed: ${failedNames}${result.failed > 3 ? '...' : ''}`;
+                        this._showToast(msg, 'warning');
+                    }
+
+                } catch (error) {
+                    console.error('[OfflineDownload] Error:', error);
+                    this._showToast(`❌ Download failed: ${error.message}`, 'error');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            }
+
+            /**
+             * Handle download progress update
+             * @param {{soundscapeId: string, downloaded: number, total: number, percent: number}} detail
+             * @private
+             */
+            _onDownloadProgress({ soundscapeId, downloaded, total, percent }) {
+                this._debugLog(`[picker] 📊 Progress: ${percent}% (${downloaded}/${total})`, 'info');
+                
+                const progressEl = document.querySelector(
+                    `[data-soundscape-id="${soundscapeId}"] .download-progress`
+                );
+
+                if (progressEl) {
+                    progressEl.style.display = 'flex';
+                    progressEl.querySelector('.progress-fill').style.width = `${percent}%`;
+                    progressEl.querySelector('.progress-text').textContent = `${percent}% (${downloaded}/${total})`;
+                    this._debugLog(`[picker] ✅ Progress bar updated`, 'info');
+                } else {
+                    this._debugLog(`[picker] ❌ Progress bar element not found!`, 'error');
+                }
+            }
+
+            /**
+             * Mark soundscape as available offline
+             * @param {string} soundscapeId
+             * @private
+             */
+            _markAsOffline(soundscapeId) {
+                const itemEl = document.querySelector(
+                    `[data-soundscape-id="${soundscapeId}"]`
+                );
+
+                if (itemEl) {
+                    const downloadBtn = itemEl.querySelector('.download-btn');
+                    const progressEl = itemEl.querySelector('.download-progress');
+                    const statusEl = itemEl.querySelector('.offline-status');
+
+                    if (downloadBtn) downloadBtn.style.display = 'none';
+                    if (progressEl) progressEl.style.display = 'none';
+                    if (statusEl) statusEl.style.display = 'flex';
+                }
+            }
+
+            /**
+             * Delete offline cache
+             * @param {string} soundscapeId
+             * @private
+             */
+            async _deleteOfflineCache(soundscapeId) {
+                if (!confirm('Remove offline copy? You can re-download anytime.')) {
+                    return;
+                }
+
+                try {
+                    await this.downloadManager.deleteOfflineCache(soundscapeId);
+                    this._showToast('Offline copy removed', 'info');
+
+                    // Update UI
+                    const itemEl = document.querySelector(
+                        `[data-soundscape-id="${soundscapeId}"]`
+                    );
+
+                    if (itemEl) {
+                        const downloadBtn = itemEl.querySelector('.download-btn');
+                        const statusEl = itemEl.querySelector('.offline-status');
+
+                        if (downloadBtn) {
+                            downloadBtn.style.display = 'inline-flex';
+                            downloadBtn.disabled = false;
+                            downloadBtn.textContent = '📥 Download';
+                        }
+                        if (statusEl) statusEl.style.display = 'none';
+                    }
+                } catch (error) {
+                    console.error('[OfflineDownload] Error deleting cache:', error);
+                    this._showToast(`Failed to remove: ${error.message}`, 'error');
+                }
+            }
+
+            /**
+             * Show toast notification
+             * @param {string} message
+             * @param {'success' | 'error' | 'warning' | 'info'} type
+             * @private
+             */
+            _showToast(message, type = 'info') {
+                // Create toast element
+                const toast = document.createElement('div');
+                toast.textContent = message;
+                toast.style.cssText = `
+                    position: fixed;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: ${type === 'success' ? 'rgba(0, 255, 136, 0.9)' : 
+                               type === 'error' ? 'rgba(233, 69, 96, 0.9)' :
+                               type === 'warning' ? 'rgba(255, 193, 7, 0.9)' :
+                               'rgba(0, 217, 255, 0.9)'};
+                    color: #000;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    font-size: 0.9em;
+                    font-weight: 600;
+                    z-index: 10000;
+                    animation: slideUp 0.3s ease-out;
+                `;
+
+                document.body.appendChild(toast);
+
+                // Remove after 3 seconds
+                setTimeout(() => {
+                    toast.style.animation = 'slideDown 0.3s ease-out reverse';
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
+            }
+
+            /**
+             * Check which soundscapes are available offline
+             * @private
+             */
+            async _checkOfflineStatus() {
+                console.log('[OfflineDownload] Checking offline status...');
+                
+                for (const ss of this.soundscapes) {
+                    const isOffline = await this.downloadManager.isAvailableOffline(ss.id);
+                    if (isOffline) {
+                        this._markAsOffline(ss.id);
+                    }
+                }
+                
+                console.log('[OfflineDownload] Offline status check complete');
+            }
+
             /**
              * Handle soundscape selection
              * @param {string} id - Soundscape ID
@@ -305,13 +1021,78 @@
                 document.getElementById('logoutBtn')?.addEventListener('click', () => {
                     this._handleLogout();
                 });
-                
+
                 // Back button handler
                 document.getElementById('backBtn')?.addEventListener('click', () => {
                     window.location.href = 'index.html';
                 });
+
+                // Debug toggle handler
+                document.getElementById('debugToggleBtn')?.addEventListener('click', () => {
+                    this._toggleDebugLog();
+                });
+
+                // Debug close handler
+                document.getElementById('debugCloseBtn')?.addEventListener('click', () => {
+                    const debugModal = document.getElementById('debugModal');
+                    const toggleBtn = document.getElementById('debugToggleBtn');
+                    
+                    if (debugModal) debugModal.classList.remove('visible');
+                    if (toggleBtn) toggleBtn.classList.remove('hidden');
+                });
+
+                // Debug copy handler
+                document.getElementById('debugCopyBtn')?.addEventListener('click', () => {
+                    const contentEl = document.getElementById('debugModalContent');
+                    if (contentEl) {
+                        const text = contentEl.innerText;
+                        navigator.clipboard.writeText(text).then(() => {
+                            this._debugLog('✅ Debug log copied to clipboard', 'info');
+                        }).catch(err => {
+                            this._debugLog('❌ Failed to copy: ' + err.message, 'error');
+                        });
+                    }
+                });
             }
             
+            /**
+             * Toggle debug log visibility
+             * @private
+             */
+            _toggleDebugLog() {
+                const debugModal = document.getElementById('debugModal');
+                const toggleBtn = document.getElementById('debugToggleBtn');
+                
+                if (debugModal) {
+                    debugModal.classList.toggle('visible');
+                }
+                
+                if (toggleBtn) {
+                    toggleBtn.classList.toggle('hidden');
+                }
+                
+                console.log('[SoundscapePicker] Debug log toggled');
+            }
+
+            /**
+             * Add line to debug log
+             * @param {string} message
+             * @param {'info' | 'warn' | 'error' | 'debug'} type
+             * @private
+             */
+            _debugLog(message, type = 'info') {
+                const contentEl = document.getElementById('debugModalContent');
+                if (!contentEl) return;
+
+                const line = document.createElement('span');
+                line.className = `debug-line ${type}`;
+                line.textContent = message;
+                contentEl.appendChild(line);
+                
+                // Auto-scroll to bottom
+                contentEl.scrollTop = contentEl.scrollHeight;
+            }
+
             /**
              * Handle logout
              * @private
@@ -320,13 +1101,13 @@
                 if (!confirm('Are you sure you want to logout?')) {
                     return;
                 }
-                
+
                 // Clear tokens and selection
                 localStorage.removeItem('audio_ar_token');
                 localStorage.removeItem('selected_soundscape_id');
-                
+
                 console.log('[SoundscapePicker] Logged out');
-                
+
                 // Redirect to login
                 window.location.href = 'index.html';
             }
@@ -334,12 +1115,14 @@
         
         // Initialize app
         const app = new SoundscapePickerApp();
+        window.app = app; // Expose globally for error handler
+        
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => app.init());
         } else {
             app.init();
         }
-        
+
         console.log('[soundscape_picker.js] SoundscapePickerApp loaded');
     </script>
 </body>

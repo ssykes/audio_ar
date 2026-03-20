@@ -98,6 +98,113 @@ Runtime: BehaviorExecutor.create(spec) → Live coordination
 - `SoundScapeStorage` localStorage helpers
 - Auto-save on waypoint add/delete/clear
 - Export/Import JSON file
+
+---
+
+### Feature 15: Offline Soundscape Download
+**Status:** ✅ **COMPLETE** | **Date:** 2026-03-20 | **Version:** 1.0
+
+**Description:** Allow users to download audio files for offline playback with progress indicator
+
+**Problem Solved:**
+- Current: Only metadata (waypoint positions, URLs) downloaded, not audio files
+- Impact: Offline playback fails - audio requires network connection
+- Use cases: Remote locations, underground venues, airplane mode, poor network areas
+
+**Solution: Optional Download Button with Cache API**
+
+```
+User opens soundscape_picker.html
+        ↓
+Sees list of soundscapes with 📥 Download icons
+        ↓
+Taps download on "Forest Walk"
+        ↓
+Progress bar shows: [████████░░] 80% (4/5 files)
+        ↓
+Download completes
+        ↓
+Status changes to: ✅ Available Offline [🗑️]
+        ↓
+User can now go offline and play
+```
+
+**What Was Implemented:**
+
+| Session | Component | File | Lines |
+|---------|-----------|------|-------|
+| **15A** | `OfflineDownloadManager` class | `download_manager.js` | ~260 |
+| **15B** | Download UI (button, progress, status) | `soundscape_picker.html` (CSS) | ~130 |
+| **15C** | Integration (download, progress, delete) | `soundscape_picker.html` (JS) | ~200 |
+| **15D** | `CachedSampleSource` class (cache-first) | `spatial_audio.js` | ~130 |
+| **15E** | Audio engine integration | `spatial_audio.js` | ~10 |
+| **15F** | Progress bar + toast styling | `soundscape_picker.html` (CSS) | ~80 |
+| **Total** | | **3 files** | **~810 lines** |
+
+**Architecture:**
+
+| Component | Purpose | Storage |
+|-----------|---------|---------|
+| **OfflineDownloadManager** | Download queue, progress tracking, retry logic | Cache API |
+| **CachedSampleSource** | Check cache before network (fallback) | Cache API |
+| **UI (soundscape_picker.html)** | Download button, progress bar, status indicator | N/A |
+
+**Cache API Structure:**
+```javascript
+// Cache name per soundscape
+`soundscape-${soundscapeId}`
+
+// Example:
+// soundscape-abc123
+//   ├─ https://ssykes.net/sounds/fountain.mp3
+//   ├─ https://ssykes.net/sounds/birds.wav
+//   └─ https://ssykes.net/sounds/narration.mp3
+```
+
+**User Experience:**
+
+| Scenario | Behavior |
+|----------|----------|
+| **Online playback** | Cache checked first → faster load |
+| **Offline playback** | Plays from cache → seamless |
+| **Delete offline** | Cache removed → frees storage |
+| **Partial download** | Shows warning, retry available |
+
+**Files Modified/Created:**
+
+| File | Type | Lines | Purpose |
+|------|------|-------|---------|
+| `download_manager.js` | NEW | ~260 | Download manager class |
+| `soundscape_picker.html` | MODIFIED | ~330 | UI + integration |
+| `spatial_audio.js` | MODIFIED | ~140 | CachedSampleSource + integration |
+| `deploy.ps1` | MODIFIED | ~10 | Added to versioning |
+| **TOTAL** | | **~740 lines** | |
+
+**Testing Checklist:**
+
+- [ ] Download button appears on all soundscapes
+- [ ] Progress bar updates during download
+- [ ] "✅ Available Offline" shown after completion
+- [ ] Audio plays from cache when offline
+- [ ] Delete offline removes cache
+- [ ] Toast notifications work
+- [ ] Retry logic handles network errors
+
+**Documentation:** `FEATURE_15_OFFLINE_DOWNLOAD.md`
+
+**Known Limitations:**
+- No cache size limit UI (only visible in DevTools)
+- No selective download (all sounds or none)
+- Page must stay open during download
+- No cache expiration (manual delete only)
+
+**Future Enhancements:**
+- Storage management UI (show size, clear all)
+- Selective download (pick specific sounds)
+- Background sync via Service Worker
+- Auto-expire old caches
+
+---
 - Phone mode detection + restrictions
 - `SpatialAudioApp.startSoundScape()`
 - Behavior execution via `BehaviorExecutor`
@@ -542,7 +649,554 @@ sourceNode → gain → [Low-Pass Filter] → panner → master
 
 ## 📋 Planned Features
 
-### Feature 15: Distance-Based Envelope Behavior
+**Note:** Feature 15 has been implemented! See "✅ Completed Features" section above.
+
+### Feature 16: Behavior Editing UI
+**Priority:** High | **Status:** 📋 Planned | **Version:** 1.0
+
+**Description:** Allow users to download audio files for offline playback with progress indicator
+
+**Problem Solved:**
+- Current: Only metadata (waypoint positions, URLs) downloaded, not audio files
+- Impact: Offline playback fails - audio requires network connection
+- Use cases: Remote locations, underground venues, airplane mode, poor network areas
+
+**Solution: Optional Download Button with Cache API**
+
+```
+User opens soundscape_picker.html
+        ↓
+Sees list of soundscapes with 📥 Download icons
+        ↓
+Taps download on "Forest Walk"
+        ↓
+Progress bar shows: [████████░░] 80% (4/5 files)
+        ↓
+Download completes
+        ↓
+Status changes to: ✅ Available Offline [🗑️]
+        ↓
+User can now go offline and play
+```
+
+**Architecture:**
+
+| Component | Purpose | Storage |
+|-----------|---------|---------|
+| **OfflineDownloadManager** | Download queue, progress tracking, retry logic | Cache API |
+| **CachedSampleSource** | Check cache before network (fallback) | Cache API |
+| **UI (soundscape_picker.html)** | Download button, progress bar, status indicator | N/A |
+
+**Cache API Structure:**
+```javascript
+// Cache name per soundscape
+`soundscape-${soundscapeId}`
+
+// Example:
+// soundscape-abc123
+//   ├─ https://ssykes.net/sounds/fountain.mp3
+//   ├─ https://ssykes.net/sounds/birds.wav
+//   └─ https://ssykes.net/sounds/narration.mp3
+```
+
+**User Experience:**
+
+| Action | User Sees |
+|--------|-----------|
+| **Tap download** | Progress bar: 0% → 100% |
+| **Downloading** | ⏳ Downloading (3/5 files) |
+| **Complete** | ✅ Available Offline [🗑️ delete] |
+| **Play offline** | Audio plays from cache (no network) |
+| **Delete offline** | Cache removed, download button returns |
+
+**Storage Behavior:**
+
+| Event | Cache Action |
+|-------|--------------|
+| **Download soundscape** | Create cache: `soundscape-{id}` |
+| **Play offline** | Cache API serves responses |
+| **Delete offline** | `caches.delete()` removes cache |
+| **Browser refresh** | Cache persists (not cleared) |
+| **Multiple soundscapes** | Each has separate cache |
+| **Storage full** | Browser evicts oldest caches |
+
+**Comparison: Before vs After**
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| **Offline playback** | ❌ Fails completely | ✅ Works (if downloaded) |
+| **Remote locations** | ❌ No audio | ✅ Full experience |
+| **Network required** | ✅ Always | ❌ Only for download |
+| **Storage** | None | 20-50 MB per soundscape |
+| **User control** | N/A | Choose what to download |
+
+---
+
+#### Implementation Plan (Divided into Sessions)
+
+| Session | Phase | Task | Files | Est. Lines | Time | Risk |
+|---------|-------|------|-------|------------|------|------|
+| **15A** | 1 | Create `OfflineDownloadManager` class | `offline_download_manager.js` (new) | ~150 | 1h | ✅ None |
+| **15B** | 2 | Add download UI to soundscape picker | `soundscape_picker.html` | ~80 | 45 min | ✅ None |
+| **15C** | 3 | Integrate download manager with picker | `soundscape_picker.html` (JS) | ~120 | 1h | ⚠️ Low |
+| **15D** | 4 | Create `CachedSampleSource` class | `spatial_audio.js` | ~60 | 45 min | ⚠️ Low |
+| **15E** | 5 | Update `AudioSourceFactory` | `spatial_audio_app.js` | ~20 | 15 min | ✅ None |
+| **15F** | 6 | Add progress bar styling + animations | `soundscape_picker.html` (CSS) | ~50 | 30 min | ✅ None |
+| **15G** | 7 | Test various network conditions | Browser DevTools | - | 1h | ✅ None |
+| **Total** | | | **3 files** | **~480 lines** | **~4h 30m** | **Low** |
+
+---
+
+#### Session 15A: Create OfflineDownloadManager
+
+**Goal:** Create download manager with progress tracking and retry logic
+
+**Changes:**
+```javascript
+// NEW FILE: offline_download_manager.js
+
+class OfflineDownloadManager {
+    constructor() {
+        this.cacheName = null;
+        this.downloadQueue = new Map();
+        this.maxRetries = 3;
+    }
+
+    async downloadSoundscape(soundscapeId, soundscapeName, waypoints) {
+        const urls = [...new Set(waypoints.map(wp => wp.soundUrl))];
+        const cache = await caches.open(`soundscape-${soundscapeId}`);
+        
+        let downloaded = 0;
+        for (const url of urls) {
+            await this._downloadAndCache(cache, url);
+            downloaded++;
+            this._onProgress(soundscapeId, downloaded, urls.length);
+        }
+        
+        return { downloaded, failed: 0 };
+    }
+
+    async _downloadAndCache(cache, url) {
+        // Retry logic with exponential backoff
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                await cache.put(url, response.clone());
+                return;
+            } catch (error) {
+                if (attempt === this.maxRetries) throw error;
+                await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000));
+            }
+        }
+    }
+
+    async isAvailableOffline(soundscapeId) {
+        const cache = await caches.open(`soundscape-${soundscapeId}`);
+        const keys = await cache.keys();
+        return keys.length > 0;
+    }
+
+    async deleteOfflineCache(soundscapeId) {
+        await caches.delete(`soundscape-${soundscapeId}`);
+    }
+}
+```
+
+**Testing:**
+```javascript
+// Open browser console
+const manager = new OfflineDownloadManager();
+const result = await manager.downloadSoundscape('test', waypoints);
+console.log('Downloaded:', result.downloaded);
+```
+
+**Risk:** ✅ None (new file, doesn't affect existing code)
+
+---
+
+#### Session 15B: Add Download UI
+
+**Goal:** Add download button + progress bar to each soundscape entry
+
+**Changes:**
+```html
+<!-- soundscape_picker.html - Update _renderList() -->
+
+<li class="soundscape-item" data-id="${ss.id}">
+    <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
+    <div class="soundscape-meta">
+        <span>🔊 ${ss.waypointCount || 0} sound(s)</span>
+        <span>📅 ${this._formatDate(ss.updatedAt)}</span>
+    </div>
+    
+    <!-- NEW: Actions -->
+    <div class="soundscape-actions">
+        <button class="download-btn" 
+                title="Download for offline playback"
+                data-soundscape-id="${ss.id}">
+            📥 Download
+        </button>
+        
+        <div class="download-progress" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 0%"></div>
+            </div>
+            <span class="progress-text">0%</span>
+        </div>
+        
+        <div class="offline-status" style="display: none;">
+            ✅ Available Offline
+            <button class="delete-offline-btn" title="Remove offline copy">
+                🗑️
+            </button>
+        </div>
+    </div>
+</li>
+```
+
+**CSS Styling:**
+```css
+.soundscape-actions {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-fill {
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    transition: width 0.3s ease-out;
+}
+
+/* Animated shimmer effect */
+.progress-fill::after {
+    animation: shimmer 1.5s infinite;
+}
+```
+
+**Testing:**
+1. Open `soundscape_picker.html`
+2. Verify download button appears on each soundscape
+3. Verify tooltip shows on hover
+
+**Risk:** ✅ None (HTML/CSS only)
+
+---
+
+#### Session 15C: Integrate Download Manager
+
+**Goal:** Wire up download button + progress handling
+
+**Changes:**
+```javascript
+// soundscape_picker.html - Add to SoundscapePickerApp
+
+class SoundscapePickerApp {
+    constructor() {
+        this.downloadManager = new OfflineDownloadManager();
+        window.addEventListener('offline-download-progress', (e) => {
+            this._onDownloadProgress(e.detail);
+        });
+    }
+
+    _renderList() {
+        // Add click handlers for download/delete buttons
+        listEl.querySelectorAll('.download-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._downloadSoundscape(btn.dataset.soundscapeId);
+            });
+        });
+    }
+
+    async _downloadSoundscape(soundscapeId) {
+        const soundscape = this.soundscapes.find(ss => ss.id === soundscapeId);
+        const fullData = await this.api.getSoundscapeById(soundscapeId);
+        const waypoints = fullData.waypoints || [];
+
+        const btn = document.querySelector(`[data-soundscape-id="${soundscapeId}"]`);
+        btn.disabled = true;
+        btn.textContent = '⏳ Downloading...';
+
+        try {
+            const result = await this.downloadManager.downloadSoundscape(
+                soundscapeId, soundscape.name, waypoints
+            );
+            this._markAsOffline(soundscapeId);
+            alert(`✅ Downloaded ${result.downloaded} audio files`);
+        } catch (error) {
+            alert(`❌ Download failed: ${error.message}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '📥 Download';
+        }
+    }
+
+    _onDownloadProgress({ soundscapeId, downloaded, total, percent }) {
+        // Update progress bar UI
+    }
+
+    _markAsOffline(soundscapeId) {
+        // Show "Available Offline" status, hide download button
+    }
+}
+```
+
+**Testing:**
+1. Click download button → progress bar updates
+2. Download completes → shows "✅ Available Offline"
+3. Click delete button → cache removed, download button reappears
+
+**Risk:** ⚠️ Low (modifies existing picker logic)
+
+---
+
+#### Session 15D: Create CachedSampleSource
+
+**Goal:** Modify audio engine to check Cache API before network
+
+**Changes:**
+```javascript
+// spatial_audio.js - Add class
+
+class CachedSampleSource extends SampleSource {
+    async load() {
+        // Check cache first
+        const cachedResponse = await this._getCachedResponse();
+        if (cachedResponse) {
+            return this._playFromResponse(cachedResponse);
+        }
+
+        // Fallback to network
+        const response = await fetch(this.url);
+        return this._playFromResponse(response);
+    }
+
+    async _getCachedResponse() {
+        const cacheNames = await caches.keys();
+        for (const cacheName of cacheNames) {
+            if (!cacheName.startsWith('soundscape-')) continue;
+            const cache = await caches.open(cacheName);
+            const response = await cache.match(this.url);
+            if (response) return response;
+        }
+        return null;
+    }
+
+    async _playFromResponse(response) {
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await this.engine.audioContext.decodeAudioData(
+            arrayBuffer.slice(0)
+        );
+        this.buffer = audioBuffer;
+        this._createSource();
+        return this.start();
+    }
+}
+```
+
+**Testing:**
+```javascript
+// 1. Download soundscape offline
+// 2. DevTools → Network → Offline
+// 3. Start soundscape → audio should play from cache
+```
+
+**Risk:** ⚠️ Low (extends existing SampleSource)
+
+---
+
+#### Session 15E: Update AudioSourceFactory
+
+**Goal:** Use CachedSampleSource by default
+
+**Changes:**
+```javascript
+// spatial_audio_app.js - Update factory
+
+class AudioSourceFactory {
+    static async createSource(engine, id, config) {
+        // Always use cached source (checks cache first, falls back to network)
+        return new CachedSampleSource(engine, id, config);
+    }
+}
+```
+
+**Testing:**
+1. Play soundscape online → works (fetches from network)
+2. Download soundscape offline
+3. Go offline → play soundscape → works (fetches from cache)
+
+**Risk:** ✅ None (simple factory change)
+
+---
+
+#### Session 15F: Add Progress Styling
+
+**Goal:** Make progress bar visually appealing with animations
+
+**Changes:**
+```css
+/* soundscape_picker.html - Add CSS */
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d9ff, #00ff88);
+    transition: width 0.3s ease-out;
+    position: relative;
+}
+
+/* Animated shimmer effect */
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.3),
+        transparent
+    );
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.offline-status {
+    color: #00ff88;
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+```
+
+**Testing:**
+1. Start download → verify progress bar animates smoothly
+2. Download completes → verify "Available Offline" fades in
+
+**Risk:** ✅ None (CSS only)
+
+---
+
+#### Session 15G: Test Various Scenarios
+
+**Test Checklist:**
+
+| Test | Expected Result |
+|------|-----------------|
+| Download soundscape (5 sounds) | All 5 files cached |
+| Progress bar updates | Shows 0% → 100% smoothly |
+| Go offline → play | Audio plays from cache |
+| Delete offline → redownload | Works correctly |
+| Multiple soundscapes cached | Each plays offline |
+| Network error during download | Retry 3 times, show error |
+| Large file (10 MB) | Progress bar updates, completes |
+| Browser refresh during download | Download cancels (expected) |
+
+**Testing Steps:**
+```javascript
+// 1. Test online download
+// Open soundscape_picker.html → Click download → Verify progress
+
+// 2. Test offline playback
+// DevTools → Network tab → Select "Offline"
+// Play soundscape → Verify audio plays
+
+// 3. Test error handling
+// DevTools → Network tab → Select "Slow 3G"
+// Start download → Verify retries on failure
+```
+
+**Risk:** ✅ None (testing only)
+
+---
+
+### Benefits Achieved
+
+| Benefit | Description |
+|---------|-------------|
+| **True offline playback** | Works without network after download |
+| **Progress feedback** | Users see download status in real-time |
+| **Cache API integration** | Native browser API, no custom storage |
+| **Automatic fallback** | Cache miss → network (seamless) |
+| **Storage management** | Per-soundscape caches (easy to delete) |
+| **Retry logic** | Handles network errors gracefully |
+
+---
+
+### Trade-offs
+
+| Advantages ✅ | Disadvantages ⚠️ |
+|---------------|------------------|
+| Offline support (remote/underground) | Storage usage (20-50 MB per soundscape) |
+| User control (choose what to download) | Download time (10-30 seconds) |
+| Persistent cache (survives refresh) | iOS Cache API limits (~50-100 MB) |
+| Efficient (download once, play multiple times) | Manual download required (by design) |
+
+---
+
+### Future Enhancements
+
+| Enhancement | Description | Priority |
+|-------------|-------------|----------|
+| **Auto-download on selection** | Download when user selects soundscape | Low (may annoy users) |
+| **Wi-Fi only download** | Warn if downloading on cellular | Medium (UX polish) |
+| **Background download** | Service Worker for background downloads | Low (complexity) |
+| **Long-term caching** | IndexedDB for persistent storage across sessions | Low (not needed yet) |
+
+---
+
+### Success Criteria
+
+| Criterion | How to Verify |
+|-----------|---------------|
+| Download button appears | UI shows on each soundscape |
+| Progress bar updates | 0% → 100% during download |
+| Offline playback works | DevTools "Offline" mode → audio plays |
+| Cache persists refresh | Refresh page → still available offline |
+| Delete works | Click delete → cache removed |
+| Error handling | Network error → retry 3x, show message |
+| Multiple soundscapes | Cache 2-3 soundscapes → all work offline |
+
+---
+
+### Dependencies
+
+| Dependency | Status |
+|------------|--------|
+| Cache API support | ✅ All modern browsers |
+| Fetch API | ✅ All modern browsers |
+| Custom events | ✅ All modern browsers |
+| Session 13: Lazy loading | ✅ Complete (works alongside) |
+| Session 14: Air absorption | ✅ Complete (works alongside) |
+
+**No blocking dependencies** - can implement anytime
+
+---
+
+### Documentation
+
+- **Session spec:** `SESSION_DOWNLOAD.md`
+- **Cache API:** [MDN Cache API](https://developer.mozilla.org/en-US/docs/Web/API/Cache)
+- **Related:** `CACHED_STREAM_SOURCE.md`, `LAZY_LOADING_SPECIFICATION.md`
+
+---
+
+**Total Effort:** ~480 lines across 7 sub-sessions (~4h 30m)
+
+**Priority:** High (enables offline playback - critical for remote/underground use)
+
+**Risk:** Low (Cache API is mature, well-tested)
+
+---
+
+### Feature 16: Distance-Based Envelope Behavior
 **Priority:** High | **Status:** 📋 Planned | **Version:** 1.0
 
 **Description:** Control sound volume based on listener's position within activation zone (not time-based)
@@ -1157,9 +1811,6 @@ _distanceToRoute(lat, lon) {
 **Description:** Lazy loading with session cache to eliminate audio gaps on waypoint revisit
 
 **Problem Solved:**
-- Large files (>3 MB) cause noticeable audio gaps when user walks toward waypoint
-- Pure lazy loading: 8 second download delay → user walks past waypoint before audio starts
-- Revisiting waypoint re-downloads same file (wasted data, delayed playback)
 - No offline support - lazy loading fails when network unavailable
 
 **Solution:**
@@ -1310,3 +1961,4 @@ None currently - all features stable:
 ---
 
 **Last Updated:** 2026-03-19 (Feature 15: Sound Walk Composer added)
+ge

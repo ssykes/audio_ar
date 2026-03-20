@@ -112,6 +112,7 @@ $MAP_EDITOR_PATTERN = 'map_editor\.js\?v=\d+'
 $MAP_PLAYER_PATTERN = 'map_player\.js\?v=\d+'
 $SOUNDSCAPE_PATTERN = 'soundscape\.js\?v=\d+'
 $API_CLIENT_PATTERN = 'api-client\.js\?v=\d+'
+$DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js\?v=\d+'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -187,6 +188,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (api-client.js)" -ForegroundColor Green
         }
+
+        # Update download_manager.js version
+        if ($content -match $DOWNLOAD_MANAGER_PATTERN) {
+            $content = $content -replace $DOWNLOAD_MANAGER_PATTERN, "download_manager.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (download_manager.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -224,6 +232,7 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(map_placer\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(debug_logger\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(download_manager\.js)"', "`${1}?v=$VERSION`""
         
         Set-Content $tempPath $content -NoNewline
         Write-Host "  Created: ${htmlFile}.deploy (v=$VERSION)" -ForegroundColor Green
@@ -257,7 +266,8 @@ $ALL_FILES = @(
     "soundscape.js",
     "soundscape_picker.html",
     "wake_lock_helper.js",
-    "api-client.js"
+    "api-client.js",
+    "download_manager.js"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow

@@ -19,7 +19,7 @@ Source code (implementation)
 | Document | Purpose | When to Use |
 |----------|---------|-------------|
 | **QWEN.md** | Project context, memories, setup | Starting session, need project info |
-| **FEATURES.md** | Feature catalog (1-14 completed) | Reference existing features, plan new ones |
+| **FEATURES.md** | Feature catalog (1-15 completed) | Reference existing features, plan new ones |
 | **FEATURE_*.md** | Deep-dive specs (e.g., `FEATURE_14_IMPLEMENTED.md`) | Implementation details, debugging |
 | **LAZY_*.md** | Lazy loading architecture | Audio optimization work |
 | **CLOUDFLARE_*.md** | Server/CDN configuration | Deploy issues, cache problems |
@@ -2817,18 +2817,21 @@ If issues arise:
 | **13** | Debug logging for zone verification | ✅ Complete | `spatial_audio_app.js`, `DEBUG_LOGGING_ADDED.md` |
 | **13** | Rename 'unload zone' to 'hysteresis zone' | ✅ Complete | `spatial_audio_app.js` |
 | **14** | Distance-based audio filtering (air absorption) | ✅ Complete | `spatial_audio_app.js` v2.8 |
+| **15** | Offline soundscape download (Cache API) | ✅ Complete | `download_manager.js`, `soundscape_picker.html`, `spatial_audio.js` |
 
 ### 📋 Planned Sessions
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| **15** | Behavior editing UI | Medium | 📋 Planned |
-| **16** | Multi-user collaboration | Low | 📋 Planned |
-| **17** | Offline-first architecture | Low | 📋 Planned |
+| **16** | Behavior editing UI | Medium | 📋 Planned |
+| **17** | Multi-user collaboration | Low | 📋 Planned |
+| **18** | Session-based cached streaming | High | 📋 Planned |
 
 **Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md`, `LAZY_LOADING_FADE_ZONE_FIX.md`, `DEBUG_LOGGING_ADDED.md`, and `FUTURE_SOUND_SOURCES.md` for complete implementation details.
 
 **Feature 14 Documentation:** See `FEATURE_14_IMPLEMENTED.md` for implementation details and testing instructions.
+
+**Feature 15 Documentation:** See `FEATURE_15_OFFLINE_DOWNLOAD.md` for implementation details and testing instructions.
 
 ### 📁 Current File Versions
 
@@ -2841,16 +2844,18 @@ If issues arise:
 | `soundscape.js` | v3.0 | 2026-03-16 |
 | `api-client.js` | - | 2026-03-16 |
 | `index.html` | v6.8 | 2026-03-16 |
-| `soundscape_picker.html` | - | 2026-03-16 |
-| `spatial_audio.js` | v5.1+ | 2026-03-18 |
+| `soundscape_picker.html` | - | 2026-03-20 (Feature 15: Offline download) |
+| `spatial_audio.js` | v5.1+ | 2026-03-20 (Feature 15: CachedSampleSource) |
 | `spatial_audio_app.js` | v2.8 | 2026-03-18 (Feature 14: Air absorption filter) |
+| `download_manager.js` | v1.0 | 2026-03-20 (Feature 15: New file) |
 
 ### 🎯 Next Priority Items
 
-1. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
-2. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
-3. **Behavior editing UI** - Visual timeline for behavior configuration
-4. **Multi-user collaboration** - WebSocket-based real-time sync
+1. **Test Feature 15** - Verify offline download works on mobile devices
+2. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
+3. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
+4. **Behavior editing UI** - Visual timeline for behavior configuration (Feature 16)
+5. **Multi-user collaboration** - WebSocket-based real-time sync (Feature 17)
 
 ### 🐛 Known Issues
 

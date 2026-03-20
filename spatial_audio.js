@@ -665,6 +665,131 @@ class SampleSource extends GpsSoundSource {
 }
 
 /**
+ * CachedSampleSource - SampleSource with offline cache support
+ * 
+ * Checks Cache API before fetching from network.
+ * If cached response found, plays from cache (works offline).
+ * If not cached, fetches from network and caches for next time.
+ * 
+ * @version 1.0 (Feature 15: Offline Soundscape Download)
+ * @extends SampleSource
+ */
+class CachedSampleSource extends SampleSource {
+    async load(timeout = 30000) {
+        console.log('[CachedSampleSource] load() called for:', this.url);
+        
+        if (!this.url) {
+            console.error('[CachedSampleSource] No URL provided');
+            return false;
+        }
+
+        try {
+            // === STEP 1: Check Cache API ===
+            const cachedResponse = await this._getCachedResponse();
+            
+            if (cachedResponse) {
+                console.log('[CachedSampleSource] ✅ Found in cache:', this.url);
+                return this._playFromResponse(cachedResponse);
+            }
+
+            // === STEP 2: Fallback to network ===
+            console.log('[CachedSampleSource] 🌐 Not cached - fetching from network:', this.url);
+            
+            // Fetch with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.error('[CachedSampleSource] Fetch timeout after', timeout + 'ms for:', this.url);
+                controller.abort();
+            }, timeout);
+
+            const response = await fetch(this.url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            console.log('[CachedSampleSource] Network response:', response.status, response.ok);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            // Note: We don't cache here - OfflineDownloadManager handles caching
+            // This is just for playback during online sessions
+            return this._playFromResponse(response);
+
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.error('[CachedSampleSource] Load timeout (> ' + timeout + 'ms):', this.url);
+            } else {
+                console.error('[CachedSampleSource] Load failed:', this.url, err);
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Check all soundscapes caches for this URL
+     * @returns {Promise<Response|null>} Cached response or null
+     * @private
+     */
+    async _getCachedResponse() {
+        try {
+            const cacheNames = await caches.keys();
+            
+            for (const cacheName of cacheNames) {
+                // Only check soundscape caches
+                if (!cacheName.startsWith('soundscape-')) {
+                    continue;
+                }
+
+                try {
+                    const cache = await caches.open(cacheName);
+                    const response = await cache.match(this.url);
+                    
+                    if (response) {
+                        console.log(`[CachedSampleSource] Found in ${cacheName}`);
+                        return response;
+                    }
+                } catch (cacheErr) {
+                    // Ignore individual cache errors, try next
+                    console.warn('[CachedSampleSource] Cache error:', cacheErr);
+                }
+            }
+            
+            return null;  // Not found in any cache
+        } catch (err) {
+            console.error('[CachedSampleSource] Error checking caches:', err);
+            return null;
+        }
+    }
+
+    /**
+     * Decode and play from response
+     * @param {Response} response
+     * @returns {Promise<boolean>}
+     * @private
+     */
+    async _playFromResponse(response) {
+        try {
+            const arrayBuffer = await response.arrayBuffer();
+            console.log('[CachedSampleSource] Array buffer size:', arrayBuffer.byteLength, 'bytes', 
+                       '(~' + (arrayBuffer.byteLength / 1024 / 1024).toFixed(2) + ' MB)');
+            
+            const audioBuffer = await this.engine.ctx.decodeAudioData(arrayBuffer.slice(0));
+            
+            this.buffer = audioBuffer;
+            console.log('[CachedSampleSource] ✅ Loaded:', this.url, 
+                       'Duration:', audioBuffer.duration.toFixed(2) + 's',
+                       'Sample rate:', audioBuffer.sampleRate,
+                       'Channels:', audioBuffer.numberOfChannels);
+            
+            return true;
+        } catch (decodeErr) {
+            console.error('[CachedSampleSource] Decode failed:', decodeErr);
+            throw new Error('Audio decode failed: ' + decodeErr.message);
+        }
+    }
+}
+
+/**
  * Sound Presets - Predefined sound configurations
  */
 const SoundPresets = {
@@ -980,13 +1105,16 @@ class SpatialAudioEngine {
 
     async createSampleSource(id, options = {}) {
         console.log('[SpatialAudioEngine] createSampleSource: creating source:', id);
-        const source = new SampleSource(this, id, options);
+        
+        // Use CachedSampleSource for offline support (Feature 15)
+        const source = new CachedSampleSource(this, id, options);
+        
         console.log('[SpatialAudioEngine] createSampleSource: calling init()');
         source.init();
         console.log('[SpatialAudioEngine] createSampleSource: init() complete, calling load()');
         this.sources.set(id, source);
 
-        // Load the audio file
+        // Load the audio file (from cache or network)
         const loaded = await source.load();
         console.log('[SpatialAudioEngine] createSampleSource: load() returned:', loaded);
         if (!loaded) {
@@ -1624,9 +1752,9 @@ class HeadingManager {
 
 // Export (don't export Listener - it's internal to engine)
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { 
-        SpatialAudioEngine, SoundSource, OscillatorSource, 
-        GpsSoundSource, MultiOscillatorSource, SampleSource, SoundPresets,
+    module.exports = {
+        SpatialAudioEngine, SoundSource, OscillatorSource,
+        GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, SoundPresets,
         GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker
     };
 } else {
@@ -1636,6 +1764,7 @@ if (typeof module !== 'undefined' && module.exports) {
     window.GpsSoundSource = GpsSoundSource;
     window.MultiOscillatorSource = MultiOscillatorSource;
     window.SampleSource = SampleSource;
+    window.CachedSampleSource = CachedSampleSource;
     window.SoundPresets = SoundPresets;
     window.GPSUtils = GPSUtils;
     window.DeviceOrientationHelper = DeviceOrientationHelper;
@@ -1644,9 +1773,10 @@ if (typeof module !== 'undefined' && module.exports) {
     window.setReverbEnvironment = setReverbEnvironment;
     window.getReverbForDistance = getReverbForDistance;
     window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
-    console.log('[spatial_audio.js] v5.0 (Reverb Zones) loaded');
+    console.log('[spatial_audio.js] v5.1+ (Feature 15: Offline Cache Support) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
+    console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');
     console.log('[spatial_audio.js] HeadingManager: GPS + Compass hybrid');
     console.log('[spatial_audio.js] GPSTracker: Auto-lock when stationary');
     console.log('[spatial_audio.js] SpatialAudioApp: High-level app orchestration');

@@ -68,7 +68,18 @@ class ApiClient {
         };
 
         try {
+            // Add timeout (10 seconds)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.error(`[ApiClient] Request timeout for: ${url}`);
+                controller.abort();
+            }, 10000);
+
+            config.signal = controller.signal;
+
             const response = await fetch(url, config);
+            clearTimeout(timeoutId);
+
             const data = await response.json();
 
             if (!response.ok) {
