@@ -1151,10 +1151,120 @@ _distanceToRoute(lat, lon) {
 
 ---
 
-### Feature 18: Offline-First Architecture
+### Feature 18: Session-Based Cached Streaming
+**Priority:** High | **Status:** 📋 Planned
+
+**Description:** Lazy loading with session cache to eliminate audio gaps on waypoint revisit
+
+**Problem Solved:**
+- Large files (>3 MB) cause noticeable audio gaps when user walks toward waypoint
+- Pure lazy loading: 8 second download delay → user walks past waypoint before audio starts
+- Revisiting waypoint re-downloads same file (wasted data, delayed playback)
+- No offline support - lazy loading fails when network unavailable
+
+**Solution:**
+- `CachedStreamSource` class with session-based caching
+- Lazy load logic: "Cached? Play from cache : Stream + cache"
+- One soundscape cached at a time - evict on browser refresh or new soundscape selection
+- Session duration only - no complex long-term storage management
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  User Approaches Waypoint                                   │
+│          ↓                                                  │
+│  Check Session Cache                                        │
+│          ↓                                                  │
+│  ✅ Cached → Play from cache (instant)                      │
+│          ↓                                                  │
+│  ❌ Not Cached → Stream (3-5s) + cache in background        │
+│          ↓                                                  │
+│  User Revisits → Instant playback (from cache)              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Components:**
+
+| Component | Purpose | Caching |
+|-----------|---------|---------|
+| `SessionCacheManager` | In-memory Map storage | Session only |
+| `StreamSource` | External/API streaming | ❌ No cache |
+| `CachedStreamSource` | Static file streaming | ✅ Session cache |
+
+**Source Type Detection:**
+
+| URL Pattern | Source Type | Caching |
+|-------------|-------------|---------|
+| `/sounds/fountain.mp3` | CachedStreamSource | ✅ Yes (session) |
+| `/api/generate-ambient?rain=heavy` | StreamSource | ❌ No (dynamic) |
+| `https://stream.radio.com/jazz` | StreamSource | ❌ No (external) |
+
+**Implementation Sessions:**
+
+| Session | Task | Files | Est. Lines | Time |
+|---------|------|-------|------------|------|
+| **18A** | SessionCacheManager class | `spatial_audio.js`, `spatial_audio_app.js` | ~80 | 1h |
+| **18B** | StreamSource class (MediaSource API) | `spatial_audio.js` | ~120 | 1.5h |
+| **18C** | CachedStreamSource class | `spatial_audio.js` | ~150 | 2h |
+| **18D** | AudioSourceFactory (URL detection) | `spatial_audio.js` | ~50 | 30m |
+| **18E** | Integrate with lazy loading | `spatial_audio_app.js` | ~80 | 1h |
+| **18F** | Test + debug (iOS compatibility) | Browser testing | - | 1h |
+| **Total** | | **2 files** | **~480 lines** | **~7 hours** |
+
+**User Experience:**
+
+| Scenario | Before (Lazy Load) | After (Cached Streaming) |
+|----------|-------------------|-------------------------|
+| **First approach** | 2-8 sec delay | 3-5 sec startup (streaming) |
+| **Revisit waypoint** | Re-download (2-8 sec) | Instant (from cache) ✅ |
+| **Offline** | ❌ Fails | ✅ Works (if cached) |
+| **Large files** | Noticeable gaps | No gaps on revisit |
+| **Storage** | None | 20-50 MB/session (auto-cleared) |
+
+**Trade-offs:**
+
+| Aspect | Decision |
+|--------|----------|
+| **Upfront download** | ❌ No (fast start) |
+| **Session caching** | ✅ Yes (revisit instant) |
+| **Storage limit** | 100 MB per session |
+| **Eviction** | Auto on refresh/switch |
+| **External sources** | ✅ Supported (StreamSource) |
+
+**Testing Checklist:**
+
+- [ ] SessionCacheManager stores ArrayBuffer correctly
+- [ ] Cache clears on soundscape switch
+- [ ] Cache auto-clears on page refresh
+- [ ] StreamSource streams external URLs
+- [ ] CachedStreamSource: first approach = stream + cache
+- [ ] CachedStreamSource: revisit = instant playback
+- [ ] iOS Safari MediaSource compatibility
+- [ ] Size tracking accurate (100 MB limit)
+
+**Files to Modify:**
+
+| File | Changes |
+|------|---------|
+| `spatial_audio.js` | Add SessionCacheManager, StreamSource, CachedStreamSource, AudioSourceFactory |
+| `spatial_audio_app.js` | Integrate with lazy loading, initialize session cache |
+
+**Documentation:** `CACHED_STREAM_SOURCE.md`
+
+**Dependencies:** None (standalone enhancement to lazy loading)
+
+**Future Enhancements:**
+- Long-term caching with IndexedDB (survives refresh)
+- User-controlled "Keep Offline" for favorites
+- Smart preloading (nearby waypoints first)
+
+---
+
+### Feature 19: Offline-First Architecture
 **Priority:** Low | **Status:** 📋 Planned
 
-**Description:** Service Worker for offline caching, IndexedDB for local storage, background sync
+**Description:** Service Worker for offline caching, IndexedDB for persistent storage, background sync
 
 ---
 
@@ -1177,9 +1287,11 @@ _distanceToRoute(lat, lon) {
 
 ## 🎯 Next Priority Items
 
-1. **Feature 15: Sound Walk Composer** - Route drawing tool with OSRM snapping (~4 hours)
-2. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
-3. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
+1. **Feature 18: Session-Based Cached Streaming** - Lazy loading with session cache (~7 hours)
+   - Sessions 18A-18F: SessionCacheManager, StreamSource, CachedStreamSource, integration
+   - Documentation: `CACHED_STREAM_SOURCE.md`
+2. **Feature 15: Sound Walk Composer** - Route drawing tool with OSRM snapping (~4 hours)
+3. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
 4. **Feature 16: Behavior Editing UI** - Visual timeline for behavior configuration
 
 ---

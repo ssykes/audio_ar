@@ -483,7 +483,7 @@ class SampleSource extends GpsSoundSource {
         this.loadPromise = null;
     }
 
-    async load() {
+    async load(timeout = 30000) {
         console.log('[SampleSource] load() called for:', this.url);
         if (!this.url) {
             console.error('[SampleSource] No URL provided');
@@ -491,14 +491,24 @@ class SampleSource extends GpsSoundSource {
         }
 
         try {
-            console.log('[SampleSource] Loading:', this.url);
-            const response = await fetch(this.url);
+            console.log('[SampleSource] Loading:', this.url, '(timeout:', timeout + 'ms)');
+            
+            // Fetch with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.error('[SampleSource] Fetch timeout after', timeout + 'ms for:', this.url);
+                controller.abort();
+            }, timeout);
+            
+            const response = await fetch(this.url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            
             console.log('[SampleSource] Fetch response:', response.status, response.ok);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
             const arrayBuffer = await response.arrayBuffer();
-            console.log('[SampleSource] Array buffer size:', arrayBuffer.byteLength);
+            console.log('[SampleSource] Array buffer size:', arrayBuffer.byteLength, 'bytes', '(~' + (arrayBuffer.byteLength / 1024 / 1024).toFixed(2) + ' MB)');
             try {
                 this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
                 console.log('[SampleSource] Loaded:', this.url, 'Duration:', this.buffer.duration.toFixed(2) + 's');
@@ -509,7 +519,11 @@ class SampleSource extends GpsSoundSource {
             }
             return true;
         } catch (err) {
-            console.error('[SampleSource] Load failed:', this.url, err);
+            if (err.name === 'AbortError') {
+                console.error('[SampleSource] Load timeout (> ' + timeout + 'ms):', this.url);
+            } else {
+                console.error('[SampleSource] Load failed:', this.url, err);
+            }
             return false;
         }
     }
