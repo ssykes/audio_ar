@@ -198,6 +198,23 @@
             opacity: 1;
         }
 
+        /* Offline mode notice banner */
+        .offline-notice {
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.5);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            color: #ffc107;
+            font-size: 0.95em;
+            text-align: center;
+        }
+
+        .offline-notice strong {
+            color: #ffc107;
+            font-size: 1.1em;
+        }
+
         /* Responsive adjustments */
         @media (max-width: 480px) {
             .soundscape-actions {
@@ -442,7 +459,13 @@
     </script>
 
     <button class="logout-btn" id="logoutBtn">Logout</button>
-    
+
+    <!-- Service Worker Status Indicator -->
+    <div id="swStatus" style="position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.8);padding:8px 12px;border-radius:6px;font-size:0.8em;z-index:9999;display:flex;align-items:center;gap:6px;">
+        <span id="swStatusIcon">⏳</span>
+        <span id="swStatusText">Loading...</span>
+    </div>
+
     <div class="container">
         <button class="back-btn" id="backBtn">← Back</button>
         
@@ -482,6 +505,117 @@
     </script>
     <script src="soundscape.js"></script>
     <script src="download_manager.js"></script>
+
+    <!-- Service Worker Registration (for offline support) -->
+    <script>
+        // Register service worker for offline page caching
+        // Version query string updated by deploy.ps1
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js?v=20260321133951')
+                .then((registration) => {
+                    console.log('✅ Service Worker registered:', registration.scope);
+                    console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
+                    
+                    // Update status when SW activates
+                    if (registration.active) {
+                        console.log('✅ Service Worker ALREADY ACTIVE');
+                        localStorage.setItem('sw_ready', 'true');
+                        updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+                    }
+                    
+                    // Listen for updates
+                    registration.addEventListener('updatefound', () => {
+                        console.log('🔄 Service Worker update found');
+                        const newWorker = registration.installing;
+                        
+                        newWorker.addEventListener('statechange', () => {
+                            console.log('🔄 SW state:', newWorker.state);
+                            
+                            if (newWorker.state === 'installed') {
+                                console.log('✅ Service Worker installed');
+                            }
+                            
+                            if (newWorker.state === 'activated') {
+                                console.log('✅ Service Worker ACTIVATED');
+                                localStorage.setItem('sw_ready', 'true');
+                                updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+                                
+                                // Tell all clients to reload
+                                registration.active.postMessage({ type: 'ACTIVATED' });
+                            }
+                        });
+                    });
+                })
+                .catch((error) => {
+                    console.error('❌ Service Worker registration failed:', error);
+                    updateSWStatus('❌', 'Registration failed', 'rgba(255, 107, 107, 0.3)');
+                });
+        } else {
+            console.error('❌ Service Worker NOT supported');
+            updateSWStatus('❌', 'No SW support', 'rgba(255, 107, 107, 0.3)');
+        }
+    </script>
+
+    <!-- Service Worker Status Updates -->
+    <script>
+        // Update Service Worker status indicator
+        function updateSWStatus(icon, text, color) {
+            const iconEl = document.getElementById('swStatusIcon');
+            const textEl = document.getElementById('swStatusText');
+            const statusEl = document.getElementById('swStatus');
+            
+            if (iconEl) iconEl.textContent = icon;
+            if (textEl) textEl.textContent = text;
+            if (statusEl && color) {
+                statusEl.style.background = color;
+            }
+        }
+        
+        // Check Service Worker status
+        if ('serviceWorker' in navigator) {
+            // Check if already ready
+            if (localStorage.getItem('sw_ready') === 'true') {
+                updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+            } else {
+                // Wait for it to be ready
+                navigator.serviceWorker.getRegistration()
+                    .then((registration) => {
+                        if (registration && registration.active) {
+                            updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+                            localStorage.setItem('sw_ready', 'true');
+                        } else {
+                            updateSWStatus('⏳', 'Installing...', 'rgba(255, 193, 7, 0.3)');
+                        }
+                    })
+                    .catch(() => {
+                        updateSWStatus('⚠️', 'SW unavailable', 'rgba(255, 107, 107, 0.3)');
+                    });
+                
+                // Listen for SW state changes
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                    if (event.data === 'activated') {
+                        updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+                        localStorage.setItem('sw_ready', 'true');
+                    }
+                });
+            }
+            
+            // Update status on online/offline
+            window.addEventListener('online', () => {
+                updateSWStatus('🟢', 'Online', 'rgba(0, 217, 255, 0.3)');
+            });
+            window.addEventListener('offline', () => {
+                const swReady = localStorage.getItem('sw_ready') === 'true';
+                if (swReady) {
+                    updateSWStatus('📴', 'Offline (cached)', 'rgba(0, 255, 136, 0.3)');
+                } else {
+                    updateSWStatus('❌', 'Offline (not cached)', 'rgba(255, 107, 107, 0.3)');
+                }
+            });
+        } else {
+            updateSWStatus('❌', 'No SW support', 'rgba(255, 107, 107, 0.3)');
+        }
+    </script>
     <script>
         /**
          * SoundscapePickerApp - List soundscapes and allow user to select one
@@ -495,23 +629,32 @@
         class SoundscapePickerApp {
             constructor() {
                 console.log('[SoundscapePicker] Constructor starting...');
-                
+
                 try {
                     this.api = new ApiClient('/api');
                     console.log('[SoundscapePicker] ApiClient created');
-                    
+
                     this.soundscapes = [];
                     console.log('[SoundscapePicker] soundscapes array initialized');
-                    
+
                     this.downloadManager = new OfflineDownloadManager();
                     console.log('[SoundscapePicker] OfflineDownloadManager created');
+
+                    // Track online/offline status
+                    this.isOnline = navigator.onLine;
+                    console.log('[SoundscapePicker] Initial online status:', this.isOnline);
 
                     // Listen for progress events
                     window.addEventListener('offline-download-progress', (e) => {
                         this._onDownloadProgress(e.detail);
                     });
                     console.log('[SoundscapePicker] Progress event listener added');
-                    
+
+                    // Listen for online/offline events
+                    window.addEventListener('online', () => this._onOnlineStatusChange());
+                    window.addEventListener('offline', () => this._onOnlineStatusChange());
+                    console.log('[SoundscapePicker] Online/offline event listeners added');
+
                     console.log('[SoundscapePicker] Constructor complete');
                 } catch (error) {
                     console.error('[SoundscapePicker] Constructor error:', error);
@@ -555,7 +698,32 @@
              */
             async _checkLoginStatus() {
                 this._debugLog('[picker] 🔧 Checking login status...', 'info');
-                
+
+                // Check if we're offline
+                if (!navigator.onLine) {
+                    this._debugLog('[picker] 📴 Offline mode - checking for offline access', 'info');
+                    
+                    // Check if token exists (user was logged in before)
+                    const token = localStorage.getItem('audio_ar_token');
+                    
+                    // Check if we have offline soundscapes
+                    const cachedSoundscapes = await this.downloadManager.getAllCachedSoundscapes();
+                    
+                    if (token && cachedSoundscapes.length > 0) {
+                        this._debugLog('[picker] ✅ Has token + offline soundscapes - allowing access', 'info');
+                        return; // Allow access to offline soundscapes
+                    } else if (!token) {
+                        this._debugLog('[picker] ⚠️ No token - redirecting to login', 'warn');
+                        window.location.href = 'index.html';
+                        return;
+                    } else {
+                        this._debugLog('[picker] ⚠️ No offline soundscapes - redirecting to login', 'warn');
+                        window.location.href = 'index.html';
+                        return;
+                    }
+                }
+
+                // Online - verify token with server
                 const token = localStorage.getItem('audio_ar_token');
                 if (!token) {
                     this._debugLog('[picker] ⚠️ No token - redirecting to login', 'warn');
@@ -572,11 +740,11 @@
                     this._debugLog('[picker] 📡 Verifying token...', 'info');
                     const valid = await Promise.race([
                         this.api.verifyToken(),
-                        new Promise((_, reject) => 
+                        new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('Token verification timeout')), 5000)
                         )
                     ]);
-                    
+
                     if (!valid) {
                         this._debugLog('[picker] ❌ Token invalid - redirecting to login', 'warn');
                         console.log('[SoundscapePicker] Token invalid - redirecting to index.html');
@@ -600,13 +768,22 @@
              */
             async _loadSoundscapes() {
                 const listEl = document.getElementById('soundscapeList');
+                
+                // Check if we're online or offline
+                if (!this.isOnline) {
+                    this._debugLog('[picker] 📴 Offline mode - showing only offline soundscapes', 'warn');
+                    console.log('[SoundscapePicker] Offline mode - showing only offline soundscapes');
+                    await this._loadOfflineSoundscapesOnly();
+                    return;
+                }
+
                 this._debugLog('[picker] 📡 Fetching soundscapes from server...', 'info');
 
                 try {
                     // Fetch with timeout (10 seconds)
                     this.soundscapes = await Promise.race([
                         this.api.getSoundscapes(),
-                        new Promise((_, reject) => 
+                        new Promise((_, reject) =>
                             setTimeout(() => reject(new Error('Network timeout - server not responding')), 10000)
                         )
                     ]);
@@ -634,16 +811,181 @@
                 } catch (err) {
                     this._debugLog('[picker] ❌ Failed: ' + err.message, 'error');
                     console.error('[SoundscapePicker] Failed to load soundscapes:', err);
+                    
+                    // If server fails, assume offline and show offline soundscapes
+                    this._debugLog('[picker] ⚠️ Server unreachable - switching to offline mode', 'warn');
+                    await this._loadOfflineSoundscapesOnly();
+                }
+            }
+
+            /**
+             * Load only offline soundscapes (when device is in airplane mode)
+             * Scans all cached soundscapes and displays them
+             * @private
+             */
+            async _loadOfflineSoundscapesOnly() {
+                const listEl = document.getElementById('soundscapeList');
+                this._debugLog('[picker] 📂 Loading offline soundscapes...', 'info');
+
+                try {
+                    // Get all cached soundscapes from Cache API
+                    const cachedSoundscapes = await this.downloadManager.getAllCachedSoundscapes();
+
+                    if (cachedSoundscapes.length === 0) {
+                        listEl.innerHTML = `
+                            <li class="empty">
+                                <strong>📴 No offline soundscapes available</strong><br><br>
+                                You're currently offline (airplane mode).<br><br>
+                                To listen to soundscapes offline, you need to:<br>
+                                1️⃣ Turn off airplane mode<br>
+                                2️⃣ Download soundscapes while online<br>
+                                3️⃣ Turn airplane mode back on
+                            </li>
+                        `;
+                        this._debugLog('[picker] ⚠️ No offline soundscapes found', 'warn');
+                        return;
+                    }
+
+                    this._debugLog(`[picker] ✅ Found ${cachedSoundscapes.length} offline soundscape(s)`, 'info');
+
+                    // Build soundscape objects from cached data + stored metadata
+                    // Use the new full soundscape data storage (Feature 15 offline mode)
+                    this.soundscapes = [];
+
+                    for (const cached of cachedSoundscapes) {
+                        // Try to get stored full soundscape data from localStorage (new format)
+                        const storedData = localStorage.getItem('offline_soundscape_full_' + cached.id);
+
+                        if (!storedData) {
+                            this._debugLog(`[picker] ⚠️ Skipping ${cached.id} - no offline data found`, 'warn');
+                            continue;  // Skip soundscapes without stored data
+                        }
+
+                        let soundscapeData = null;
+                        try {
+                            soundscapeData = JSON.parse(storedData);
+                        } catch (err) {
+                            console.warn('[SoundscapePicker] Failed to parse stored soundscape data:', err);
+                            this._debugLog(`[picker] ⚠️ Skipping ${cached.id} - corrupted data`, 'warn');
+                            continue;  // Skip corrupted data
+                        }
+
+                        // Add to list from stored soundscape data
+                        this.soundscapes.push({
+                            id: soundscapeData.id,
+                            name: soundscapeData.name,
+                            waypointCount: (soundscapeData.waypoints || []).length,
+                            updatedAt: soundscapeData.downloadedAt,
+                            isOfflineOnly: true  // Flag to mark as offline-only
+                        });
+
+                        this._debugLog(`[picker] ✅ Loaded offline soundscape: ${soundscapeData.name}`, 'info');
+                    }
+
+                    this._debugLog(`[picker] 📊 ${this.soundscapes.length}/${cachedSoundscapes.length} soundscapes available`, 'info');
+
+                    if (this.soundscapes.length === 0) {
+                        listEl.innerHTML = `
+                            <li class="offline-notice">
+                                📴 <strong>Offline Mode</strong> - Only showing soundscapes available offline.
+                            </li>
+                            <li class="empty">
+                                <strong>📴 No offline soundscapes available</strong><br><br>
+                                You're currently offline (airplane mode).<br><br>
+                                To listen to soundscapes offline, you need to:<br>
+                                1️⃣ Turn off airplane mode<br>
+                                2️⃣ Download soundscapes while online<br>
+                                3️⃣ Turn airplane mode back on
+                            </li>
+                        `;
+                        this._debugLog('[picker] ⚠️ No offline soundscapes with metadata found', 'warn');
+                        return;
+                    }
+
+                    this._renderOfflineList();
+
+                    this._debugLog('[picker] ✅ Offline mode ready', 'info');
+                } catch (err) {
+                    this._debugLog('[picker] ❌ Failed to load offline soundscapes: ' + err.message, 'error');
+                    console.error('[SoundscapePicker] Failed to load offline soundscapes:', err);
                     listEl.innerHTML = `
                         <li class="error">
-                            <strong>Failed to load soundscapes</strong><br><br>
+                            <strong>Failed to load offline soundscapes</strong><br><br>
                             ${err.message}<br><br>
                             <button onclick="location.reload()" style="background:#00d9ff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">🔄 Retry</button>
                         </li>
                     `;
                 }
             }
-            
+
+            /**
+             * Render offline soundscape list (simplified UI for offline mode)
+             * @private
+             */
+            _renderOfflineList() {
+                const listEl = document.getElementById('soundscapeList');
+
+                listEl.innerHTML = `
+                    <li class="offline-notice">
+                        📴 <strong>Offline Mode</strong> - Only showing soundscapes available offline.
+                    </li>
+                ` + this.soundscapes.map(ss => `
+                    <li class="soundscape-item" data-id="${ss.id}">
+                        <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
+                        <div class="soundscape-meta">
+                            <span><span class="icon">🔊</span>${ss.waypointCount || 0} audio file(s)</span>
+                            <span class="offline-status" style="display: inline-flex;">
+                                ✅ Available Offline
+                            </span>
+                        </div>
+                    </li>
+                `).join('');
+
+                // Add click handlers for soundscape selection
+                listEl.querySelectorAll('.soundscape-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        // Don't select if clicking delete button
+                        if (e.target.closest('.delete-offline-btn')) {
+                            return;
+                        }
+                        const id = item.dataset.id;
+                        this._selectSoundscape(id);
+                    });
+                });
+
+                // Add click handlers for delete buttons (if any)
+                listEl.querySelectorAll('.delete-offline-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = btn.closest('[data-soundscape-id]').dataset.soundscapeId;
+                        this._deleteOfflineCache(id);
+                    });
+                });
+            }
+
+            /**
+             * Handle online/offline status change
+             * @private
+             */
+            _onOnlineStatusChange() {
+                const wasOnline = this.isOnline;
+                this.isOnline = navigator.onLine;
+
+                if (wasOnline !== this.isOnline) {
+                    this._debugLog(`[picker] 📡 Network status changed: ${this.isOnline ? '🟢 Online' : '📴 Offline'}`, 'info');
+                    console.log('[SoundscapePicker] Network status changed:', this.isOnline ? 'online' : 'offline');
+
+                    // Reload soundscapes when status changes
+                    if (this.isOnline) {
+                        this._debugLog('[picker] 🔄 Back online - reloading from server...', 'info');
+                        this._loadSoundscapes();
+                    } else {
+                        this._debugLog('[picker] 📴 Went offline - switching to offline mode', 'warn');
+                        this._loadOfflineSoundscapesOnly();
+                    }
+                }
+            }
+
             /**
              * Render soundscape list
              * @private
@@ -796,7 +1138,8 @@
                     const result = await this.downloadManager.downloadSoundscape(
                         soundscapeId,
                         soundscape.name,
-                        waypoints
+                        waypoints,
+                        fullData.soundscape  // Pass full soundscape data (with behaviors, etc.)
                     );
 
                     console.log(`[OfflineDownload] downloadSoundscape() returned:`, result);
@@ -872,6 +1215,10 @@
                     if (progressEl) progressEl.style.display = 'none';
                     if (statusEl) statusEl.style.display = 'flex';
                 }
+
+                // Note: Full soundscape data is already stored by download_manager.js
+                // in offline_soundscape_full_{id} - no need to store duplicate metadata
+                this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
 
             /**
@@ -887,6 +1234,10 @@
                 try {
                     await this.downloadManager.deleteOfflineCache(soundscapeId);
                     this._showToast('Offline copy removed', 'info');
+
+                    // Note: download_manager.deleteOfflineCache() already clears
+                    // offline_soundscape_full_{id} - no additional cleanup needed
+                    this._debugLog(`[picker] 🗑️ Deleted offline cache`, 'info');
 
                     // Update UI
                     const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
@@ -969,11 +1320,15 @@
              */
             _selectSoundscape(id) {
                 console.log(`[SoundscapePicker] Selected: ${id}`);
-                
+                this._debugLog(`[picker] 🎵 Selecting soundscape: ${id}`, 'info');
+
                 // Store selection for map_player.html
                 localStorage.setItem('selected_soundscape_id', id);
-                
+                this._debugLog(`[picker] 📍 Stored selected_soundscape_id: ${id}`, 'info');
+
                 // Redirect to player
+                console.log('[SoundscapePicker] Redirecting to map_player.html...');
+                this._debugLog(`[picker] ➡️ Redirecting to map_player.html...`, 'info');
                 window.location.href = 'map_player.html';
             }
             

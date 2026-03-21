@@ -20,12 +20,13 @@ class OfflineDownloadManager {
      * @param {string} soundscapeId - Soundscape ID
      * @param {string} soundscapeName - Soundscape name (for UI/logging)
      * @param {Array} waypoints - Waypoint data (with sound URLs)
+     * @param {Object} soundscapeData - Optional full soundscape data (name, behaviors, etc.)
      * @returns {Promise<{success: boolean, downloaded: number, failed: number, total: number}>}
      */
-    async downloadSoundscape(soundscapeId, soundscapeName, waypoints) {
+    async downloadSoundscape(soundscapeId, soundscapeName, waypoints, soundscapeData = null) {
         // Extract unique sound URLs (avoid downloading same file twice)
         const urls = [...new Set(waypoints.map(wp => wp.soundUrl).filter(url => url))];
-        
+
         if (urls.length === 0) {
             console.warn('[OfflineDownload] No audio URLs to download');
             return { success: true, downloaded: 0, failed: 0, total: 0, failedUrls: [] };
@@ -62,12 +63,24 @@ class OfflineDownloadManager {
             }
 
             // Update progress
-            this.downloadQueue.set(soundscapeId, { 
-                downloaded, 
-                total, 
-                percent: Math.round((downloaded / total) * 100) 
+            this.downloadQueue.set(soundscapeId, {
+                downloaded,
+                total,
+                percent: Math.round((downloaded / total) * 100)
             });
             this._onProgress(soundscapeId, downloaded, total);
+        }
+
+        // Store full soundscape data for offline loading (including waypoints)
+        if (downloaded > 0) {
+            await this._storeSoundscapeData(soundscapeId, {
+                id: soundscapeId,
+                name: soundscapeName,
+                waypoints: waypoints,
+                soundscapeData: soundscapeData,
+                downloadedAt: new Date().toISOString()
+            });
+            console.log(`[OfflineDownload] 💾 Stored soundscape data for offline loading`);
         }
 
         // Log summary
@@ -85,6 +98,34 @@ class OfflineDownloadManager {
 
         const success = failedUrls.length === 0;
         return { success, downloaded, failed: failedUrls.length, total, failedUrls };
+    }
+
+    /**
+     * Store full soundscape data in localStorage for offline loading
+     * @param {string} soundscapeId
+     * @param {Object} data - Full soundscape data including waypoints
+     * @private
+     */
+    async _storeSoundscapeData(soundscapeId, data) {
+        try {
+            localStorage.setItem('offline_soundscape_full_' + soundscapeId, JSON.stringify(data));
+            console.log(`[OfflineDownload] Stored offline data for ${soundscapeId}`);
+        } catch (err) {
+            console.error(`[OfflineDownload] Failed to store soundscape data:`, err);
+            // Try to store just waypoints if full data is too large
+            try {
+                const minimalData = {
+                    id: soundscapeId,
+                    name: data.name,
+                    waypoints: data.waypoints,
+                    downloadedAt: data.downloadedAt
+                };
+                localStorage.setItem('offline_soundscape_full_' + soundscapeId, JSON.stringify(minimalData));
+                console.log(`[OfflineDownload] Stored minimal offline data for ${soundscapeId}`);
+            } catch (err2) {
+                console.error(`[OfflineDownload] Failed to store minimal data:`, err2);
+            }
+        }
     }
 
     /**
@@ -187,15 +228,38 @@ class OfflineDownloadManager {
             const cache = await caches.open(cacheName);
             const keys = await cache.keys();
             const isAvailable = keys.length > 0;
-            
+
             if (isAvailable) {
                 console.log(`[OfflineDownload] ✅ ${soundscapeId} available offline (${keys.length} files)`);
             }
-            
+
             return isAvailable;
         } catch (err) {
             console.error(`[OfflineDownload] Error checking offline status:`, err);
             return false;
+        }
+    }
+
+    /**
+     * Get cached soundscape data (for offline loading)
+     * Returns full soundscape data including waypoints
+     * @param {string} soundscapeId
+     * @returns {Promise<{id: string, name: string, waypoints: Array, soundscapeData?: Object, downloadedAt: string} | null>}
+     */
+    async getCachedSoundscape(soundscapeId) {
+        try {
+            const stored = localStorage.getItem('offline_soundscape_full_' + soundscapeId);
+            if (!stored) {
+                console.warn(`[OfflineDownload] No cached data found for ${soundscapeId}`);
+                return null;
+            }
+
+            const data = JSON.parse(stored);
+            console.log(`[OfflineDownload] ✅ Retrieved cached data for ${soundscapeId}`);
+            return data;
+        } catch (err) {
+            console.error(`[OfflineDownload] Error retrieving cached soundscape:`, err);
+            return null;
         }
     }
 
@@ -213,6 +277,10 @@ class OfflineDownloadManager {
             } else {
                 console.warn(`[OfflineDownload] Cache not found: ${cacheName}`);
             }
+            
+            // Also clear stored data
+            localStorage.removeItem('offline_soundscape_full_' + soundscapeId);
+            console.log(`[OfflineDownload] 🗑️ Cleared stored data for ${soundscapeId}`);
         } catch (err) {
             console.error(`[OfflineDownload] Error deleting cache:`, err);
             throw err;

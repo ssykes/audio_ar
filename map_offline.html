@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Offline Player - Spatial Audio AR</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #fff; height: 100vh; overflow: hidden; }
+
+        /* Full-screen map */
+        #app { position: relative; width: 100vw; height: 100vh; }
+        #map { width: 100%; height: 100%; }
+
+        /* Picker UI - soundscape list */
+        #pickerUI {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1a1a2e;
+            z-index: 1000;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        #pickerUI.hidden {
+            display: none;
+        }
+
+        .picker-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .picker-header h1 {
+            font-size: 1.5em;
+            color: #00d9ff;
+        }
+
+        .refresh-btn {
+            background: rgba(0, 217, 255, 0.2);
+            border: 1px solid rgba(0, 217, 255, 0.5);
+            color: #00d9ff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        #soundscapeList {
+            list-style: none;
+        }
+
+        .soundscape-item {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+
+        .soundscape-item:hover {
+            background: rgba(255,255,255,0.15);
+            border-color: #00d9ff;
+            transform: translateX(5px);
+        }
+
+        .soundscape-name {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #00d9ff;
+        }
+
+        .soundscape-meta {
+            font-size: 0.85em;
+            color: #888;
+            margin-top: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .offline-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #00ff88;
+            font-size: 0.85em;
+            background: rgba(0, 255, 136, 0.1);
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .delete-offline-btn {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            cursor: pointer;
+            font-size: 1em;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            padding: 2px 6px;
+        }
+
+        .delete-offline-btn:hover {
+            opacity: 1;
+        }
+
+        /* Player UI - icon bar + status bar (same as map_player.html) */
+        #playerUI {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 999;
+        }
+
+        #playerUI.hidden {
+            display: none;
+        }
+
+        /* Icon Bar - Vertical floating toolbar */
+        .icon-bar {
+            position: fixed;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 12px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+
+        .icon-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            border: none;
+            background: transparent;
+            color: #a0a0c0;
+            font-size: 1.3em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            transform: scale(1.05);
+        }
+
+        .icon-btn::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 100%;
+            top: 50%;
+            transform: translateY(-50%) translateX(10px);
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 600;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.2s ease;
+            margin-left: 10px;
+        }
+
+        .icon-btn:hover::after {
+            opacity: 1;
+            transform: translateY(-50%) translateX(15px);
+        }
+
+        /* Bottom Status Bar */
+        .status-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+        }
+
+        .status-label {
+            color: #888;
+            font-weight: 500;
+        }
+
+        .status-value {
+            color: #00ff88;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: right;
+        }
+
+        /* Debug Modal */
+        .debug-modal {
+            display: none;
+            position: fixed;
+            bottom: 60px;
+            left: 10px;
+            width: calc(100% - 20px);
+            max-width: 500px;
+            max-height: 60vh;
+            background: rgba(0, 0, 0, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            z-index: 1001;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .debug-modal.visible {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .debug-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .debug-modal-title {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #00d9ff;
+        }
+
+        .debug-modal-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .debug-copy-btn {
+            background: rgba(0, 217, 255, 0.2);
+            border: 1px solid rgba(0, 217, 255, 0.5);
+            color: #00d9ff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.2s;
+        }
+
+        .debug-modal-close {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.5em;
+            cursor: pointer;
+            padding: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.2s;
+        }
+
+        .debug-modal-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8em;
+            line-height: 1.5;
+            background: #0d0d1a;
+        }
+
+        .debug-line {
+            display: block;
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .debug-line.error { color: #ff6b6b; }
+        .debug-line.warn { color: #ffd93d; }
+        .debug-line.info { color: #00ff88; }
+        .debug-line.debug { color: #888; }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .offline-notice {
+            background: rgba(255, 193, 7, 0.15);
+            border: 1px solid rgba(255, 193, 7, 0.5);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            color: #ffc107;
+            font-size: 0.95em;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Full-screen map -->
+        <div id="map"></div>
+
+        <!-- Picker UI (shown initially) -->
+        <div id="pickerUI">
+            <div class="picker-header">
+                <h1>🎧 Offline Soundscapes</h1>
+                <button class="refresh-btn" onclick="app.loadOfflineSoundscapes()">🔄 Refresh</button>
+            </div>
+
+            <ul id="soundscapeList">
+                <li class="loading">Loading offline soundscapes...</li>
+            </ul>
+        </div>
+
+        <!-- Player UI (hidden initially) -->
+        <div id="playerUI" class="hidden">
+            <!-- Icon Bar -->
+            <div class="icon-bar">
+                <button class="icon-btn" id="backBtn" data-tooltip="Back to Soundscapes">
+                    <svg class="icon-svg" viewBox="0 0 24 24" style="width:24px;height:24px;fill:currentColor;">
+                        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                    </svg>
+                </button>
+                <button class="icon-btn" id="startBtn" data-tooltip="Start Audio">
+                    <svg class="icon-svg" viewBox="0 0 24 24" style="width:24px;height:24px;fill:currentColor;">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                </button>
+                <button class="icon-btn" id="debugBtn" data-tooltip="Show Debug Log">
+                    <svg class="icon-svg" viewBox="0 0 24 24" style="width:24px;height:24px;fill:currentColor;">
+                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Bottom Status Bar -->
+            <div class="status-bar" id="statusBar">
+                <div class="status-item">
+                    <span class="status-label">GPS:</span>
+                    <span class="status-value" id="gpsStatus">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Heading:</span>
+                    <span class="status-value" id="headingStatus">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Sounds:</span>
+                    <span class="status-value" id="soundsStatus">0</span>
+                </div>
+            </div>
+
+            <!-- Debug Modal -->
+            <div class="debug-modal" id="debugModal">
+                <div class="debug-modal-header">
+                    <span class="debug-modal-title">📋 Debug Log</span>
+                    <div class="debug-modal-actions">
+                        <button class="debug-copy-btn" id="debugCopyBtn" title="Copy">📋</button>
+                        <button class="debug-modal-close" id="debugCloseBtn">×</button>
+                    </div>
+                </div>
+                <div class="debug-modal-content" id="debugModalContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        window.API_BASE_URL = '/api';
+    </script>
+    <script src="api-client.js"></script>
+    <script src="soundscape.js"></script>
+    <script src="download_manager.js"></script>
+    <script src="spatial_audio.js"></script>
+    <script src="spatial_audio_app.js"></script>
+    <script src="wake_lock_helper.js"></script>
+    <script src="map_shared.js"></script>
+
+    <script>
+        /**
+         * MapOfflineApp - Combined picker + player for offline use
+         * No redirects needed - everything happens in this single page
+         */
+        class MapOfflineApp extends MapAppShared {
+            constructor() {
+                super({ mode: 'player' });
+                this.downloadManager = new OfflineDownloadManager();
+                this.showingPicker = true;
+            }
+
+            async init() {
+                console.log('[MapOffline] Initializing...');
+                if (document.readyState === 'loading') {
+                    await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+                }
+
+                // Check online status
+                this.isOnline = navigator.onLine;
+                this.debugLog(`📡 Network: ${this.isOnline ? '🟢 Online' : '📴 Offline'}`);
+
+                this._initMap();
+                this._setupEventListeners();
+                this._initDebugConsole();
+                await this._getInitialGPS();
+
+                // Show picker UI initially
+                await this.loadOfflineSoundscapes();
+
+                console.log('[MapOffline] Ready');
+            }
+
+            /**
+             * Load and display offline soundscapes
+             */
+            async loadOfflineSoundscapes() {
+                const listEl = document.getElementById('soundscapeList');
+                this.debugLog('📂 Loading offline soundscapes...');
+
+                try {
+                    const cachedSoundscapes = await this.downloadManager.getAllCachedSoundscapes();
+
+                    if (cachedSoundscapes.length === 0) {
+                        listEl.innerHTML = `
+                            <li class="offline-notice">
+                                📴 <strong>No offline soundscapes available</strong>
+                            </li>
+                            <li class="empty">
+                                <strong>To download soundscapes:</strong><br><br>
+                                1️⃣ Turn off airplane mode<br>
+                                2️⃣ Go to soundscape_picker.html<br>
+                                3️⃣ Download soundscapes<br>
+                                4️⃣ Return here
+                            </li>
+                        `;
+                        this.debugLog('⚠️ No offline soundscapes found');
+                        return;
+                    }
+
+                    this.debugLog(`✅ Found ${cachedSoundscapes.length} offline soundscape(s)`);
+
+                    // Build list from stored data
+                    const soundscapes = [];
+                    for (const cached of cachedSoundscapes) {
+                        const storedData = localStorage.getItem('offline_soundscape_full_' + cached.id);
+                        if (storedData) {
+                            try {
+                                const data = JSON.parse(storedData);
+                                soundscapes.push({
+                                    id: data.id,
+                                    name: data.name,
+                                    waypointCount: (data.waypoints || []).length,
+                                    downloadedAt: data.downloadedAt
+                                });
+                            } catch (err) {
+                                this.debugLog(`⚠️ Corrupted data for ${cached.id}`);
+                            }
+                        }
+                    }
+
+                    if (soundscapes.length === 0) {
+                        listEl.innerHTML = `
+                            <li class="empty">
+                                <strong>⚠️ No valid offline soundscapes found</strong><br><br>
+                                Data may be corrupted. Try re-downloading.
+                            </li>
+                        `;
+                        return;
+                    }
+
+                    // Render list
+                    listEl.innerHTML = `
+                        <li class="offline-notice">
+                            📴 <strong>Offline Mode</strong> - ${soundscapes.length} soundscape(s) available
+                        </li>
+                    ` + soundscapes.map(ss => `
+                        <li class="soundscape-item" data-id="${ss.id}">
+                            <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
+                            <div class="soundscape-meta">
+                                <span>🔊 ${ss.waypointCount} audio file(s)</span>
+                                <span class="offline-status">
+                                    ✅ Offline
+                                    <button class="delete-offline-btn" data-soundscape-id="${ss.id}" title="Delete">🗑️</button>
+                                </span>
+                            </div>
+                        </li>
+                    `).join('');
+
+                    // Add click handlers
+                    listEl.querySelectorAll('.soundscape-item').forEach(item => {
+                        item.addEventListener('click', (e) => {
+                            if (e.target.closest('.delete-offline-btn')) return;
+                            const id = item.dataset.id;
+                            this.selectSoundscape(id);
+                        });
+                    });
+
+                    listEl.querySelectorAll('.delete-offline-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const id = btn.dataset.soundscapeId;
+                            this.deleteSoundscape(id);
+                        });
+                    });
+
+                    this.debugLog('✅ Offline soundscapes displayed');
+
+                } catch (error) {
+                    this.debugLog('❌ Failed to load offline soundscapes: ' + error.message);
+                    listEl.innerHTML = `<li class="error">Error: ${error.message}</li>`;
+                }
+            }
+
+            /**
+             * Select soundscape and switch to player mode
+             */
+            async selectSoundscape(id) {
+                this.debugLog(`🎵 Selecting soundscape: ${id}`);
+
+                // Get cached data
+                const cachedData = await this.downloadManager.getCachedSoundscape(id);
+                if (!cachedData) {
+                    this.debugLog('❌ Soundscape data not found');
+                    alert('Soundscape data not found. It may have been corrupted.');
+                    return;
+                }
+
+                this.debugLog(`✅ Loaded: ${cachedData.name} (${cachedData.waypoints?.length || 0} waypoints)`);
+
+                // Store active soundscape
+                this.activeSoundscapeId = id;
+                localStorage.setItem('player_active_soundscape_id', id);
+
+                // Load waypoints
+                this.soundscapes.clear();
+                this.waypoints = cachedData.waypoints || [];
+                const soundscape = new SoundScape(cachedData.id, cachedData.name);
+                this.soundscapes.set(soundscape.id, soundscape);
+
+                // Restore nextId
+                if (this.waypoints.length > 0) {
+                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                    this.nextId = maxId + 1;
+                }
+
+                // Render waypoints
+                this.markers.forEach(marker => marker.remove());
+                this.markers.clear();
+                this.waypoints.forEach(wp => this._createMarker(wp));
+                this._updateWaypointList();
+
+                // Center map
+                if (this.waypoints.length > 0) {
+                    const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+                    this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+                }
+
+                // Switch to player UI
+                this.showPlayerUI();
+            }
+
+            /**
+             * Switch to player UI
+             */
+            showPlayerUI() {
+                document.getElementById('pickerUI').classList.add('hidden');
+                document.getElementById('playerUI').classList.remove('hidden');
+                this.showingPicker = false;
+                this.debugLog('▶️ Switched to player mode');
+            }
+
+            /**
+             * Switch back to picker UI
+             */
+            showPickerUI() {
+                document.getElementById('playerUI').classList.add('hidden');
+                document.getElementById('pickerUI').classList.remove('hidden');
+                this.showingPicker = true;
+                this.debugLog('◀️ Switched to picker mode');
+            }
+
+            /**
+             * Delete offline soundscape
+             */
+            async deleteSoundscape(id) {
+                if (!confirm('Remove offline copy? You can re-download anytime.')) return;
+
+                try {
+                    await this.downloadManager.deleteOfflineCache(id);
+                    this.debugLog('🗑️ Deleted offline soundscape');
+                    await this.loadOfflineSoundscapes();
+                } catch (error) {
+                    this.debugLog('❌ Failed to delete: ' + error.message);
+                }
+            }
+
+            _setupEventListeners() {
+                // Back button
+                document.getElementById('backBtn')?.addEventListener('click', () => {
+                    this.showPickerUI();
+                });
+
+                // Start button
+                document.getElementById('startBtn')?.addEventListener('click', () => {
+                    this._handleStartClick();
+                });
+
+                // Debug button
+                document.getElementById('debugBtn')?.addEventListener('click', () => {
+                    this._toggleDebugModal();
+                });
+
+                // Debug close
+                document.getElementById('debugCloseBtn')?.addEventListener('click', () => {
+                    this._closeDebugModal();
+                });
+
+                // Debug copy
+                document.getElementById('debugCopyBtn')?.addEventListener('click', () => {
+                    this._copyDebugToClipboard();
+                });
+            }
+
+            _initDebugConsole() {
+                this.debugModal = document.getElementById('debugModal');
+                this.debugModalContent = document.getElementById('debugModalContent');
+                if (this.debugModalContent) {
+                    this.debugLog('🎧 Offline Player ready');
+                    this.debugLog('📍 Select a soundscape to begin');
+
+                    // Auto-scroll
+                    const observer = new MutationObserver(() => {
+                        if (this.debugModalContent) {
+                            this.debugModalContent.scrollTop = this.debugModalContent.scrollHeight;
+                        }
+                    });
+                    observer.observe(this.debugModalContent, { childList: true, subtree: true });
+                }
+            }
+
+            _toggleDebugModal() {
+                if (this.debugModal) {
+                    this.debugModal.classList.add('visible');
+                }
+            }
+
+            _closeDebugModal() {
+                if (this.debugModal) {
+                    this.debugModal.classList.remove('visible');
+                }
+            }
+
+            async _copyDebugToClipboard() {
+                try {
+                    const debugText = this.debugModalContent.innerText;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(debugText);
+                        this.debugLog('✅ Copied to clipboard');
+                    } else {
+                        const textArea = document.createElement('textarea');
+                        textArea.value = debugText;
+                        textArea.style.position = 'fixed';
+                        textArea.style.left = '-999999px';
+                        document.body.appendChild(textArea);
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        this.debugLog('✅ Copied to clipboard');
+                    }
+                } catch (error) {
+                    this.debugLog('❌ Copy failed: ' + error.message);
+                }
+            }
+
+            _escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // Override to update status bar
+            _updateListenerMarker(lat, lon, locked) {
+                super._updateListenerMarker(lat, lon, locked);
+                this._updateStatusBar();
+            }
+
+            _updateStatusBar() {
+                const gpsStatus = document.getElementById('gpsStatus');
+                const headingStatus = document.getElementById('headingStatus');
+                const soundsStatus = document.getElementById('soundsStatus');
+
+                if (gpsStatus) {
+                    gpsStatus.textContent = this.userLat ? 
+                        `${this.userLat.toFixed(4)}, ${this.userLon.toFixed(4)}` : '--';
+                }
+
+                if (headingStatus) {
+                    headingStatus.textContent = this.listenerHeading ? 
+                        `${this.listenerHeading.toFixed(0)}°` : '--';
+                }
+
+                if (soundsStatus) {
+                    const activeSounds = this.sounds.filter(s => s.isPlaying).length;
+                    soundsStatus.textContent = activeSounds;
+                }
+            }
+        }
+
+        // Initialize
+        const app = new MapOfflineApp();
+        window.app = app;
+        app.init();
+
+        console.log('[map_offline.html] MapOfflineApp loaded');
+    </script>
+</body>
+</html>

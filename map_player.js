@@ -18,6 +18,8 @@ console.log('[map_player.js] Loading v7.0...');
 class MapPlayerApp extends MapAppShared {
     constructor() {
         super({ mode: 'player' });
+        // Initialize offline download manager for offline soundscape loading
+        this.downloadManager = new OfflineDownloadManager();
     }
 
     /**
@@ -28,6 +30,30 @@ class MapPlayerApp extends MapAppShared {
         console.log('Map Player initializing...');
         if (document.readyState === 'loading') {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+        }
+
+        // Check online/offline status
+        this.isOnline = navigator.onLine;
+        console.log('[MapPlayer] Initial network status:', this.isOnline ? '🟢 Online' : '📴 Offline');
+        this.debugLog(`📡 Network status: ${this.isOnline ? '🟢 Online' : '📴 Offline'}`);
+
+        // Listen for network status changes
+        window.addEventListener('online', () => {
+            this.isOnline = true;
+            this.debugLog('📡 Network status: Online');
+        });
+        window.addEventListener('offline', () => {
+            this.isOnline = false;
+            this.debugLog('📴 Network status: Offline');
+        });
+
+        // Check for selected soundscape from picker
+        const selectedId = localStorage.getItem('selected_soundscape_id');
+        console.log('[MapPlayer] selected_soundscape_id:', selectedId);
+        if (selectedId) {
+            this.debugLog(`📍 Found selected_soundscape_id: ${selectedId}`);
+        } else {
+            this.debugLog(`⚠️ No selected_soundscape_id found`);
         }
 
         // Check login status
@@ -42,13 +68,13 @@ class MapPlayerApp extends MapAppShared {
         this._applyPlayerRestrictions();
 
         // Check if user selected a soundscape from picker (Session 9)
-        const selectedId = localStorage.getItem('selected_soundscape_id');
-        if (selectedId) {
-            this.debugLog(`📱 Using selected soundscape: ${selectedId}`);
-            this.activeSoundscapeId = selectedId;
+        const persistedSelectedId = localStorage.getItem('selected_soundscape_id');
+        if (persistedSelectedId) {
+            this.debugLog(`📱 Using selected soundscape: ${persistedSelectedId}`);
+            this.activeSoundscapeId = persistedSelectedId;
             localStorage.removeItem('selected_soundscape_id');  // Clear after use
             // Persist active soundscape for page refresh (Bug fix: waypoints disappear on refresh)
-            localStorage.setItem('player_active_soundscape_id', selectedId);
+            localStorage.setItem('player_active_soundscape_id', persistedSelectedId);
         } else {
             // Restore active soundscape from previous session (Bug fix: waypoints disappear on refresh)
             const persistedId = localStorage.getItem('player_active_soundscape_id');
@@ -58,16 +84,21 @@ class MapPlayerApp extends MapAppShared {
             }
         }
 
-        // Load soundscape
-        if (this.isLoggedIn) {
+        // Load soundscape - use offline mode if not online
+        if (!this.isOnline) {
+            this.debugLog('📴 Offline mode detected - loading from cache');
+            await this._loadSoundscapeFromOffline();
+        } else if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
             // Auto-sync if data has changed
             await this._autoSyncIfNeeded();
         } else {
+            this.debugLog('📂 Not logged in - loading from localStorage');
             this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
 
         console.log('Map Player ready');
+        this.debugLog('✅ Map Player ready');
     }
 
     /**
@@ -75,17 +106,23 @@ class MapPlayerApp extends MapAppShared {
      * @private
      */
     async _checkLoginStatus() {
+        // Skip login check when offline - allow offline playback
+        if (!this.isOnline) {
+            this.debugLog('📴 Offline mode - skipping login verification');
+            return;
+        }
+
         if (this.api.isLoggedIn()) {
             const valid = await this.api.verifyToken();
             if (valid) {
                 this.isLoggedIn = true;
-                
+
                 // Show user panel
                 const userPanel = document.getElementById('userPanel');
                 const userEmail = document.getElementById('userEmail');
                 if (userPanel) userPanel.style.display = 'block';
                 if (userEmail) userEmail.textContent = this.api.user.email;
-                
+
                 this.debugLog('🔐 Logged in as ' + this.api.user.email);
             }
         }
@@ -274,6 +311,97 @@ class MapPlayerApp extends MapAppShared {
             this._showToast('⚠️ Using cached data', 'warning');
             // Fallback to localStorage
             this._loadSoundscapeFromStorage();
+        }
+    }
+
+    /**
+     * Load soundscape from offline cache (Feature 15: Offline mode)
+     * Loads from Cache API + localStorage when device is offline
+     * @private
+     */
+    async _loadSoundscapeFromOffline() {
+        if (!this.activeSoundscapeId) {
+            this.debugLog('⚠️ No soundscape selected - cannot load offline');
+            this._showToast('⚠️ No soundscape selected', 'warning');
+            return;
+        }
+
+        try {
+            this.debugLog('📂 Loading soundscape from offline cache...');
+            this.debugLog(`🔍 Looking for: offline_soundscape_full_${this.activeSoundscapeId}`);
+
+            // Get cached soundscape data (including waypoints)
+            const cachedData = await this.downloadManager.getCachedSoundscape(this.activeSoundscapeId);
+            
+            this.debugLog(`📦 Raw cached data: ${cachedData ? 'found' : 'NULL'}`);
+
+            if (!cachedData) {
+                const errorMsg = 'Soundscape not available offline. Please download it first while online.';
+                this.debugLog('❌ ' + errorMsg);
+                throw new Error(errorMsg);
+            }
+
+            this.debugLog(`✅ Retrieved cached data for ${cachedData.name}`);
+            this.debugLog(`📊 Waypoints in cache: ${cachedData.waypoints?.length || 0}`);
+
+            // Clear existing
+            this.soundscapes.clear();
+            this.waypoints = [];
+            this.markers.forEach(marker => marker.remove());
+            this.markers.clear();
+
+            // Create soundscape from cached data
+            const soundscape = new SoundScape(cachedData.id, cachedData.name);
+            this.soundscapes.set(soundscape.id, soundscape);
+            this.activeSoundscapeId = soundscape.id;
+
+            // Load waypoints from cached data
+            this.waypoints = cachedData.waypoints || [];
+            this.debugLog(`📍 Loaded ${this.waypoints.length} waypoints`);
+
+            // Restore nextId
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
+                this.debugLog(`🔢 nextId set to ${this.nextId}`);
+            }
+
+            // Render waypoints
+            this.debugLog('🎨 Rendering waypoints...');
+            this.waypoints.forEach(wp => {
+                this.debugLog(`  - ${wp.id}: ${wp.lat}, ${wp.lon}`);
+                this._createMarker(wp);
+            });
+            this._updateWaypointList();
+
+            this.debugLog('✅ Created ' + this.waypoints.length + ' waypoint markers on map');
+
+            // Center and zoom map to show all waypoints
+            if (this.waypoints.length > 0) {
+                // Create bounds from all waypoint positions
+                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+
+                // Fit map to show all waypoints with padding
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+
+                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
+            }
+
+            this.debugLog(`✅ Loaded offline: ${soundscape.name} (${this.waypoints.length} waypoints)`);
+            this._showToast('📴 Offline mode - using cached soundscape', 'info');
+
+        } catch (error) {
+            this.debugLog('❌ Failed to load from offline cache: ' + error.message);
+            this.debugLog('❌ Stack: ' + error.stack);
+            this._showToast('❌ ' + error.message, 'error');
+            
+            // Show helpful message
+            if (error.message.includes('not available offline')) {
+                this._showToast('💡 Go online and download the soundscape first', 'info');
+            }
         }
     }
 

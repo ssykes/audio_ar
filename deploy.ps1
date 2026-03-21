@@ -113,6 +113,7 @@ $MAP_PLAYER_PATTERN = 'map_player\.js\?v=\d+'
 $SOUNDSCAPE_PATTERN = 'soundscape\.js\?v=\d+'
 $API_CLIENT_PATTERN = 'api-client\.js\?v=\d+'
 $DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js\?v=\d+'
+$SW_VERSION_PATTERN = 'sw\.js\?v=\d+'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -195,6 +196,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (download_manager.js)" -ForegroundColor Green
         }
+
+        # Update sw.js version (Service Worker)
+        if ($content -match $SW_VERSION_PATTERN) {
+            $content = $content -replace $SW_VERSION_PATTERN, "sw.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (sw.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -251,7 +259,7 @@ $ALL_FILES = @(
     "auto_rotate.html",
     "offline.html",
     "spatial_audio.js",
-    "service-worker.js",
+    "sw.js",
     "manifest.json",
     "icon-192.svg",
     "icon-512.svg",
@@ -267,7 +275,8 @@ $ALL_FILES = @(
     "soundscape_picker.html",
     "wake_lock_helper.js",
     "api-client.js",
-    "download_manager.js"
+    "download_manager.js",
+    "map_offline.html"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow

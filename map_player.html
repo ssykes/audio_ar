@@ -8,6 +8,64 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Error Overlay Script (must be first) -->
+    <script>
+        // Global error handler - catches ALL JavaScript errors
+        window.onerror = function(msg, url, line, col, error) {
+            console.error('Global error:', msg, error);
+
+            const errorOverlay = document.getElementById('errorOverlay');
+            const errorContent = document.getElementById('errorContent');
+
+            if (errorOverlay && errorContent) {
+                const errorDetails = [
+                    'Message: ' + msg,
+                    'File: ' + url,
+                    'Line: ' + line,
+                    'Column: ' + col,
+                    '',
+                    'Stack:',
+                    error ? error.stack : 'No stack trace'
+                ].join('\n');
+
+                errorContent.textContent = errorDetails;
+                errorOverlay.style.display = 'block';
+
+                // Also log to debug window if it exists
+                if (window.app && typeof window.app._debugLog === 'function') {
+                    window.app._debugLog('❌ Fatal error: ' + msg, 'error');
+                }
+            }
+
+            return false; // Don't suppress default error handling
+        };
+
+        // Catch unhandled promise rejections
+        window.onunhandledrejection = function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+
+            const errorOverlay = document.getElementById('errorOverlay');
+            const errorContent = document.getElementById('errorContent');
+
+            if (errorOverlay && errorContent) {
+                const errorDetails = [
+                    'Unhandled Promise Rejection',
+                    '',
+                    'Reason:',
+                    event.reason ? (event.reason.message || event.reason) : 'Unknown',
+                    '',
+                    'Stack:',
+                    event.reason ? event.reason.stack : 'No stack trace'
+                ].join('\n');
+
+                errorContent.textContent = errorDetails;
+                errorOverlay.style.display = 'block';
+            }
+        };
+
+        console.log('[map_player.html] Error handlers installed');
+    </script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #fff; height: 100vh; overflow: hidden; }
@@ -316,6 +374,16 @@
     </style>
 </head>
 <body>
+    <!-- Error Overlay (must be first to catch all errors) -->
+    <div id="errorOverlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.95);z-index:99999;overflow-y:auto;">
+        <div style="background:#1a1a2e;border:2px solid #ff6b6b;border-radius:8px;padding:20px;max-width:600px;margin:20px auto;">
+            <h2 style="color:#ff6b6b;margin-top:0;">⚠️ JavaScript Error</h2>
+            <div id="errorContent" style="font-family:monospace;font-size:0.85em;color:#fff;white-space:pre-wrap;word-break:break-all;"></div>
+            <button onclick="location.reload()" style="margin-top:15px;background:#00d9ff;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:1em;">🔄 Reload Page</button>
+            <button onclick="document.getElementById('errorOverlay').style.display='none'" style="margin-top:10px;margin-left:10px;background:#666;border:none;padding:10px 20px;border-radius:4px;cursor:pointer;font-size:1em;color:#fff;">✕ Close</button>
+        </div>
+    </div>
+
     <div id="app">
         <!-- Full-screen map -->
         <div id="map"></div>
@@ -385,8 +453,51 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
+    
+    <!-- Service Worker Registration (for offline support) -->
+    <script>
+        // Register service worker for offline page caching
+        // Version query string updated by deploy.ps1
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js?v=20260321133951')
+                .then((registration) => {
+                    console.log('✅ Service Worker registered:', registration.scope);
+                    console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
+                    
+                    // Update status when SW activates
+                    if (registration.active) {
+                        console.log('✅ Service Worker ALREADY ACTIVE');
+                        localStorage.setItem('sw_ready', 'true');
+                    }
+                    
+                    // Listen for updates
+                    registration.addEventListener('updatefound', () => {
+                        console.log('🔄 Service Worker update found');
+                        const newWorker = registration.installing;
+                        
+                        newWorker.addEventListener('statechange', () => {
+                            console.log('🔄 SW state:', newWorker.state);
+                            
+                            if (newWorker.state === 'installed') {
+                                console.log('✅ Service Worker installed');
+                            }
+                            
+                            if (newWorker.state === 'activated') {
+                                console.log('✅ Service Worker ACTIVATED');
+                                localStorage.setItem('sw_ready', 'true');
+                            }
+                        });
+                    });
+                })
+                .catch((error) => {
+                    console.error('❌ Service Worker registration failed:', error);
+                });
+        }
+    </script>
+    
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
+    <script src="download_manager.js"></script>
     <script src="spatial_audio.js"></script>
     <script src="spatial_audio_app.js"></script>
     <script src="wake_lock_helper.js"></script>
