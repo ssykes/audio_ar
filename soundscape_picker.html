@@ -782,7 +782,8 @@
                     }
 
                     // Show progress bar immediately
-                    const progressEl = document.querySelector(`[data-soundscape-id="${soundscapeId}"] .download-progress`);
+                    const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
+                    const progressEl = itemEl ? itemEl.querySelector('.download-progress') : null;
                     if (progressEl) {
                         progressEl.style.display = 'flex';
                         progressEl.querySelector('.progress-fill').style.width = `0%`;
@@ -835,18 +836,22 @@
              */
             _onDownloadProgress({ soundscapeId, downloaded, total, percent }) {
                 this._debugLog(`[picker] 📊 Progress: ${percent}% (${downloaded}/${total})`, 'info');
-                
-                const progressEl = document.querySelector(
-                    `[data-soundscape-id="${soundscapeId}"] .download-progress`
-                );
 
-                if (progressEl) {
-                    progressEl.style.display = 'flex';
-                    progressEl.querySelector('.progress-fill').style.width = `${percent}%`;
-                    progressEl.querySelector('.progress-text').textContent = `${percent}% (${downloaded}/${total})`;
-                    this._debugLog(`[picker] ✅ Progress bar updated`, 'info');
+                // Find the soundscape item by data-id attribute (set on <li>)
+                const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
+                
+                if (itemEl) {
+                    const progressEl = itemEl.querySelector('.download-progress');
+                    if (progressEl) {
+                        progressEl.style.display = 'flex';
+                        progressEl.querySelector('.progress-fill').style.width = `${percent}%`;
+                        progressEl.querySelector('.progress-text').textContent = `${percent}% (${downloaded}/${total})`;
+                        this._debugLog(`[picker] ✅ Progress bar updated`, 'info');
+                    } else {
+                        this._debugLog(`[picker] ❌ Progress bar element not found!`, 'error');
+                    }
                 } else {
-                    this._debugLog(`[picker] ❌ Progress bar element not found!`, 'error');
+                    this._debugLog(`[picker] ❌ Soundscape item not found!`, 'error');
                 }
             }
 
@@ -856,9 +861,7 @@
              * @private
              */
             _markAsOffline(soundscapeId) {
-                const itemEl = document.querySelector(
-                    `[data-soundscape-id="${soundscapeId}"]`
-                );
+                const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
 
                 if (itemEl) {
                     const downloadBtn = itemEl.querySelector('.download-btn');
@@ -886,9 +889,7 @@
                     this._showToast('Offline copy removed', 'info');
 
                     // Update UI
-                    const itemEl = document.querySelector(
-                        `[data-soundscape-id="${soundscapeId}"]`
-                    );
+                    const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
 
                     if (itemEl) {
                         const downloadBtn = itemEl.querySelector('.download-btn');
