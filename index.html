@@ -7,6 +7,30 @@
     <title>Spatial Audio AR - Landing</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    
+    <!-- Redirect to soundscape_picker if offline and has offline soundscapes -->
+    <script>
+        // Check if offline before page loads
+        if (!navigator.onLine) {
+            console.log('[index.html] 📴 Offline detected');
+            
+            // Check if we have offline soundscapes
+            const cachedSoundscapes = localStorage.getItem('offline_soundscapes_count');
+            const token = localStorage.getItem('audio_ar_token');
+            
+            if (token && cachedSoundscapes) {
+                console.log('[index.html] ✅ Has token + offline soundscapes - redirecting to picker');
+                window.location.href = 'soundscape_picker.html';
+            } else if (!token) {
+                console.log('[index.html] ⚠️ No token - showing login (offline)');
+                // Show login but can't verify
+            } else {
+                console.log('[index.html] ⚠️ No offline soundscapes - showing login (offline)');
+                // Show login but can't verify
+            }
+        }
+    </script>
+</head>
     <style>
         * {
             box-sizing: border-box;

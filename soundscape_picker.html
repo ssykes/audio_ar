@@ -511,7 +511,7 @@
         // Register service worker for offline page caching
         // Version query string updated by deploy.ps1
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20260321133951')
+            navigator.serviceWorker.register('sw.js?v=20260321135623')
                 .then((registration) => {
                     console.log('✅ Service Worker registered:', registration.scope);
                     console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
@@ -847,6 +847,9 @@
                     }
 
                     this._debugLog(`[picker] ✅ Found ${cachedSoundscapes.length} offline soundscape(s)`, 'info');
+
+                    // Store count for index.html redirect check
+                    localStorage.setItem('offline_soundscapes_count', cachedSoundscapes.length.toString());
 
                     // Build soundscape objects from cached data + stored metadata
                     // Use the new full soundscape data storage (Feature 15 offline mode)
@@ -1235,9 +1238,14 @@
                     await this.downloadManager.deleteOfflineCache(soundscapeId);
                     this._showToast('Offline copy removed', 'info');
 
-                    // Note: download_manager.deleteOfflineCache() already clears
-                    // offline_soundscape_full_{id} - no additional cleanup needed
-                    this._debugLog(`[picker] 🗑️ Deleted offline cache`, 'info');
+                    // Update offline soundscapes count for index.html redirect
+                    const cachedSoundscapes = await this.downloadManager.getAllCachedSoundscapes();
+                    if (cachedSoundscapes.length === 0) {
+                        localStorage.removeItem('offline_soundscapes_count');
+                    } else {
+                        localStorage.setItem('offline_soundscapes_count', cachedSoundscapes.length.toString());
+                    }
+                    this._debugLog(`[picker] 🗑️ Updated offline count: ${cachedSoundscapes.length}`, 'info');
 
                     // Update UI
                     const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
