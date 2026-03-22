@@ -2,11 +2,12 @@
  * SoundScape Architecture
  * Core classes for managing spatial audio experiences
  *
- * @version 4.0 - Distance-Based Effects Framework (Feature 17)
+ * @version 4.1 - Distance-Based Effects Framework (Feature 17)
  * @changelog
  *   v1.0 - SoundScape, SoundBehavior, BehaviorExecutor classes
  *   v3.0 - Added waypointData persistence, SoundScapeStorage
  *   v4.0 - Added DistanceBasedEffect base class + DistanceEffectCurves utility
+ *   v4.1 - Updated BehaviorExecutor.create() to accept listener parameter
  *
  * Architecture:
  * - SoundScape: Persisted container with soundIds and behaviors
@@ -17,7 +18,7 @@
  *   PC Editor → SoundScape → localStorage → Phone Player → BehaviorExecutor → Audio
  */
 
-console.log('[soundscape.js] Loading v4.0...');
+console.log('[soundscape.js] Loading v4.1...');
 
 /**
  * SoundBehavior - Stored specification for coordinating sounds
@@ -176,13 +177,16 @@ class BehaviorExecutor {
      * @param {SoundBehavior|object} spec - Behavior specification
      * @param {Sound[]} sounds - Array of Sound instances
      * @param {SpatialAudioEngine} audioEngine - Audio engine instance
+     * @param {Listener} listener - Listener for position tracking (optional, for distance-based effects)
      * @returns {BehaviorExecutor} Type-specific executor
      */
-    static create(spec, sounds, audioEngine) {
+    static create(spec, sounds, audioEngine, listener = null) {
         // Get type from spec (handle both SoundBehavior and plain object)
         const type = spec.type || (spec instanceof SoundBehavior ? spec.type : null);
 
         switch (type) {
+            case 'distance_envelope':
+                return new DistanceEnvelopeExecutor(spec, sounds, audioEngine, listener);
             case 'tempo_sync':
                 return new TempoSyncExecutor(spec, sounds, audioEngine);
             case 'time_sync':

@@ -2,10 +2,11 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 2.8 (Feature 14: Distance-Based Audio Filtering / Air Absorption)
+ * @version 2.9 (Feature 17: Distance-Based Effects Framework Integration)
  * @depends spatial_audio.js v5.1+
  *
  * Changelog:
+ * - v2.9: Added distance-based effects framework (activeBehaviors, soundsWithBehaviors)
  * - v2.8: Added distance-based low-pass filter (simulates air absorption)
  * - v2.7: Added hysteresis to disposal logic (prevents cycling at zone boundaries)
  * - v2.6: Fixed preloaded sounds not starting when entering active zone
@@ -18,6 +19,7 @@
  * - UI callbacks for position/state updates
  * - FEATURE 13: Lazy loading with 3-zone system (active/preload/hysteresis)
  * - FEATURE 14: Air absorption simulation (low-pass filter based on distance)
+ * - FEATURE 17: Distance-based effects framework (per-frame behavior updates)
  *
  * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m hysteresis)
  * =================================================
@@ -329,6 +331,12 @@ class SpatialAudioApp {
 
         // === FEATURE 13: Lazy Loading Zone Management ===
         this.lastZoneCheck = 0;  // Timestamp of last zone update (throttle to 1/sec)
+
+        // === FEATURE 17: Distance-Based Effects Framework ===
+        // Active behavior executors that need per-frame updates
+        this.activeBehaviors = [];  // Array of BehaviorExecutor instances
+        // Set of sound IDs controlled by behaviors (skip default gain logic)
+        this.soundsWithBehaviors = new Set();
     }
 
     /**
@@ -820,9 +828,25 @@ class SpatialAudioApp {
             this.listener.heading
         );
 
+        // === FEATURE 17: Update distance-based behavior executors (60fps) ===
+        // Distance-based effects (e.g., DistanceEnvelope) take control of gain
+        if (this.activeBehaviors.length > 0) {
+            this.activeBehaviors.forEach(executor => {
+                if (executor.update) {
+                    executor.update();  // Calculate and apply effect gains
+                }
+            });
+        }
+
         // Update gain/volume based on distance (fade in/out as you approach)
         // Fade zone handles smooth transitions (no abrupt stops)
+        // SKIP sounds controlled by distance-based behaviors (they handle their own gain)
         this.sounds.forEach(sound => {
+            // Skip sounds controlled by behaviors (distance-based effects handle gain)
+            if (this.soundsWithBehaviors.has(sound.id)) {
+                return;
+            }
+
             const source = this.engine.getSource(sound.id);
             if (source && source.updateGainByDistance) {
                 // Skip gain update for disposed or unloaded sounds
@@ -830,7 +854,7 @@ class SpatialAudioApp {
                 if (!sound.isLoaded || sound.isDisposed) {
                     return;
                 }
-                
+
                 const distance = GPSUtils.distance(
                     this.listener.lat,
                     this.listener.lon,
@@ -857,7 +881,7 @@ class SpatialAudioApp {
                     console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m`);
                 }
             }
-            
+
             // === FEATURE 14: Update Low-Pass Filter Based on Distance ===
             // Simulates air absorption (high frequencies lost over distance)
             if (sound.isLoaded && !sound.isDisposed && sound.filterNode) {
@@ -867,10 +891,10 @@ class SpatialAudioApp {
                     sound.lat,
                     sound.lon
                 );
-                
+
                 const cutoff = this._calculateFilterCutoff(distance);
                 sound.filterNode.frequency.value = cutoff;
-                
+
                 // Debug: Log filter updates (throttled, 1% sampling)
                 if (Math.random() < 0.01) {
                     console.log(`[AudioApp] ${sound.id} filter: ${cutoff.toFixed(0)}Hz @ ${distance.toFixed(1)}m`);
@@ -1738,10 +1762,27 @@ class SpatialAudioApp {
                     return;
                 }
 
-                // Create executor and start
-                const executor = BehaviorExecutor.create(behaviorSpec, behaviorSounds, this.engine);
+                // Create executor with listener reference (for distance calculations)
+                const executor = BehaviorExecutor.create(
+                    behaviorSpec,
+                    behaviorSounds,
+                    this.engine,
+                    this.listener  // ← NEW: Pass listener for distance-based effects
+                );
+
+                // Store executors that need per-frame updates
+                if (executor.update) {
+                    this.activeBehaviors.push(executor);
+
+                    // Track which sounds are controlled by behaviors
+                    behaviorSounds.forEach(s => this.soundsWithBehaviors.add(s.id));
+                }
+
                 executor.start();
             });
+
+            console.log('[SpatialAudioApp] Active behaviors:', this.activeBehaviors.length);
+            console.log('[SpatialAudioApp] Sounds with behaviors:', this.soundsWithBehaviors.size);
         }
         // else: Default behavior (all sounds together) is handled by start()
     }
