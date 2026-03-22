@@ -33,6 +33,12 @@ const CDN_RESOURCES = [
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
 ];
 
+// Map tile patterns to cache (cache-first strategy)
+const MAP_TILE_PATTERNS = [
+  'https://tile.openstreetmap.org',
+  'https://{s}.tile.openstreetmap.org',
+];
+
 // Install: Cache all pages immediately
 self.addEventListener('install', (event) => {
   console.log('[SW] Install event');
@@ -142,25 +148,65 @@ self.addEventListener('activate', (event) => {
 // Fetch: Cache-first strategy
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
+
   // Only handle GET requests
   if (event.request.method !== 'GET') {
     return;
   }
-  
+
   // Skip audio file requests - let CachedSampleSource handle them directly
   // Audio files are managed by OfflineDownloadManager in separate caches
   if (url.pathname.match(/\.(mp3|wav|ogg|m4a|aac|flac)($|\?)/i)) {
     console.log('[SW] ⏭️ Skipping audio file (handled by CachedSampleSource):', url.pathname);
     return;
   }
-  
+
   // Skip API requests - let api-client.js handle them
   if (url.pathname.startsWith('/api/')) {
     console.log('[SW] ⏭️ Skipping API request:', url.pathname);
     return;
   }
-  
+
+  // Map tiles - cache-first strategy with network fallback
+  if (url.hostname.includes('tile.openstreetmap.org')) {
+    console.log('[SW] 🗺️ Map tile request:', url.pathname);
+    event.respondWith(
+      (async () => {
+        // Try cache first
+        const cachedResponse = await caches.match(event.request);
+        if (cachedResponse) {
+          console.log('[SW] 🗺️ ✅ CACHE HIT for tile:', url.pathname);
+          return cachedResponse;
+        }
+
+        // Cache miss - fetch from network
+        console.log('[SW] 🗺️ 📦 CACHE MISS, fetching tile from network:', url.pathname);
+        try {
+          const networkResponse = await fetch(event.request);
+          if (networkResponse && networkResponse.status === 200) {
+            // Cache for next time
+            const responseClone = networkResponse.clone();
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(event.request, responseClone);
+            console.log('[SW] 🗺️ 💾 Cached tile from network:', url.pathname);
+          }
+          return networkResponse;
+        } catch (error) {
+          console.warn('[SW] 🗺️ ⚠️ Tile fetch failed, returning placeholder:', url.pathname);
+          // Return a gray placeholder tile instead of breaking
+          return new Response(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="#e0e0e0" width="256" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="#999">Offline</text></svg>',
+            {
+              status: 200,
+              headers: { 'Content-Type': 'image/svg+xml' }
+            }
+          );
+        }
+      })()
+    );
+    return;
+  }
+
   console.log('[SW] Fetch:', url.href);
   console.log('[SW] Request URL:', url.toString());
   console.log('[SW] Request path:', url.pathname);
@@ -329,18 +375,6 @@ self.addEventListener('fetch', (event) => {
                 status: 200,
                 headers: { 'Content-Type': 'text/html' }
               });
-            }
-
-            // For map tiles, return a placeholder
-            if (url.hostname.includes('tile.openstreetmap.org')) {
-              console.log('[SW] 🗺️ Returning placeholder for map tile');
-              return new Response(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="#ccc" width="256" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="20" fill="#666">Offline</text></svg>',
-                {
-                  status: 200,
-                  headers: { 'Content-Type': 'image/svg+xml' }
-                }
-              );
             }
 
             // For other resources, return empty response (don't break the page)

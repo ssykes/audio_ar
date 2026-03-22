@@ -462,8 +462,8 @@
 
     <!-- Service Worker Status Indicator -->
     <div id="swStatus" style="position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.8);padding:8px 12px;border-radius:6px;font-size:0.8em;z-index:9999;display:flex;align-items:center;gap:6px;">
-        <span id="swStatusIcon">⏳</span>
-        <span id="swStatusText">Loading...</span>
+        <span id="swStatusIcon">🟢</span>
+        <span id="swStatusText">Online</span>
     </div>
 
     <div class="container">
@@ -524,7 +524,7 @@
                     
                     // No active SW - register new one
                     console.log('📡 Registering new Service Worker...');
-                    return navigator.serviceWorker.register('sw.js?v=20260321210600')
+                    return navigator.serviceWorker.register('sw.js?v=20260321211528')
                         .then((registration) => {
                             console.log('✅ Service Worker registered:', registration.scope);
                             
@@ -580,42 +580,40 @@
             const iconEl = document.getElementById('swStatusIcon');
             const textEl = document.getElementById('swStatusText');
             const statusEl = document.getElementById('swStatus');
-            
+
             if (iconEl) iconEl.textContent = icon;
             if (textEl) textEl.textContent = text;
             if (statusEl && color) {
                 statusEl.style.background = color;
             }
         }
-        
+
         // Check Service Worker status
         if ('serviceWorker' in navigator) {
-            // Check if already ready
-            if (localStorage.getItem('sw_ready') === 'true') {
-                updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
-            } else {
-                // Wait for it to be ready
-                navigator.serviceWorker.getRegistration()
-                    .then((registration) => {
-                        if (registration && registration.active) {
-                            updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
-                            localStorage.setItem('sw_ready', 'true');
-                        } else {
-                            updateSWStatus('⏳', 'Installing...', 'rgba(255, 193, 7, 0.3)');
-                        }
-                    })
-                    .catch(() => {
-                        updateSWStatus('⚠️', 'SW unavailable', 'rgba(255, 107, 107, 0.3)');
-                    });
-                
-                // Listen for SW state changes
-                navigator.serviceWorker.addEventListener('message', (event) => {
-                    if (event.data === 'activated') {
-                        updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
-                        localStorage.setItem('sw_ready', 'true');
+            navigator.serviceWorker.getRegistration()
+                .then((registration) => {
+                    if (registration && registration.active) {
+                        console.log('[SW] Service Worker active');
+                        // Hide status indicator when SW is active (works silently)
+                        const swStatusEl = document.getElementById('swStatus');
+                        if (swStatusEl) swStatusEl.style.display = 'none';
+                    } else {
+                        updateSWStatus('⏳', 'Installing...', 'rgba(255, 193, 7, 0.3)');
                     }
+                })
+                .catch(() => {
+                    updateSWStatus('⚠️', 'SW unavailable', 'rgba(255, 107, 107, 0.3)');
                 });
-            }
+
+            // Listen for SW state changes
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data === 'activated') {
+                    console.log('[SW] Service Worker activated');
+                    // Hide status indicator when SW is active
+                    const swStatusEl = document.getElementById('swStatus');
+                    if (swStatusEl) swStatusEl.style.display = 'none';
+                }
+            });
             
             // Update status on online/offline
             window.addEventListener('online', () => {
