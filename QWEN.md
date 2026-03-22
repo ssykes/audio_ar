@@ -50,6 +50,7 @@ Source code (implementation)
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-03-21 (Feature 16: New) |
 | `deploy.ps1` | - | 2026-03-21 (Feature 16) |
+| `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 (Feature 16B spec) |
 
 **Note:** Cache-busting versions updated on every deploy. Check HTML files for current values.
 
@@ -57,11 +58,12 @@ Source code (implementation)
 
 ## 🎯 Next Priority Items
 
-1. **Feature 17: Distance Envelope** - Three-zone volume control (~4h)
-2. **Feature 20: Cached Streaming** - Session cache (~7h)
-3. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
-4. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
-5. **Feature 18: Behavior UI** - Visual timeline
+1. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
+2. **Feature 17: Distance Envelope** - Three-zone volume control (~4h)
+3. **Feature 20: Cached Streaming** - Session cache (~7h)
+4. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
+5. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
+6. **Feature 18: Behavior UI** - Visual timeline
 
 ---
 
@@ -174,6 +176,7 @@ Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing |
 
 | Feature | Description | Priority |
 |---------|-------------|----------|
+| **16B** | Service Worker Refactor (constants, helpers, cache opt) | Medium |
 | **17** | Distance Envelope Behavior | High |
 | **18** | Behavior editing UI | Medium |
 | **19** | Multi-user collaboration | Low |

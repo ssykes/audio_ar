@@ -79,6 +79,11 @@ Specs: `SERVICE_WORKER_DOCUMENTATION.md`, `CLOUDFLARE_CACHE_TROUBLESHOOTING.md`
 
 ## 📋 Planned Features
 
+**16B: Service Worker Refactor** 🟡 Medium
+Extract constants, helper functions, optimize cache checking, remove duplication.
+Est: ~240 lines removed (24% reduction), ~6h | Spec: `SERVICE_WORKER_REFACTOR.md`
+Sessions: 16B-1 (Constants), 16B-2 (Helpers), 16B-3 (Cache Opt), 16B-4 (Cleanup), 16B-5 (SW Registration)
+
 **17: Distance Envelope Behavior** 🔶 High
 Three-zone volume: enter attack, sustain, exit decay. Custom curves.
 Config: `{ enterAttack, sustainVolume, exitDecay, curve }`
@@ -113,16 +118,18 @@ Est: ~500 lines, ~4h | Spec: `SOUND_WALK_COMPOSER.md`
 | `spatial_audio_app.js` | v2.8 | 2026-03-18 |
 | `download_manager.js` | v1.1 | 2026-03-21 |
 | `sw.js` | v1.0 | 2026-03-21 |
+| `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 |
 
 ---
 
 ## 🎯 Next Priority
 
-1. **F17: Distance Envelope** - Three-zone volume (~4h)
-2. **F20: Cached Streaming** - Session cache (~7h)
-3. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
-4. **Test mobile** - GPS/compass with lazy loading + air absorption
-5. **F18: Behavior UI** - Visual timeline
+1. **F16B: Service Worker Refactor** - Code quality (~6h)
+2. **F17: Distance Envelope** - Three-zone volume (~4h)
+3. **F20: Cached Streaming** - Session cache (~7h)
+4. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
+5. **Test mobile** - GPS/compass with lazy loading + air absorption
+6. **F18: Behavior UI** - Visual timeline
 
 ---
 
