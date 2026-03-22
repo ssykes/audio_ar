@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distance Envelope Preset Editor - Demo</title>
+    <style>
+        * { 
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0; 
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+            background: #1a1a2e; 
+            color: #fff; 
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 2em;
+            color: #00d9ff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.95em;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .panel-title {
+            font-size: 1.1em;
+            color: #00d9ff;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Canvas container */
+        .canvas-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        #envelopeCanvas {
+            width: 100%;
+            height: 250px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Config controls */
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .config-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .config-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .config-value {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #00d9ff;
+        }
+
+        .config-unit {
+            font-size: 0.7em;
+            color: #666;
+            margin-left: 2px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin-top: 8px;
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.1);
+            height: 6px;
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #00d9ff;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #00ff88;
+        }
+
+        select {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 10px;
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+            outline: none;
+        }
+
+        select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+
+        /* Listener position control */
+        .listener-control {
+            margin-top: 20px;
+            padding: 16px;
+            background: rgba(255, 165, 2, 0.1);
+            border: 1px solid rgba(255, 165, 2, 0.3);
+            border-radius: 8px;
+        }
+
+        .listener-label {
+            font-size: 12px;
+            color: #ffa502;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .listener-label::before {
+            content: '●';
+            font-size: 16px;
+        }
+
+        /* Info box */
+        .info-box {
+            margin-top: 20px;
+            padding: 16px;
+            background: rgba(0, 217, 255, 0.1);
+            border: 1px solid rgba(0, 217, 255, 0.2);
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .info-box strong {
+            color: #00d9ff;
+        }
+
+        /* Zone legend */
+        .zone-legend {
+            display: flex;
+            gap: 16px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .zone-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .zone-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+        }
+
+        .zone-color.attack {
+            background: rgba(0, 255, 136, 0.6);
+        }
+
+        .zone-color.sustain {
+            background: rgba(0, 217, 255, 0.6);
+        }
+
+        .zone-color.decay {
+            background: rgba(255, 71, 87, 0.6);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        /* Current config display */
+        .config-json {
+            background: #0d0d1a;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: #00ff88;
+            overflow-x: auto;
+            margin-top: 16px;
+        }
+
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+
+        .toast.show {
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .toast.info {
+            background: #00d9ff;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎚️ Distance Envelope Preset Editor</h1>
+            <p class="subtitle">Interactive visualization and preset management for distance-based volume automation</p>
+        </header>
+
+        <div class="main-grid">
+            <!-- Left: Canvas and controls -->
+            <div class="panel">
+                <h2 class="panel-title">Envelope Visualization</h2>
+                
+                <div class="canvas-container">
+                    <canvas id="envelopeCanvas"></canvas>
+                </div>
+
+                <div class="zone-legend">
+                    <div class="zone-legend-item">
+                        <div class="zone-color attack"></div>
+                        <span>Enter Attack (fade in)</span>
+                    </div>
+                    <div class="zone-legend-item">
+                        <div class="zone-color sustain"></div>
+                        <span>Sustain Zone</span>
+                    </div>
+                    <div class="zone-legend-item">
+                        <div class="zone-color decay"></div>
+                        <span>Exit Decay (fade out)</span>
+                    </div>
+                </div>
+
+                <div class="listener-control">
+                    <div class="listener-label">Listener Position (drag on canvas)</div>
+                    <input 
+                        type="range" 
+                        id="listenerSlider" 
+                        min="0" 
+                        max="50" 
+                        value="25" 
+                        step="0.5"
+                    />
+                    <div style="text-align: center; margin-top: 6px; font-size: 12px; color: #ffa502;">
+                        <span id="listenerDistanceDisplay">25.0</span>m from center
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Configuration -->
+            <div class="panel">
+                <h2 class="panel-title">Configuration</h2>
+
+                <div class="config-grid">
+                    <div class="config-item">
+                        <div class="config-label">Enter Attack</div>
+                        <div class="config-value">
+                            <span id="enterAttackValue">10</span><span class="config-unit">m</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            id="enterAttackSlider" 
+                            min="0" 
+                            max="40" 
+                            value="10" 
+                            step="1"
+                        />
+                    </div>
+
+                    <div class="config-item">
+                        <div class="config-label">Sustain Volume</div>
+                        <div class="config-value">
+                            <span id="sustainVolumeValue">80</span><span class="config-unit">%</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            id="sustainVolumeSlider" 
+                            min="0" 
+                            max="100" 
+                            value="80" 
+                            step="1"
+                        />
+                    </div>
+
+                    <div class="config-item">
+                        <div class="config-label">Exit Decay</div>
+                        <div class="config-value">
+                            <span id="exitDecayValue">10</span><span class="config-unit">m</span>
+                        </div>
+                        <input 
+                            type="range" 
+                            id="exitDecaySlider" 
+                            min="0" 
+                            max="40" 
+                            value="10" 
+                            step="1"
+                        />
+                    </div>
+
+                    <div class="config-item">
+                        <div class="config-label">Curve Shape</div>
+                        <select id="curveSelect">
+                            <option value="linear">Linear</option>
+                            <option value="exponential" selected>Exponential</option>
+                            <option value="logarithmic">Logarithmic</option>
+                            <option value="easeInOut">Ease In/Out</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="button-row">
+                    <button class="btn btn-secondary" id="resetBtn">↺ Reset</button>
+                    <button class="btn btn-primary" id="applyBtn">✓ Apply to Audio</button>
+                </div>
+
+                <div class="info-box">
+                    <strong>💡 Tip:</strong> Drag the handles on the canvas to adjust zones interactively. 
+                    The orange dot shows the current listener position and resulting volume level.
+                </div>
+
+                <div class="config-json">
+                    <div style="color: #888; margin-bottom: 6px;">// Current Configuration</div>
+                    <div id="configJson">{
+  "enterAttack": 10,
+  "sustainVolume": 0.8,
+  "exitDecay": 10,
+  "curve": "exponential"
+}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preset Picker Panel -->
+        <div class="panel" style="margin-top: 20px;">
+            <h2 class="panel-title">Preset Library</h2>
+            <div id="presetPicker"></div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Load preset system -->
+    <script src="distance_envelope_presets.js"></script>
+
+    <script>
+        console.log('[distance_envelope_demo.html] Loading...');
+
+        // Global references
+        let visualizer = null;
+        let presetPicker = null;
+
+        // Current configuration
+        const config = {
+            enterAttack: 10,
+            sustainVolume: 0.8,
+            exitDecay: 10,
+            curve: 'exponential'
+        };
+
+        const options = {
+            activationRadius: 50,
+            listenerDistance: 25,
+            showZones: true,
+            showGrid: true,
+            showLabels: true,
+            interactive: true
+        };
+
+        /**
+         * Initialize the demo
+         */
+        async function init() {
+            // Create visualizer
+            const canvas = document.getElementById('envelopeCanvas');
+            visualizer = new DistanceEnvelopeVisualizer(canvas, config, options);
+            visualizer.onConfigChange = (newConfig) => {
+                updateConfig(newConfig);
+            };
+
+            // Create preset picker
+            const pickerContainer = document.getElementById('presetPicker');
+            presetPicker = new DistanceEnvelopePresetPicker(pickerContainer, {
+                onSelect: (id, preset) => {
+                    loadPreset(id, preset);
+                },
+                onSave: (id, preset) => {
+                    showToast(`Preset "${preset.name}" saved!`, 'success');
+                }
+            });
+            presetPicker.render();
+
+            // Setup event listeners
+            setupEventListeners();
+
+            // Initial render
+            updateVisualizer();
+
+            console.log('[distance_envelope_demo.html] Ready!');
+        }
+
+        /**
+         * Setup all event listeners
+         */
+        function setupEventListeners() {
+            // Sliders
+            document.getElementById('enterAttackSlider').addEventListener('input', (e) => {
+                config.enterAttack = parseFloat(e.target.value);
+                updateVisualizer();
+            });
+
+            document.getElementById('sustainVolumeSlider').addEventListener('input', (e) => {
+                config.sustainVolume = parseFloat(e.target.value) / 100;
+                updateVisualizer();
+            });
+
+            document.getElementById('exitDecaySlider').addEventListener('input', (e) => {
+                config.exitDecay = parseFloat(e.target.value);
+                updateVisualizer();
+            });
+
+            document.getElementById('curveSelect').addEventListener('change', (e) => {
+                config.curve = e.target.value;
+                updateVisualizer();
+            });
+
+            // Listener position slider
+            document.getElementById('listenerSlider').addEventListener('input', (e) => {
+                options.listenerDistance = parseFloat(e.target.value);
+                document.getElementById('listenerDistanceDisplay').textContent = 
+                    options.listenerDistance.toFixed(1);
+                visualizer.render();
+            });
+
+            // Reset button
+            document.getElementById('resetBtn').addEventListener('click', () => {
+                config.enterAttack = 10;
+                config.sustainVolume = 0.8;
+                config.exitDecay = 10;
+                config.curve = 'exponential';
+                updateVisualizer();
+                showToast('Configuration reset', 'info');
+            });
+
+            // Apply button
+            document.getElementById('applyBtn').addEventListener('click', () => {
+                const json = JSON.stringify(config, null, 2);
+                navigator.clipboard.writeText(json).then(() => {
+                    showToast('Configuration copied to clipboard!', 'success');
+                });
+            });
+        }
+
+        /**
+         * Update configuration from canvas interaction
+         */
+        function updateConfig(newConfig) {
+            Object.assign(config, newConfig);
+
+            // Update UI controls
+            document.getElementById('enterAttackSlider').value = config.enterAttack;
+            document.getElementById('enterAttackValue').textContent = config.enterAttack.toFixed(0);
+
+            document.getElementById('sustainVolumeSlider').value = config.sustainVolume * 100;
+            document.getElementById('sustainVolumeValue').textContent = (config.sustainVolume * 100).toFixed(0);
+
+            document.getElementById('exitDecaySlider').value = config.exitDecay;
+            document.getElementById('exitDecayValue').textContent = config.exitDecay.toFixed(0);
+
+            document.getElementById('curveSelect').value = config.curve;
+
+            updateConfigDisplay();
+        }
+
+        /**
+         * Update visualizer
+         */
+        function updateVisualizer() {
+            visualizer.updateConfig(config);
+            updateConfigDisplay();
+        }
+
+        /**
+         * Update configuration JSON display
+         */
+        function updateConfigDisplay() {
+            const jsonEl = document.getElementById('configJson');
+            jsonEl.textContent = JSON.stringify(config, null, 2);
+        }
+
+        /**
+         * Load a preset
+         */
+        function loadPreset(id, preset) {
+            updateConfig(preset.config);
+            updateVisualizer();
+            showToast(`Loaded preset: ${preset.name}`, 'info');
+        }
+
+        /**
+         * Show toast notification
+         */
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast show ${type}`;
+
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        // Initialize on load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>

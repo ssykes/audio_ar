@@ -89,6 +89,11 @@ Three-zone volume: enter attack, sustain, exit decay. Custom curves.
 Config: `{ enterAttack, sustainVolume, exitDecay, curve }`
 Spec: `FEATURE_17_DISTANCE_ENVELOPE.md`
 
+**17B: Distance Envelope Preset System** ✅ (2026-03-22)
+8 built-in presets, custom preset save/load, canvas visualizer with drag-to-edit, preset picker UI component.
+Files: `distance_envelope_presets.js`, `distance_envelope_demo.html`
+Docs: `DISTANCE_ENVELOPE_PRESETS.md`
+
 **18: Behavior Editing UI** 🟡 Medium
 Visual timeline: drag-drop sounds, edit offsets, configure parameters.
 Spec: `FEATURE_18_BEHAVIOR_UI.md`
