@@ -459,7 +459,7 @@
         // Register service worker for offline page caching
         // Version query string updated by deploy.ps1
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20260321211528')
+            navigator.serviceWorker.register('sw.js?v=20260321212717')
                 .then((registration) => {
                     console.log('✅ Service Worker registered:', registration.scope);
                     console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
