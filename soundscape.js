@@ -2,12 +2,13 @@
  * SoundScape Architecture
  * Core classes for managing spatial audio experiences
  *
- * @version 4.1 - Distance-Based Effects Framework (Feature 17)
+ * @version 4.2 - Distance-Based Effects Framework (Feature 17)
  * @changelog
  *   v1.0 - SoundScape, SoundBehavior, BehaviorExecutor classes
  *   v3.0 - Added waypointData persistence, SoundScapeStorage
  *   v4.0 - Added DistanceBasedEffect base class + DistanceEffectCurves utility
  *   v4.1 - Updated BehaviorExecutor.create() to accept listener parameter
+ *   v4.2 - Added DistanceEnvelopeExecutor class (three-zone volume envelope)
  *
  * Architecture:
  * - SoundScape: Persisted container with soundIds and behaviors
@@ -18,7 +19,7 @@
  *   PC Editor → SoundScape → localStorage → Phone Player → BehaviorExecutor → Audio
  */
 
-console.log('[soundscape.js] Loading v4.1...');
+console.log('[soundscape.js] Loading v4.2...');
 
 /**
  * SoundBehavior - Stored specification for coordinating sounds
@@ -863,6 +864,150 @@ class DistanceBasedEffect {
     }
 }
 
+/**
+ * DistanceEnvelopeExecutor - Distance-based gain/volume automation
+ *
+ * Three-zone envelope controlled by listener position:
+ *   Edge → [Enter Attack] → [Sustain Zone] → [Exit Decay] → Center
+ *
+ * Config:
+ *   enterAttack: Fade in distance from edge (meters, default: 10)
+ *   sustainVolume: Volume while inside (0-1, default: 0.8)
+ *   exitDecay: Fade out distance to center (meters, default: 10)
+ *   curve: Fade curve shape ('linear' | 'exponential' | 'logarithmic' | 'easeInOut')
+ *
+ * @example
+ * // Behavior spec
+ * {
+ *     type: 'distance_envelope',
+ *     memberIds: ['wp1', 'wp2'],
+ *     config: {
+ *         enterAttack: 10,      // Fade in over first 10m from edge
+ *         sustainVolume: 0.8,   // 80% volume while inside
+ *         exitDecay: 10,        // Fade out over last 10m from center
+ *         curve: 'exponential'  // Gentle fade curve
+ *     }
+ * }
+ *
+ * @extends DistanceBasedEffect
+ */
+class DistanceEnvelopeExecutor extends DistanceBasedEffect {
+    /**
+     * @param {SoundBehavior|object} spec - Behavior specification
+     * @param {Sound[]} sounds - Array of Sound instances
+     * @param {SpatialAudioEngine} audioEngine - Audio engine instance
+     * @param {Listener} listener - Listener for position tracking
+     */
+    constructor(spec, sounds, audioEngine, listener) {
+        super(spec, sounds, audioEngine, listener);
+
+        // Config with defaults + validation
+        this.enterAttack = Math.max(0, spec.config?.enterAttack ?? 10);
+        this.sustainVolume = DistanceEffectCurves.clamp(
+            spec.config?.sustainVolume ?? 0.8, 0, 1
+        );
+        this.exitDecay = Math.max(0, spec.config?.exitDecay ?? 10);
+        this.curve = spec.config?.curve || 'exponential';
+    }
+
+    /**
+     * Override config validation for envelope-specific checks
+     * @param {object} spec - Behavior specification
+     * @protected
+     */
+    _validateConfig(spec) {
+        super._validateConfig(spec);
+
+        const { enterAttack, exitDecay, sustainVolume } = spec.config;
+
+        // Validate sustain volume range
+        if (sustainVolume !== undefined && (sustainVolume < 0 || sustainVolume > 1)) {
+            throw new Error(`DistanceEnvelope: sustainVolume must be 0-1, got ${sustainVolume}`);
+        }
+
+        // Warn if attack + decay exceed typical radius (not fatal, but user should know)
+        if (enterAttack !== undefined && exitDecay !== undefined) {
+            const radius = spec.config._activationRadius || 30;  // For validation
+            if (enterAttack + exitDecay > radius) {
+                console.warn(
+                    `DistanceEnvelope: enterAttack (${enterAttack}m) + exitDecay (${exitDecay}m) > radius (${radius}m). ` +
+                    'Consider reducing attack/decay values or increasing activation radius.'
+                );
+            }
+        }
+    }
+
+    /**
+     * Calculate gain based on distance (three-zone envelope)
+     * Override from DistanceBasedEffect
+     *
+     * Zone breakdown (for radius=50m, enterAttack=10m, exitDecay=10m):
+     *   - Outside (>50m): gain = 0 (silent)
+     *   - Enter Attack (40-50m): gain fades 0 → sustainVolume
+     *   - Sustain (10-40m): gain = sustainVolume (constant)
+     *   - Exit Decay (0-10m): gain fades sustainVolume → 0
+     *
+     * @param {number} distance - Distance from listener to sound (meters)
+     * @param {number} radius - Activation radius (meters)
+     * @returns {{gain: number}} Gain value (0.0 - 1.0)
+     * @protected
+     */
+    _calculateEffectParams(distance, radius) {
+        // Outside activation radius = silent
+        if (distance >= radius) {
+            return { gain: 0 };
+        }
+
+        // Distance from edge (0 = at edge, radius = at center)
+        const distanceFromEdge = radius - distance;
+
+        // ENTER ATTACK ZONE (fade in from edge)
+        if (distanceFromEdge < this.enterAttack) {
+            const t = distanceFromEdge / this.enterAttack;
+            const shaped = DistanceEffectCurves.apply(t, this.curve);
+            return { gain: shaped * this.sustainVolume };
+        }
+
+        // SUSTAIN ZONE (constant volume)
+        // Sustain zone ends where exit decay begins (at distance = exitDecay from center)
+        if (distanceFromEdge < (radius - this.exitDecay)) {
+            return { gain: this.sustainVolume };
+        }
+
+        // EXIT DECAY ZONE (fade out toward center)
+        // As distance → 0, t → 1, gain → sustainVolume
+        // As distance → exitDecay, t → 0, gain → 0
+        const t = 1 - (distance / this.exitDecay);
+        const shaped = DistanceEffectCurves.apply(Math.max(0, t), this.curve);
+        return { gain: shaped * this.sustainVolume };
+    }
+
+    /**
+     * Apply gain to sound (with built-in smoothing)
+     * Override from DistanceBasedEffect
+     *
+     * Applies smoothed gain to sound's gainNode, multiplied by sound's base volume.
+     * Smoothing prevents audio clicks from abrupt gain changes.
+     *
+     * @param {Sound} sound - Sound object
+     * @param {{gain: number}} params - Gain value from _calculateEffectParams
+     * @protected
+     */
+    _applyEffect(sound, params) {
+        if (!sound.gainNode) {
+            return;
+        }
+
+        // Apply smoothing (base class handles the math)
+        // 0.1 = slow smoothing (gentle transitions)
+        const smoothed = this._applySmoothing(sound, params, 0.1);
+
+        // Apply to gain node (include sound's base volume)
+        // This allows envelope to work with per-sound volume settings
+        sound.gainNode.gain.value = smoothed.gain * sound.volume;
+    }
+}
+
 // Export to global scope
 window.SoundScape = SoundScape;
 window.SoundBehavior = SoundBehavior;
@@ -877,6 +1022,7 @@ window.FilterGroupExecutor = FilterGroupExecutor;
 // Distance-Based Effects Framework (Feature 17)
 window.DistanceEffectCurves = DistanceEffectCurves;
 window.DistanceBasedEffect = DistanceBasedEffect;
+window.DistanceEnvelopeExecutor = DistanceEnvelopeExecutor;
 
 // =============================================================================
 // localStorage Persistence Helpers
