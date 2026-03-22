@@ -114,6 +114,7 @@ $SOUNDSCAPE_PATTERN = 'soundscape\.js\?v=\d+'
 $API_CLIENT_PATTERN = 'api-client\.js\?v=\d+'
 $DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js\?v=\d+'
 $SW_VERSION_PATTERN = 'sw\.js\?v=\d+'
+$SW_REGISTER_PATTERN = 'sw-register\.js\?v=\d+'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -197,6 +198,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Write-Host "  Updated: $htmlFile (download_manager.js)" -ForegroundColor Green
         }
 
+        # Update sw-register.js version
+        if ($content -match $SW_REGISTER_PATTERN) {
+            $content = $content -replace $SW_REGISTER_PATTERN, "sw-register.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (sw-register.js)" -ForegroundColor Green
+        }
+
         # Update sw.js version (Service Worker)
         if ($content -match $SW_VERSION_PATTERN) {
             $content = $content -replace $SW_VERSION_PATTERN, "sw.js?v=$VERSION"
@@ -225,6 +233,27 @@ if (Test-Path $SW_FILE) {
     }
 } else {
     Write-Host "  ⚠️ sw.js not found" -ForegroundColor Yellow
+}
+
+Write-Host ""
+
+# Update sw-register.js internal cache version
+Write-Host "Updating sw-register.js cache version..." -ForegroundColor Yellow
+
+$SW_REGISTER_FILE = Join-Path $LOCAL_PATH "sw-register.js"
+if (Test-Path $SW_REGISTER_FILE) {
+    $content = Get-Content $SW_REGISTER_FILE -Raw
+
+    # Update CACHE_VERSION to current version
+    if ($content -match "const CACHE_VERSION = '[^']+'") {
+        $content = $content -replace "const CACHE_VERSION = '[^']+'", "const CACHE_VERSION = '$VERSION'"
+        Set-Content $SW_REGISTER_FILE $content -NoNewline
+        Write-Host "  sw-register.js cache version updated: $VERSION" -ForegroundColor Green
+    } else {
+        Write-Host "  ⚠️ CACHE_VERSION pattern not found in sw-register.js" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  ⚠️ sw-register.js not found" -ForegroundColor Yellow
 }
 
 Write-Host ""
