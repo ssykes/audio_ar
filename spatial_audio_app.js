@@ -1770,6 +1770,18 @@ class SpatialAudioApp {
                     this.listener  // ← NEW: Pass listener for distance-based effects
                 );
 
+                // Debug: Log distance_envelope behavior creation
+                if (behaviorSpec.type === 'distance_envelope') {
+                    console.log(
+                        `[SpatialAudioApp] Created distance_envelope for ${behaviorSounds.length} sound(s): ` +
+                        `${behaviorSounds.map(s => s.id).join(', ')}`
+                    );
+                    console.log(
+                        `[SpatialAudioApp] Envelope config: `,
+                        behaviorSpec.config
+                    );
+                }
+
                 // Store executors that need per-frame updates
                 if (executor.update) {
                     this.activeBehaviors.push(executor);

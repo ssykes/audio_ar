@@ -733,6 +733,15 @@ class DistanceBasedEffect {
             // Calculate effect parameters based on distance
             const params = this._calculateEffectParams(distance, sound.activationRadius);
 
+            // Debug: Log first update for each sound
+            if (!sound._envelopeLogged) {
+                console.log(
+                    `[DistanceBasedEffect] ${sound.id}: distance=${distance.toFixed(1)}m, ` +
+                    `radius=${sound.activationRadius}m, params=`, params
+                );
+                sound._envelopeLogged = true;
+            }
+
             // Apply effect to sound
             this._applyEffect(sound, params);
         });
@@ -995,6 +1004,7 @@ class DistanceEnvelopeExecutor extends DistanceBasedEffect {
      */
     _applyEffect(sound, params) {
         if (!sound.gainNode) {
+            console.warn('[DistanceEnvelope] No gainNode for', sound.id);
             return;
         }
 
@@ -1004,7 +1014,17 @@ class DistanceEnvelopeExecutor extends DistanceBasedEffect {
 
         // Apply to gain node (include sound's base volume)
         // This allows envelope to work with per-sound volume settings
-        sound.gainNode.gain.value = smoothed.gain * sound.volume;
+        const finalGain = smoothed.gain * sound.volume;
+        sound.gainNode.gain.value = finalGain;
+
+        // Debug logging (throttled - every 20th frame)
+        if (Math.random() < 0.05) {
+            console.log(
+                `[DistanceEnvelope] ${sound.id}: gain=${finalGain.toFixed(3)} ` +
+                `(env=${smoothed.gain.toFixed(3)} × vol=${sound.volume.toFixed(2)}), ` +
+                `attack=${this.enterAttack}m, sustain=${this.sustainVolume}, decay=${this.exitDecay}m`
+            );
+        }
     }
 }
 
