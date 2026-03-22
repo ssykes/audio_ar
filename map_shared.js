@@ -2,7 +2,7 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.11 - Fixed duplicate waypoints: added isEditing guard to prevent reentrant _editWaypoint calls
+ * @version 6.12 - Added Distance Envelope UI (modal dialog with envelope controls)
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -19,7 +19,7 @@
  *   }
  */
 
-console.log('[map_shared.js] Loading v6.11...');
+console.log('[map_shared.js] Loading v6.12...');
 
 /**
  * Mode Presets - Pre-configured behavior bundles
@@ -790,6 +790,14 @@ class MapAppShared {
      */
     _createPopupContent(waypoint) {
         if (this.showDetailedInfo) {
+            // Check if envelope config exists
+            const envelopeInfo = waypoint.envelopeConfig
+                ? `<div style="margin-top: 6px; padding: 6px; background: rgba(0, 255, 136, 0.1); border-radius: 4px; font-size: 0.8em;">
+                    <div style="color: #00ff88; font-weight: bold;">📈 Distance Envelope</div>
+                    <div style="color: #888;">Attack: ${waypoint.envelopeConfig.enterAttack}m | Sustain: ${(waypoint.envelopeConfig.sustainVolume * 100).toFixed(0)}% | Decay: ${waypoint.envelopeConfig.exitDecay}m</div>
+                   </div>`
+                : '';
+
             return `
                 <div style="min-width: 200px;">
                     <h3 style="margin: 0 0 10px 0;">${waypoint.icon} ${waypoint.name}</h3>
@@ -798,7 +806,8 @@ class MapAppShared {
                         <div>🔊 Radius: ${waypoint.activationRadius}m</div>
                         <div>🎵 Sound: ${waypoint.soundUrl.split('/').pop()}</div>
                     </div>
-                    <div style="display: flex; gap: 5px;">
+                    ${envelopeInfo}
+                    <div style="display: flex; gap: 5px; margin-top: 10px;">
                         <button onclick="event.stopPropagation(); app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
                         <button onclick="event.stopPropagation(); app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
                     </div>
@@ -810,7 +819,7 @@ class MapAppShared {
     }
 
     /**
-     * Edit waypoint
+     * Edit waypoint using modal dialog
      * @param {string} waypointId
      * @protected
      */
@@ -820,7 +829,7 @@ class MapAppShared {
             this.debugLog('⚠️ Edit already in progress - ignoring duplicate call');
             return;
         }
-        
+
         if (this.state !== 'editor') return;
         const waypoint = this.waypoints.find(wp => wp.id === waypointId);
         if (!waypoint) return;
@@ -828,6 +837,413 @@ class MapAppShared {
         this.isEditing = true;
         this.debugLog(`✏️ Editing waypoint ${waypointId} (${waypoint.name})`);
 
+        // Open modal with waypoint data
+        this._openWaypointModal(waypoint);
+    }
+
+    /**
+     * Open waypoint edit modal
+     * @param {Object} waypoint - Waypoint data
+     * @private
+     */
+    _openWaypointModal(waypoint) {
+        const modal = document.getElementById('waypointModal');
+        if (!modal) {
+            this.debugLog('⚠️ Modal not found - using fallback prompts');
+            this._editWaypointFallback(waypoint);
+            return;
+        }
+
+        // Store current editing waypoint
+        this._editingWaypoint = waypoint;
+
+        // Populate basic settings
+        document.getElementById('modalSoundUrl').value = waypoint.soundUrl || '';
+        document.getElementById('modalVolume').value = waypoint.volume || 0.8;
+        document.getElementById('modalVolumeValue').textContent = (waypoint.volume || 0.8).toFixed(2);
+        document.getElementById('modalActivationRadius').value = waypoint.activationRadius || 20;
+        document.getElementById('modalLoop').checked = waypoint.loop !== false;
+
+        // Populate envelope settings (if exists)
+        const envelopeConfig = waypoint.envelopeConfig || {
+            enterAttack: 5,
+            sustainVolume: 0.8,
+            exitDecay: 5,
+            curve: 'linear'
+        };
+        document.getElementById('modalEnterAttack').value = envelopeConfig.enterAttack || 5;
+        document.getElementById('modalEnterAttackValue').textContent = envelopeConfig.enterAttack || 5;
+        document.getElementById('modalSustainVolume').value = envelopeConfig.sustainVolume || 0.8;
+        document.getElementById('modalSustainVolumeValue').textContent = (envelopeConfig.sustainVolume || 0.8).toFixed(2);
+        document.getElementById('modalExitDecay').value = envelopeConfig.exitDecay || 5;
+        document.getElementById('modalExitDecayValue').textContent = envelopeConfig.exitDecay || 5;
+        document.getElementById('modalCurve').value = envelopeConfig.curve || 'linear';
+        document.getElementById('modalEnvelopePreset').value = 'custom';
+
+        // Update envelope preview
+        this._drawEnvelopePreview();
+
+        // Show modal
+        modal.style.display = 'flex';
+
+        // Setup event listeners
+        this._setupModalEventListeners();
+    }
+
+    /**
+     * Setup modal event listeners
+     * @private
+     */
+    _setupModalEventListeners() {
+        // Close button
+        const closeBtn = document.getElementById('modalCloseBtn');
+        const cancelBtn = document.getElementById('modalCancelBtn');
+        const saveBtn = document.getElementById('modalSaveBtn');
+        const modal = document.getElementById('waypointModal');
+
+        // Remove old listeners (clone to clear)
+        if (closeBtn) {
+            const newCloseBtn = closeBtn.cloneNode(true);
+            closeBtn.parentNode.replaceChild(newCloseBtn, closeBtn);
+            newCloseBtn.addEventListener('click', () => this._closeModal());
+        }
+
+        if (cancelBtn) {
+            const newCancelBtn = cancelBtn.cloneNode(true);
+            cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+            newCancelBtn.addEventListener('click', () => this._closeModal());
+        }
+
+        if (saveBtn) {
+            const newSaveBtn = saveBtn.cloneNode(true);
+            saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+            newSaveBtn.addEventListener('click', () => this._saveWaypointFromModal());
+        }
+
+        // Modal backdrop click to close
+        modal.onclick = (e) => {
+            if (e.target === modal) this._closeModal();
+        };
+
+        // Escape key to close
+        const escapeHandler = (e) => {
+            if (e.key === 'Escape') this._closeModal();
+            document.removeEventListener('keydown', escapeHandler);
+        };
+        document.addEventListener('keydown', escapeHandler);
+
+        // Slider value updates + preview
+        const sliders = [
+            'modalVolume', 'modalEnterAttack', 'modalSustainVolume',
+            'modalExitDecay'
+        ];
+        sliders.forEach(id => {
+            const slider = document.getElementById(id);
+            if (slider) {
+                slider.addEventListener('input', () => {
+                    // Update value display
+                    const valueEl = document.getElementById(id + 'Value');
+                    if (valueEl) {
+                        valueEl.textContent = id === 'modalVolume' || id === 'modalSustainVolume'
+                            ? parseFloat(slider.value).toFixed(2)
+                            : slider.value;
+                    }
+                    // Update preset to custom
+                    document.getElementById('modalEnvelopePreset').value = 'custom';
+                    // Redraw preview
+                    this._drawEnvelopePreview();
+                });
+            }
+        });
+
+        // Curve change updates preview
+        const curveSelect = document.getElementById('modalCurve');
+        if (curveSelect) {
+            curveSelect.addEventListener('change', () => {
+                document.getElementById('modalEnvelopePreset').value = 'custom';
+                this._drawEnvelopePreview();
+            });
+        }
+
+        // Preset selector
+        const presetSelect = document.getElementById('modalEnvelopePreset');
+        if (presetSelect) {
+            presetSelect.addEventListener('change', () => this._applyEnvelopePreset());
+        }
+    }
+
+    /**
+     * Apply envelope preset
+     * @private
+     */
+    _applyEnvelopePreset() {
+        const preset = document.getElementById('modalEnvelopePreset').value;
+        if (preset === 'custom') return;
+
+        const presets = {
+            'default': { enterAttack: 5, sustainVolume: 0.8, exitDecay: 5, curve: 'linear' },
+            'smooth': { enterAttack: 15, sustainVolume: 0.9, exitDecay: 15, curve: 'easeInOut' },
+            'sharp': { enterAttack: 2, sustainVolume: 1.0, exitDecay: 2, curve: 'exponential' },
+            'centerFocus': { enterAttack: 5, sustainVolume: 0.7, exitDecay: 15, curve: 'logarithmic' },
+            'edgeFocus': { enterAttack: 15, sustainVolume: 0.9, exitDecay: 5, curve: 'exponential' },
+            'flat': { enterAttack: 0, sustainVolume: 1.0, exitDecay: 0, curve: 'linear' }
+        };
+
+        const config = presets[preset];
+        if (!config) return;
+
+        // Update sliders
+        document.getElementById('modalEnterAttack').value = config.enterAttack;
+        document.getElementById('modalEnterAttackValue').textContent = config.enterAttack;
+        document.getElementById('modalSustainVolume').value = config.sustainVolume;
+        document.getElementById('modalSustainVolumeValue').textContent = config.sustainVolume.toFixed(2);
+        document.getElementById('modalExitDecay').value = config.exitDecay;
+        document.getElementById('modalExitDecayValue').textContent = config.exitDecay;
+        document.getElementById('modalCurve').value = config.curve;
+
+        // Redraw preview
+        this._drawEnvelopePreview();
+    }
+
+    /**
+     * Draw envelope preview on canvas
+     * X-axis: Listener's journey from edge (left) to center (right)
+     * Y-axis: Volume (0% at bottom, 100% at top)
+     * 
+     * Zone layout (left to right):
+     *   [Attack] → [Sustain] → [Decay]
+     *   (entering from edge)    (approaching center)
+     * @private
+     */
+    _drawEnvelopePreview() {
+        const canvas = document.getElementById('envelopePreview');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Get current values
+        const enterAttack = parseInt(document.getElementById('modalEnterAttack').value);
+        const sustainVolume = parseFloat(document.getElementById('modalSustainVolume').value);
+        const exitDecay = parseInt(document.getElementById('modalExitDecay').value);
+        const curve = document.getElementById('modalCurve').value;
+        const activationRadius = parseInt(document.getElementById('modalActivationRadius').value);
+
+        // Clear canvas
+        ctx.fillStyle = '#0d0d1a';
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw grid
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+            const y = (i / 4) * height;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+        }
+
+        // Calculate zone boundaries (in pixels)
+        // X-axis: edge (left) → center (right)
+        // Zones: Attack (at edge) → Sustain → Decay (at center)
+        const totalRadius = activationRadius || 20;  // Avoid divide by zero
+        const attackEndX = enterAttack / totalRadius * width;  // Where attack zone ends (from left)
+        const decayStartX = (totalRadius - exitDecay) / totalRadius * width;  // Where decay zone starts
+        const sustainVolumeY = height - (sustainVolume * height * 0.85);  // 85% to leave margin
+
+        // Draw envelope curve
+        ctx.beginPath();
+
+        // Start at left edge (outside zone - silent)
+        ctx.moveTo(0, height);
+
+        // Attack zone (fade in as entering from edge)
+        const attackPoints = 30;
+        for (let i = 0; i <= attackPoints; i++) {
+            const t = i / attackPoints;  // 0 to 1
+            const shapedT = this._applyCurve(t, curve);
+            const x = (enterAttack / totalRadius * width) * t;
+            const y = height - (shapedT * (height - sustainVolumeY));
+            ctx.lineTo(x, y);
+        }
+
+        // Sustain zone (constant volume)
+        ctx.lineTo(decayStartX, sustainVolumeY);
+
+        // Decay zone (fade out as approaching center)
+        const decayPoints = 30;
+        for (let i = 0; i <= decayPoints; i++) {
+            const t = i / decayPoints;  // 0 to 1
+            const shapedT = this._applyCurve(t, curve);
+            const x = decayStartX + (exitDecay / totalRadius * width) * t;
+            const y = sustainVolumeY + shapedT * (height - sustainVolumeY);
+            ctx.lineTo(x, y);
+        }
+
+        // Center zone (silent) - go to right edge, then close
+        ctx.lineTo(width, height);
+        ctx.lineTo(0, height);
+        ctx.closePath();
+
+        // Fill with gradient (left to right: Attack → Sustain → Decay)
+        const gradient = ctx.createLinearGradient(0, 0, width, 0);
+        gradient.addColorStop(0, 'rgba(0, 255, 136, 0.3)');  // Attack (green) - at edge
+        gradient.addColorStop(0.5, 'rgba(0, 217, 255, 0.3)');  // Sustain (blue) - middle
+        gradient.addColorStop(1, 'rgba(255, 107, 107, 0.3)');  // Decay (red) - at center
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Draw outline
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw zone labels
+        ctx.fillStyle = '#888';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Label positions (from left to right: edge → center)
+        if (enterAttack > 0) {
+            const attackLabelX = attackEndX / 2;
+            ctx.fillText(`Attack ${enterAttack}m`, attackLabelX, height - 15);
+        }
+        const sustainWidth = totalRadius - enterAttack - exitDecay;
+        if (sustainWidth > 0) {
+            const sustainLabelX = (attackEndX + decayStartX) / 2;
+            ctx.fillText('Sustain', sustainLabelX, height - 15);
+        }
+        if (exitDecay > 0) {
+            const decayLabelX = decayStartX + (width - decayStartX) / 2;
+            ctx.fillText(`Decay ${exitDecay}m`, decayLabelX, height - 15);
+        }
+
+        // Draw axis labels
+        ctx.textAlign = 'left';
+        ctx.fillText('edge', 5, height - 5);
+        ctx.fillText('center', width - 50, height - 5);
+
+        // Draw volume markers on right side
+        ctx.textAlign = 'right';
+        ctx.fillText('0%', width - 5, height - 25);
+        ctx.fillText(`${(sustainVolume * 100).toFixed(0)}%`, width - 5, sustainVolumeY);
+        ctx.fillText('100%', width - 5, 10);
+    }
+
+    /**
+     * Apply curve shaping to interpolation value
+     * @param {number} t - Interpolation (0-1)
+     * @param {string} curve - Curve type
+     * @returns {number} Shaped value
+     * @private
+     */
+    _applyCurve(t, curve) {
+        switch (curve) {
+            case 'exponential':
+                return Math.pow(t, 2);
+            case 'logarithmic':
+                return Math.log(1 + (9 * t)) / Math.log(10);
+            case 'easeInOut':
+                return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+            case 'linear':
+            default:
+                return t;
+        }
+    }
+
+    /**
+     * Close waypoint modal
+     * @private
+     */
+    _closeModal() {
+        const modal = document.getElementById('waypointModal');
+        if (modal) modal.style.display = 'none';
+        this._editingWaypoint = null;
+        this.isEditing = false;
+        this.debugLog('Modal closed');
+    }
+
+    /**
+     * Save waypoint from modal data
+     * @private
+     */
+    _saveWaypointFromModal() {
+        const waypoint = this._editingWaypoint;
+        if (!waypoint) return;
+
+        // Get values from modal
+        const soundUrl = document.getElementById('modalSoundUrl').value.trim();
+        const volume = parseFloat(document.getElementById('modalVolume').value);
+        const activationRadius = parseInt(document.getElementById('modalActivationRadius').value);
+        const loop = document.getElementById('modalLoop').checked;
+
+        // Get envelope config
+        const enterAttack = parseInt(document.getElementById('modalEnterAttack').value);
+        const sustainVolume = parseFloat(document.getElementById('modalSustainVolume').value);
+        const exitDecay = parseInt(document.getElementById('modalExitDecay').value);
+        const curve = document.getElementById('modalCurve').value;
+
+        // Update waypoint
+        if (soundUrl) waypoint.soundUrl = soundUrl;
+        if (!isNaN(volume) && volume >= 0 && volume <= 1) waypoint.volume = volume;
+        if (!isNaN(activationRadius) && activationRadius > 0) {
+            waypoint.activationRadius = activationRadius;
+            this._updateRadiusCircle(waypoint);
+        }
+        waypoint.loop = loop;
+
+        // Update envelope config (only if not default/zero values)
+        if (enterAttack > 0 || exitDecay > 0 || sustainVolume !== 0.8) {
+            waypoint.envelopeConfig = {
+                enterAttack,
+                sustainVolume,
+                exitDecay,
+                curve
+            };
+        } else {
+            delete waypoint.envelopeConfig;
+        }
+
+        // Also update soundscape.waypointData (for clean server save)
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            const wpInSoundscape = soundscape.waypointData.find(wp => wp.id === waypoint.id);
+            if (wpInSoundscape) {
+                wpInSoundscape.soundUrl = waypoint.soundUrl;
+                wpInSoundscape.volume = waypoint.volume;
+                wpInSoundscape.loop = waypoint.loop;
+                wpInSoundscape.activationRadius = waypoint.activationRadius;
+                wpInSoundscape.envelopeConfig = waypoint.envelopeConfig;
+            }
+        }
+
+        // Close and reopen popup to show updated info
+        const marker = this.markers.get(waypoint.id);
+        if (marker) {
+            marker.closePopup();
+            marker.setPopupContent(this._createPopupContent(waypoint));
+            marker.openPopup();
+        }
+
+        this._updateWaypointList();
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        this._closeModal();
+        this._showToast('✅ Waypoint updated', 'success');
+        this.debugLog('✅ Waypoint saved with envelope config');
+    }
+
+    /**
+     * Fallback edit method using prompts (if modal not available)
+     * @param {Object} waypoint
+     * @private
+     */
+    _editWaypointFallback(waypoint) {
+        this.isEditing = true;
         const newSoundUrl = prompt('Sound file URL:', waypoint.soundUrl);
         if (newSoundUrl === null) { this.isEditing = false; return; }
         if (newSoundUrl) waypoint.soundUrl = newSoundUrl;
@@ -848,33 +1264,11 @@ class MapAppShared {
             this._updateRadiusCircle(waypoint);
         }
 
-        // Also update soundscape.waypointData (for clean server save)
-        const soundscape = this.getActiveSoundscape();
-        if (soundscape) {
-            const wpInSoundscape = soundscape.waypointData.find(wp => wp.id === waypointId);
-            if (wpInSoundscape) {
-                wpInSoundscape.soundUrl = waypoint.soundUrl;
-                wpInSoundscape.volume = waypoint.volume;
-                wpInSoundscape.loop = waypoint.loop;
-                wpInSoundscape.activationRadius = waypoint.activationRadius;
-            }
-        }
-
-        // Close and reopen popup to show updated info
-        const marker = this.markers.get(waypointId);
-        if (marker) {
-            marker.closePopup();
-            marker.setPopupContent(this._createPopupContent(waypoint));
-            marker.openPopup();
-        }
-
         this._updateWaypointList();
         this._markSoundscapeDirty();
-        this._scheduleAutoSave();  // Debounced save after edit
+        this._scheduleAutoSave();
         this._showToast('✅ Waypoint updated', 'success');
-        
         this.isEditing = false;
-        this.debugLog('✅ Edit complete');
     }
 
     /**
