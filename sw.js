@@ -1,13 +1,15 @@
 /**
  * Service Worker for Audio AR
  * Simple cache-first strategy for offline pages
- * 
+ *
  * Cache version is updated automatically by deploy.ps1
  */
 
-// Cache version - updated by deploy.ps1
-// Bumped to force cache refresh after download_manager.js corruption
-const CACHE_VERSION = 'v1';
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+const CACHE_VERSION = '20260322110849';
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin)
@@ -38,6 +40,77 @@ const MAP_TILE_PATTERNS = [
   'https://tile.openstreetmap.org',
   'https://{s}.tile.openstreetmap.org',
 ];
+
+// Audio file extensions (handled by CachedSampleSource, not Service Worker)
+const AUDIO_EXTENSIONS = ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'];
+
+// API path prefix (handled by api-client.js, not Service Worker)
+const API_PATH_PREFIX = '/api/';
+
+// Placeholder SVG for offline map tiles
+const OFFLINE_TILE_PLACEHOLDER =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">' +
+  '<rect fill="#e0e0e0" width="256" height="256"/>' +
+  '<text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="#999">Offline</text>' +
+  '</svg>';
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Handle fetch errors gracefully
+ * @param {Error} error - Error to handle
+ * @param {string} context - Error context for logging
+ * @returns {Response} Empty 200 response
+ */
+function handleFetchError(error, context = 'Fetch') {
+  console.error(`[SW] ❌ ${context} failed:`, error.message || error);
+  return new Response('', { status: 200 });
+}
+
+/**
+ * Cache-first strategy with network fallback
+ * @param {FetchEvent} event - Fetch event
+ * @param {string} cacheName - Cache to use
+ * @param {Object} options - Options
+ * @param {string} [options.logPrefix] - Log prefix (e.g., '[SW] 🗺️')
+ * @param {string} [options.placeholder] - Placeholder response for errors
+ * @param {boolean} [options.shouldCache=true] - Whether to cache network responses
+ * @returns {Promise<Response>}
+ */
+async function cacheFirstStrategy(event, cacheName, options = {}) {
+  const {
+    placeholder = null,
+    logPrefix = '[SW]',
+    shouldCache = true
+  } = options;
+
+  const cachedResponse = await caches.match(event.request);
+  if (cachedResponse) {
+    console.log(`${logPrefix} ✅ CACHE HIT:`, event.request.url);
+    return cachedResponse;
+  }
+
+  console.log(`${logPrefix} 📦 CACHE MISS, fetching:`, event.request.url);
+
+  try {
+    const networkResponse = await fetch(event.request);
+    if (shouldCache && networkResponse && networkResponse.status === 200) {
+      const cache = await caches.open(cacheName);
+      cache.put(event.request, networkResponse.clone());
+    }
+    return networkResponse;
+  } catch (error) {
+    if (placeholder) {
+      return new Response(placeholder, {
+        status: 200,
+        headers: { 'Content-Type': 'image/svg+xml' }
+      });
+    }
+    throw error;
+  }
+}
 
 // Install: Cache all pages immediately
 self.addEventListener('install', (event) => {
@@ -156,13 +229,13 @@ self.addEventListener('fetch', (event) => {
 
   // Skip audio file requests - let CachedSampleSource handle them directly
   // Audio files are managed by OfflineDownloadManager in separate caches
-  if (url.pathname.match(/\.(mp3|wav|ogg|m4a|aac|flac)($|\?)/i)) {
+  if (url.pathname.match(new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})($|\\?)`, 'i'))) {
     console.log('[SW] ⏭️ Skipping audio file (handled by CachedSampleSource):', url.pathname);
     return;
   }
 
   // Skip API requests - let api-client.js handle them
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.startsWith(API_PATH_PREFIX)) {
     console.log('[SW] ⏭️ Skipping API request:', url.pathname);
     return;
   }
@@ -171,38 +244,10 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.includes('tile.openstreetmap.org')) {
     console.log('[SW] 🗺️ Map tile request:', url.pathname);
     event.respondWith(
-      (async () => {
-        // Try cache first
-        const cachedResponse = await caches.match(event.request);
-        if (cachedResponse) {
-          console.log('[SW] 🗺️ ✅ CACHE HIT for tile:', url.pathname);
-          return cachedResponse;
-        }
-
-        // Cache miss - fetch from network
-        console.log('[SW] 🗺️ 📦 CACHE MISS, fetching tile from network:', url.pathname);
-        try {
-          const networkResponse = await fetch(event.request);
-          if (networkResponse && networkResponse.status === 200) {
-            // Cache for next time
-            const responseClone = networkResponse.clone();
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(event.request, responseClone);
-            console.log('[SW] 🗺️ 💾 Cached tile from network:', url.pathname);
-          }
-          return networkResponse;
-        } catch (error) {
-          console.warn('[SW] 🗺️ ⚠️ Tile fetch failed, returning placeholder:', url.pathname);
-          // Return a gray placeholder tile instead of breaking
-          return new Response(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="#e0e0e0" width="256" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="#999">Offline</text></svg>',
-            {
-              status: 200,
-              headers: { 'Content-Type': 'image/svg+xml' }
-            }
-          );
-        }
-      })()
+      cacheFirstStrategy(event, CACHE_NAME, {
+        logPrefix: '[SW] 🗺️',
+        placeholder: OFFLINE_TILE_PLACEHOLDER
+      })
     );
     return;
   }
@@ -382,10 +427,7 @@ self.addEventListener('fetch', (event) => {
             return new Response('', { status: 200 });
           });
       })
-      .catch((error) => {
-        console.error('[SW] ❌ Cache match failed:', error);
-        return new Response('', { status: 200 });
-      })
+      .catch((error) => handleFetchError(error, 'Cache match'))
   );
 });
 

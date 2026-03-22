@@ -8,21 +8,43 @@
  * @since Feature 15: Offline Soundscape Download
  */
 
-// Version guard - helps detect corrupted deployments
-window.DOWNLOAD_MANAGER_VERSION = '1.1';
-console.log('[download_manager.js] Loading v' + window.DOWNLOAD_MANAGER_VERSION + '...');
+// ============================================================================
+// Configuration Constants
+// ============================================================================
+
+const DOWNLOAD_MANAGER_VERSION = '1.1';
+
+// Cache and storage key prefixes
+const CACHE_PREFIX = 'soundscape-';
+const STORAGE_KEY_PREFIX = 'offline_soundscape_full_';
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;  // Base delay in ms
+const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes for large files
+
+console.log('[download_manager.js] Loading v' + DOWNLOAD_MANAGER_VERSION + '...');
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * Calculate download progress percentage
+ * @param {number} downloaded - Files downloaded
+ * @param {number} total - Total files
+ * @returns {number} Percentage (0-100)
+ */
+function calculatePercent(downloaded, total) {
+  return total > 0 ? Math.round((downloaded / total) * 100) : 0;
+}
 
 class OfflineDownloadManager {
     constructor() {
-        // Version guard - verify class loaded correctly
-        if (!window.DOWNLOAD_MANAGER_VERSION) {
-            throw new Error('OfflineDownloadManager failed to load - file corruption detected');
-        }
-        
         this.cacheName = null;
         this.downloadQueue = new Map();
-        this.maxRetries = 3;
-        this.retryDelay = 1000; // Base delay in ms
+        this.maxRetries = MAX_RETRIES;
+        this.retryDelay = RETRY_DELAY_MS;
     }
 
     /**
@@ -46,7 +68,7 @@ class OfflineDownloadManager {
         console.log(`[OfflineDownload] ${urls.length} unique audio file(s)`);
 
         // Create cache for this soundscape
-        this.cacheName = `soundscape-${soundscapeId}`;
+        this.cacheName = `${CACHE_PREFIX}${soundscapeId}`;
         const cache = await caches.open(this.cacheName);
 
         // Track progress and failures
@@ -76,7 +98,7 @@ class OfflineDownloadManager {
             this.downloadQueue.set(soundscapeId, {
                 downloaded,
                 total,
-                percent: Math.round((downloaded / total) * 100)
+                percent: calculatePercent(downloaded, total)
             });
             this._onProgress(soundscapeId, downloaded, total);
         }
@@ -118,7 +140,7 @@ class OfflineDownloadManager {
      */
     async _storeSoundscapeData(soundscapeId, data) {
         try {
-            localStorage.setItem('offline_soundscape_full_' + soundscapeId, JSON.stringify(data));
+            localStorage.setItem(STORAGE_KEY_PREFIX + soundscapeId, JSON.stringify(data));
             console.log(`[OfflineDownload] Stored offline data for ${soundscapeId}`);
         } catch (err) {
             console.error(`[OfflineDownload] Failed to store soundscape data:`, err);
@@ -130,11 +152,32 @@ class OfflineDownloadManager {
                     waypoints: data.waypoints,
                     downloadedAt: data.downloadedAt
                 };
-                localStorage.setItem('offline_soundscape_full_' + soundscapeId, JSON.stringify(minimalData));
+                localStorage.setItem(STORAGE_KEY_PREFIX + soundscapeId, JSON.stringify(minimalData));
                 console.log(`[OfflineDownload] Stored minimal offline data for ${soundscapeId}`);
             } catch (err2) {
                 console.error(`[OfflineDownload] Failed to store minimal data:`, err2);
             }
+        }
+    }
+
+    /**
+     * Fetch with timeout
+     * @param {string} url - URL to fetch
+     * @param {number} timeoutMs - Timeout in ms
+     * @returns {Promise<Response>}
+     * @private
+     */
+    async _fetchWithTimeout(url, timeoutMs = DOWNLOAD_TIMEOUT_MS) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            console.error(`[OfflineDownload] ⏱️ Timeout after ${timeoutMs/1000}s:`, url);
+            controller.abort();
+        }, timeoutMs);
+
+        try {
+            return await fetch(url, { signal: controller.signal });
+        } finally {
+            clearTimeout(timeoutId);
         }
     }
 
@@ -153,15 +196,7 @@ class OfflineDownloadManager {
                 console.log(`[OfflineDownload] ⬇️ Starting: ${url} (attempt ${attempt}/${this.maxRetries})`);
 
                 // Fetch with timeout (5 minutes for large files)
-                const controller = new AbortController();
-                const timeoutMs = 5 * 60 * 1000; // 5 minutes
-                const timeoutId = setTimeout(() => {
-                    console.error(`[OfflineDownload] ⏱️ Timeout after ${timeoutMs/1000}s for: ${url}`);
-                    controller.abort();
-                }, timeoutMs);
-
-                const response = await fetch(url, { signal: controller.signal });
-                clearTimeout(timeoutId);
+                const response = await this._fetchWithTimeout(url, DOWNLOAD_TIMEOUT_MS);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -209,7 +244,7 @@ class OfflineDownloadManager {
      * @protected
      */
     _onProgress(soundscapeId, downloaded, total) {
-        const percent = Math.round((downloaded / total) * 100);
+        const percent = calculatePercent(downloaded, total);
         console.log(`[OfflineDownload] Progress: ${percent}% (${downloaded}/${total})`);
 
         // Dispatch custom event for UI to listen
@@ -233,7 +268,7 @@ class OfflineDownloadManager {
      * @returns {Promise<boolean>}
      */
     async isAvailableOffline(soundscapeId) {
-        const cacheName = `soundscape-${soundscapeId}`;
+        const cacheName = `${CACHE_PREFIX}${soundscapeId}`;
         try {
             const cache = await caches.open(cacheName);
             const keys = await cache.keys();
@@ -258,7 +293,7 @@ class OfflineDownloadManager {
      */
     async getCachedSoundscape(soundscapeId) {
         try {
-            const stored = localStorage.getItem('offline_soundscape_full_' + soundscapeId);
+            const stored = localStorage.getItem(STORAGE_KEY_PREFIX + soundscapeId);
             if (!stored) {
                 console.warn(`[OfflineDownload] No cached data found for ${soundscapeId}`);
                 return null;
@@ -279,7 +314,7 @@ class OfflineDownloadManager {
      * @returns {Promise<void>}
      */
     async deleteOfflineCache(soundscapeId) {
-        const cacheName = `soundscape-${soundscapeId}`;
+        const cacheName = `${CACHE_PREFIX}${soundscapeId}`;
         try {
             const deleted = await caches.delete(cacheName);
             if (deleted) {
@@ -287,9 +322,9 @@ class OfflineDownloadManager {
             } else {
                 console.warn(`[OfflineDownload] Cache not found: ${cacheName}`);
             }
-            
+
             // Also clear stored data
-            localStorage.removeItem('offline_soundscape_full_' + soundscapeId);
+            localStorage.removeItem(STORAGE_KEY_PREFIX + soundscapeId);
             console.log(`[OfflineDownload] 🗑️ Cleared stored data for ${soundscapeId}`);
         } catch (err) {
             console.error(`[OfflineDownload] Error deleting cache:`, err);
@@ -315,8 +350,8 @@ class OfflineDownloadManager {
         const cached = [];
 
         for (const cacheName of cacheNames) {
-            if (cacheName.startsWith('soundscape-')) {
-                const soundscapeId = cacheName.replace('soundscape-', '');
+            if (cacheName.startsWith(CACHE_PREFIX)) {
+                const soundscapeId = cacheName.replace(CACHE_PREFIX, '');
                 try {
                     const cache = await caches.open(cacheName);
                     const keys = await cache.keys();
@@ -342,7 +377,7 @@ class OfflineDownloadManager {
         let totalSize = 0;
 
         for (const { id } of cached) {
-            const cacheName = `soundscape-${id}`;
+            const cacheName = `${CACHE_PREFIX}${id}`;
             try {
                 const cache = await caches.open(cacheName);
                 const requests = await cache.keys();

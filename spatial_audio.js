@@ -674,6 +674,10 @@ class SampleSource extends GpsSoundSource {
  * @version 1.0 (Feature 15: Offline Soundscape Download)
  * @extends SampleSource
  */
+
+// Cache prefix for soundscape caches (shared with OfflineDownloadManager)
+const CACHED_SAMPLE_SOURCE_CACHE_PREFIX = 'soundscape-';
+
 class CachedSampleSource extends SampleSource {
     async load(timeout = 30000) {
         console.log('[CachedSampleSource] load() called for:', this.url);
@@ -733,10 +737,10 @@ class CachedSampleSource extends SampleSource {
     async _getCachedResponse() {
         try {
             const cacheNames = await caches.keys();
-            
+
             for (const cacheName of cacheNames) {
                 // Only check soundscape caches
-                if (!cacheName.startsWith('soundscape-')) {
+                if (!cacheName.startsWith(CACHED_SAMPLE_SOURCE_CACHE_PREFIX)) {
                     continue;
                 }
 
@@ -1580,6 +1584,19 @@ const DeviceOrientationHelper = {
     }
 };
 
+// ============================================================================
+// HeadingManager Configuration
+// ============================================================================
+
+const HEADING_CONFIG = {
+    MAX_SAMPLES: 10,              // GPS samples for smoothing
+    MIN_SPEED_MS: 1.0,            // Must exceed to trust GPS (3.6 km/h)
+    STOP_SPEED_MS: 0.3,           // Below this = stationary
+    STABILITY_THRESHOLD_DEG: 15,  // Degrees variance for stability
+    MIN_STABLE_COUNT: 3,          // Consecutive stable readings
+    SWITCH_DEBOUNCE_MS: 2000      // Min time between source switches
+};
+
 /**
  * HeadingManager - Combines GPS heading and device compass
  * Intelligently switches between sources based on reliability
@@ -1589,15 +1606,15 @@ class HeadingManager {
         this.gpsHeading = null;
         this.compassHeading = 0;
         this.gpsSamples = [];
-        this.maxSamples = options.maxSamples || 10;
-        this.minSpeed = options.minSpeed || 1.0;      // m/s - must exceed to trust GPS
-        this.stopSpeed = options.stopSpeed || 0.3;    // m/s - below this = stationary
-        this.stabilityThreshold = options.stabilityThreshold || 15; // degrees variance
-        this.minStableCount = options.minStableCount || 3;
+        this.maxSamples = options.maxSamples ?? HEADING_CONFIG.MAX_SAMPLES;
+        this.minSpeed = options.minSpeed ?? HEADING_CONFIG.MIN_SPEED_MS;
+        this.stopSpeed = options.stopSpeed ?? HEADING_CONFIG.STOP_SPEED_MS;
+        this.stabilityThreshold = options.stabilityThreshold ?? HEADING_CONFIG.STABILITY_THRESHOLD_DEG;
+        this.minStableCount = options.minStableCount ?? HEADING_CONFIG.MIN_STABLE_COUNT;
         this.stableCount = 0;
         this.useGPS = false;
         this.lastSwitchTime = 0;
-        this.switchDebounce = 2000; // ms - don't switch sources more than every 2s
+        this.switchDebounce = HEADING_CONFIG.SWITCH_DEBOUNCE_MS;
     }
 
     /**
@@ -1723,19 +1740,42 @@ class HeadingManager {
      */
     _calculateVariance() {
         if (this.gpsSamples.length < 2) return 360;
-        
+
         const headings = this.gpsSamples.map(s => s.heading);
         const avg = headings.reduce((a, b) => a + b, 0) / headings.length;
-        
+
         // Handle wraparound (359° vs 1°)
         let variance = 0;
         for (const h of headings) {
-            let diff = Math.abs(h - avg);
-            if (diff > 180) diff = 360 - diff;
+            const diff = this._angleDifference(h, avg);
             variance += diff;
         }
-        
+
         return variance / headings.length;
+    }
+
+    /**
+     * Normalize angle to 0-360° range
+     * @param {number} angle - Angle in degrees
+     * @returns {number} Normalized angle (0-360)
+     * @private
+     */
+    _normalizeAngle(angle) {
+        angle = angle % 360;
+        if (angle < 0) angle += 360;
+        return angle;
+    }
+
+    /**
+     * Calculate shortest angle difference (handles wraparound)
+     * @param {number} a1 - Angle 1
+     * @param {number} a2 - Angle 2
+     * @returns {number} Difference (0-180)
+     * @private
+     */
+    _angleDifference(a1, a2) {
+        const diff = Math.abs(this._normalizeAngle(a1) - this._normalizeAngle(a2));
+        return diff > 180 ? 360 - diff : diff;
     }
 
     /**
