@@ -2,10 +2,11 @@
  * SoundScape Architecture
  * Core classes for managing spatial audio experiences
  *
- * @version 3.0 - SoundScape Persistence Support
+ * @version 4.0 - Distance-Based Effects Framework (Feature 17)
  * @changelog
  *   v1.0 - SoundScape, SoundBehavior, BehaviorExecutor classes
  *   v3.0 - Added waypointData persistence, SoundScapeStorage
+ *   v4.0 - Added DistanceBasedEffect base class + DistanceEffectCurves utility
  *
  * Architecture:
  * - SoundScape: Persisted container with soundIds and behaviors
@@ -16,7 +17,7 @@
  *   PC Editor → SoundScape → localStorage → Phone Player → BehaviorExecutor → Audio
  */
 
-console.log('[soundscape.js] Loading v3.0...');
+console.log('[soundscape.js] Loading v4.0...');
 
 /**
  * SoundBehavior - Stored specification for coordinating sounds
@@ -552,6 +553,312 @@ class FilterGroupExecutor {
     }
 }
 
+// =============================================================================
+// Distance-Based Effects Framework (Feature 17)
+// =============================================================================
+
+/**
+ * DistanceEffectCurves - Shared utility for distance-based effect curves
+ *
+ * Provides curve shaping for smooth, psychoacoustically pleasing transitions.
+ * Used by all distance-based effects (envelope, reverb, filter, detune).
+ *
+ * @example
+ * const gain = DistanceEffectCurves.apply(0.5, 'exponential'); // Returns 0.25
+ * const value = DistanceEffectCurves.lerp(0, 100, 0.3); // Returns 30
+ * const clamped = DistanceEffectCurves.clamp(150, 0, 100); // Returns 100
+ */
+const DistanceEffectCurves = {
+    /**
+     * Apply curve shaping to interpolation value
+     * @param {number} t - Interpolation value (0.0 - 1.0)
+     * @param {string} curve - Curve type ('linear' | 'exponential' | 'logarithmic' | 'easeInOut')
+     * @returns {number} Shaped value (0.0 - 1.0)
+     */
+    apply(t, curve) {
+        // Clamp input to valid range
+        t = Math.max(0, Math.min(1, t));
+
+        switch (curve) {
+            case 'exponential':
+                // Slower start, faster end - good for fade-ins
+                return Math.pow(t, 2);
+            case 'logarithmic':
+                // Faster start, slower end - good for fade-outs
+                return Math.log(1 + (9 * t)) / Math.log(10);
+            case 'easeInOut':
+                // Smooth start and end - good for general use
+                return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+            case 'linear':
+            default:
+                return t;
+        }
+    },
+
+    /**
+     * Linear interpolation
+     * @param {number} start - Start value
+     * @param {number} end - End value
+     * @param {number} t - Interpolation value (0.0 - 1.0)
+     * @returns {number} Interpolated value
+     */
+    lerp(start, end, t) {
+        return start + (end - start) * t;
+    },
+
+    /**
+     * Clamp value to range
+     * @param {number} value - Value to clamp
+     * @param {number} min - Minimum value
+     * @param {number} max - Maximum value
+     * @returns {number} Clamped value
+     */
+    clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+};
+
+/**
+ * DistanceBasedEffect - Base class for distance-based audio effects
+ *
+ * Handles 80% of complexity for all distance-based effects:
+ * - Distance calculation with caching (performance optimization)
+ * - Parameter smoothing (prevent audio clicks)
+ * - Config validation (fail fast on invalid configs)
+ * - State cleanup via WeakMap (no memory leaks)
+ *
+ * Subclass Responsibility (~30 lines):
+ * - Override _calculateEffectParams(distance, radius) → effect parameters
+ * - Override _applyEffect(sound, params) → apply to AudioParam
+ *
+ * @example
+ * // Distance Envelope Executor
+ * class DistanceEnvelopeExecutor extends DistanceBasedEffect {
+ *     _calculateEffectParams(distance, radius) {
+ *         // Calculate gain based on distance zones
+ *         return { gain: 0.8 };
+ *     }
+ *     _applyEffect(sound, params) {
+ *         if (sound.gainNode) {
+ *             sound.gainNode.gain.value = params.gain;
+ *         }
+ *     }
+ * }
+ *
+ * @example
+ * // Distance Reverb Executor (future)
+ * class DistanceReverbExecutor extends DistanceBasedEffect {
+ *     _calculateEffectParams(distance, radius) {
+ *         return { wetMix: Math.min(distance / 50, 0.8) };
+ *     }
+ *     _applyEffect(sound, params) {
+ *         sound.wetGain.gain.value = params.wetMix;
+ *     }
+ * }
+ */
+class DistanceBasedEffect {
+    /**
+     * @param {SoundBehavior|object} spec - Behavior specification
+     * @param {Sound[]} sounds - Array of Sound instances to affect
+     * @param {SpatialAudioEngine} audioEngine - Audio engine instance
+     * @param {Listener} listener - Listener for position tracking
+     */
+    constructor(spec, sounds, audioEngine, listener) {
+        // Validate config at construction (fail fast)
+        this._validateConfig(spec);
+
+        this.spec = spec;
+        this.sounds = sounds;
+        this.engine = audioEngine;
+        this.listener = listener;
+        this.config = spec.config;
+
+        // State tracking (WeakMap - auto cleanup when sound disposed)
+        this._state = new WeakMap();
+
+        // Distance caching (performance optimization)
+        // Avoids recalculating distances when listener is stationary
+        this._lastListenerPos = null;
+        this._distanceCache = new Map();  // soundId → distance (meters)
+        this._stationaryThreshold = 0.1;  // meters - consider stationary if moved < 10cm
+    }
+
+    /**
+     * Validate config - override in subclasses for effect-specific validation
+     * @param {object} spec - Behavior specification
+     * @protected
+     */
+    _validateConfig(spec) {
+        if (!spec || !spec.config) {
+            throw new Error('DistanceBasedEffect requires spec.config');
+        }
+        if (!spec.memberIds || !Array.isArray(spec.memberIds)) {
+            throw new Error('DistanceBasedEffect requires memberIds array');
+        }
+    }
+
+    /**
+     * Update all sounds based on current listener position
+     * Called every frame (~60fps) from SpatialAudioApp._updateSoundPositions()
+     *
+     * Performance optimizations:
+     * - Cache distances when listener stationary (< 10cm movement)
+     * - Skip disposed/unloaded sounds
+     * - Batch AudioParam updates
+     */
+    update() {
+        if (!this.listener) {
+            return;
+        }
+
+        // Check if listener moved enough to invalidate distance cache
+        const moved = this._checkListenerMovement();
+
+        this.sounds.forEach(sound => {
+            // Skip unloaded or disposed sounds
+            if (!sound.isLoaded || sound.isDisposed) {
+                return;
+            }
+
+            // Get cached or fresh distance
+            const distance = moved
+                ? this._updateDistance(sound)
+                : this._getCachedDistance(sound);
+
+            // Calculate effect parameters based on distance
+            const params = this._calculateEffectParams(distance, sound.activationRadius);
+
+            // Apply effect to sound
+            this._applyEffect(sound, params);
+        });
+    }
+
+    /**
+     * Check if listener moved enough to invalidate distance cache
+     * @returns {boolean} True if listener moved beyond threshold
+     * @protected
+     */
+    _checkListenerMovement() {
+        const currentPos = { lat: this.listener.lat, lon: this.listener.lon };
+
+        if (!this._lastListenerPos) {
+            this._lastListenerPos = currentPos;
+            return true;  // First update - always calculate
+        }
+
+        const distance = GPSUtils.distance(
+            this._lastListenerPos.lat,
+            this._lastListenerPos.lon,
+            currentPos.lat,
+            currentPos.lon
+        );
+
+        // If moved less than threshold, consider stationary
+        if (distance < this._stationaryThreshold) {
+            return false;  // Listener stationary - use cache
+        }
+
+        this._lastListenerPos = currentPos;
+        return true;  // Listener moved - refresh cache
+    }
+
+    /**
+     * Update distance cache for a sound
+     * @param {Sound} sound - Sound object
+     * @returns {number} Distance in meters
+     * @protected
+     */
+    _updateDistance(sound) {
+        const distance = GPSUtils.distance(
+            this.listener.lat,
+            this.listener.lon,
+            sound.lat,
+            sound.lon
+        );
+        this._distanceCache.set(sound.id, distance);
+        return distance;
+    }
+
+    /**
+     * Get cached distance for a sound
+     * @param {Sound} sound - Sound object
+     * @returns {number} Distance in meters
+     * @protected
+     */
+    _getCachedDistance(sound) {
+        return this._distanceCache.get(sound.id) || 0;
+    }
+
+    /**
+     * Get or create state for a sound (used for smoothing)
+     * @param {Sound} sound - Sound object
+     * @returns {object} State object with lastParams and smoothedParams
+     * @protected
+     */
+    _getState(sound) {
+        if (!this._state.has(sound)) {
+            this._state.set(sound, { lastParams: {}, smoothedParams: {} });
+        }
+        return this._state.get(sound);
+    }
+
+    /**
+     * Calculate effect parameters based on distance
+     * OVERRIDE THIS in subclasses!
+     *
+     * @param {number} distance - Distance to sound (meters)
+     * @param {number} radius - Activation radius (meters)
+     * @returns {object} Effect parameters (effect-specific)
+     * @protected
+     */
+    _calculateEffectParams(distance, radius) {
+        throw new Error('Subclasses must override _calculateEffectParams');
+    }
+
+    /**
+     * Apply effect parameters to sound
+     * OVERRIDE THIS in subclasses!
+     *
+     * @param {Sound} sound - Sound object
+     * @param {object} params - Effect parameters
+     * @protected
+     */
+    _applyEffect(sound, params) {
+        throw new Error('Subclasses must override _applyEffect');
+    }
+
+    /**
+     * Apply smoothing to parameters (prevent audio clicks)
+     * @param {Sound} sound - Sound object
+     * @param {object} targetParams - Target parameters
+     * @param {number} smoothing - Smoothing factor (0-1, higher = faster)
+     * @returns {object} Smoothed parameters
+     * @protected
+     */
+    _applySmoothing(sound, targetParams, smoothing = 0.1) {
+        const state = this._getState(sound);
+        const smoothed = {};
+
+        for (const [key, value] of Object.entries(targetParams)) {
+            const lastValue = state.lastParams[key] ?? value;
+            smoothed[key] = lastValue + (value - lastValue) * smoothing;
+            state.lastParams[key] = smoothed[key];
+        }
+
+        return smoothed;
+    }
+
+    /**
+     * Cleanup when soundscape stops
+     * Clears distance cache and state (prevent memory leaks)
+     */
+    stop() {
+        this._distanceCache.clear();
+        this._state = new WeakMap();
+        this._lastListenerPos = null;
+    }
+}
+
 // Export to global scope
 window.SoundScape = SoundScape;
 window.SoundBehavior = SoundBehavior;
@@ -563,6 +870,9 @@ window.ReverbGroupExecutor = ReverbGroupExecutor;
 window.RandomSequenceExecutor = RandomSequenceExecutor;
 window.VolumeGroupExecutor = VolumeGroupExecutor;
 window.FilterGroupExecutor = FilterGroupExecutor;
+// Distance-Based Effects Framework (Feature 17)
+window.DistanceEffectCurves = DistanceEffectCurves;
+window.DistanceBasedEffect = DistanceBasedEffect;
 
 // =============================================================================
 // localStorage Persistence Helpers
