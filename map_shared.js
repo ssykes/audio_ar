@@ -687,7 +687,11 @@ class MapAppShared {
         }
 
         this.debugLog('☁️ Auto-saving to server...');
-        
+
+        // === Sync behaviors from waypoints with envelopeConfig ===
+        // This ensures distance_envelope behaviors are created before server save
+        this._syncBehaviorsFromWaypoints(soundscape);
+
         // Use soundscape.waypointData (clean data) instead of this.waypoints
         const wpData = soundscape.waypointData || [];
         const behaviors = soundscape.behaviors || [];
