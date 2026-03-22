@@ -497,7 +497,8 @@
 <span class="debug-line info">[picker] 📡 Fetching soundscapes from server...</span>
         </div>
     </div>
-    
+
+    <!-- Scripts loaded in order: api-client → soundscape → download_manager → app -->
     <script src="api-client.js"></script>
     <script>
         // Use relative URL - Cloudflare will handle HTTPS
@@ -508,51 +509,67 @@
 
     <!-- Service Worker Registration (for offline support) -->
     <script>
-        // Register service worker for offline page caching
+        // Service Worker for offline support
         // Version query string updated by deploy.ps1
+        // Only register if not already registered for this version
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20260321135623')
-                .then((registration) => {
-                    console.log('✅ Service Worker registered:', registration.scope);
-                    console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
-                    
-                    // Update status when SW activates
-                    if (registration.active) {
-                        console.log('✅ Service Worker ALREADY ACTIVE');
-                        localStorage.setItem('sw_ready', 'true');
-                        updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+            // Check if we already have a SW registered
+            navigator.serviceWorker.getRegistration()
+                .then((existingRegistration) => {
+                    if (existingRegistration && existingRegistration.active) {
+                        // SW already active - just use it (works offline)
+                        console.log('✅ Service Worker already active, skipping re-registration');
+                        return;
                     }
                     
-                    // Listen for updates
-                    registration.addEventListener('updatefound', () => {
-                        console.log('🔄 Service Worker update found');
-                        const newWorker = registration.installing;
-                        
-                        newWorker.addEventListener('statechange', () => {
-                            console.log('🔄 SW state:', newWorker.state);
+                    // No active SW - register new one
+                    console.log('📡 Registering new Service Worker...');
+                    return navigator.serviceWorker.register('sw.js?v=20260321210600')
+                        .then((registration) => {
+                            console.log('✅ Service Worker registered:', registration.scope);
                             
-                            if (newWorker.state === 'installed') {
-                                console.log('✅ Service Worker installed');
-                            }
-                            
-                            if (newWorker.state === 'activated') {
-                                console.log('✅ Service Worker ACTIVATED');
-                                localStorage.setItem('sw_ready', 'true');
-                                updateSWStatus('✅', 'Ready for offline', 'rgba(0, 255, 136, 0.3)');
+                            // Listen for updates (attached immediately, not in .then())
+                            registration.addEventListener('updatefound', () => {
+                                console.log('🔄 SW update found - new version available');
+                                const newWorker = registration.installing;
                                 
-                                // Tell all clients to reload
-                                registration.active.postMessage({ type: 'ACTIVATED' });
+                                if (newWorker) {
+                                    // New SW installing - wait for it to activate
+                                    newWorker.addEventListener('statechange', () => {
+                                        if (newWorker.state === 'installed') {
+                                            console.log('✅ New SW installed - reloading to apply update');
+                                            // Force reload to use new SW (clears old cache)
+                                            if (confirm('🔄 App update available! Reload now?')) {
+                                                window.location.reload();
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+
+                            // Check for updates on every page load (when online)
+                            if (registration.active && navigator.onLine) {
+                                console.log('✅ Service Worker active, checking for updates...');
+                                // Force update check
+                                registration.update();
                             }
+                            
+                            // Handle SW errors (e.g., corrupted cache)
+                            registration.addEventListener('error', (event) => {
+                                console.error('❌ SW error:', event);
+                                console.warn('⚠️ Service Worker cache may be corrupted');
+                                console.warn('💡 Try: Settings → Clear browsing data → Cached files');
+                            });
+                        })
+                        .catch((error) => {
+                            console.error('❌ Service Worker registration failed:', error);
+                            console.warn('⚠️ Offline mode unavailable - SW registration failed');
+                            console.warn('💡 This is expected if you are offline - cached page will still work');
                         });
-                    });
                 })
                 .catch((error) => {
-                    console.error('❌ Service Worker registration failed:', error);
-                    updateSWStatus('❌', 'Registration failed', 'rgba(255, 107, 107, 0.3)');
+                    console.error('❌ Failed to check SW registration:', error);
                 });
-        } else {
-            console.error('❌ Service Worker NOT supported');
-            updateSWStatus('❌', 'No SW support', 'rgba(255, 107, 107, 0.3)');
         }
     </script>
 
@@ -631,6 +648,39 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
+                    // GUARD: Verify download_manager.js loaded correctly
+                    if (typeof OfflineDownloadManager === 'undefined') {
+                        const errorMsg = '❌ CRITICAL: download_manager.js failed to load!';
+                        console.error(errorMsg);
+                        console.error('   File may be corrupted on server or cache is stale');
+                        
+                        // Show visible error to user
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = 'background:#ff0000;color:#fff;padding:20px;margin:20px;border-radius:8px;font-size:1.1em;';
+                        errorDiv.innerHTML = `
+                            <strong>⚠️ File Corruption Detected</strong><br><br>
+                            The app failed to load correctly. This usually means:<br>
+                            1️⃣ Server has old/corrupted files<br>
+                            2️⃣ Browser cache is stale<br><br>
+                            <strong>Fix:</strong> Clear browser cache and refresh.<br>
+                            <button onclick="location.reload()" style="margin-top:10px;padding:10px 20px;background:#fff;color:#000;border:none;border-radius:4px;cursor:pointer;">🔄 Refresh Page</button>
+                            <button onclick="clearAllCaches()" style="margin-top:10px;margin-left:10px;padding:10px 20px;background:#fff;color:#000;border:none;border-radius:4px;cursor:pointer;">🗑️ Clear All Caches</button>
+                        `;
+                        document.body.insertBefore(errorDiv, document.body.firstChild);
+                        
+                        // Add cache clear function
+                        window.clearAllCaches = function() {
+                            caches.keys().then(names => {
+                                names.forEach(name => caches.delete(name));
+                            }).then(() => {
+                                localStorage.clear();
+                                location.reload();
+                            });
+                        };
+                        
+                        throw new Error('OfflineDownloadManager is not defined - file corruption');
+                    }
+
                     this.api = new ApiClient('/api');
                     console.log('[SoundscapePicker] ApiClient created');
 

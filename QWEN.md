@@ -2818,14 +2818,15 @@ If issues arise:
 | **13** | Rename 'unload zone' to 'hysteresis zone' | ✅ Complete | `spatial_audio_app.js` |
 | **14** | Distance-based audio filtering (air absorption) | ✅ Complete | `spatial_audio_app.js` v2.8 |
 | **15** | Offline soundscape download (Cache API) | ✅ Complete | `download_manager.js`, `soundscape_picker.html`, `spatial_audio.js` |
+| **16** | Service Worker offline mode + corruption guards | ✅ Complete | `sw.js`, `soundscape_picker.html`, `deploy.ps1`, `download_manager.js` |
 
 ### 📋 Planned Sessions
 
 | Session | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| **16** | Behavior editing UI | Medium | 📋 Planned |
-| **17** | Multi-user collaboration | Low | 📋 Planned |
-| **18** | Session-based cached streaming | High | 📋 Planned |
+| **17** | Behavior editing UI | Medium | 📋 Planned |
+| **18** | Multi-user collaboration | Low | 📋 Planned |
+| **19** | Session-based cached streaming | High | 📋 Planned |
 
 **Feature 13 Documentation:** See `LAZY_LOADING_SPECIFICATION.md`, `LAZY_LOADING_FADE_ZONE_FIX.md`, `DEBUG_LOGGING_ADDED.md`, and `FUTURE_SOUND_SOURCES.md` for complete implementation details.
 
@@ -2844,18 +2845,21 @@ If issues arise:
 | `soundscape.js` | v3.0 | 2026-03-16 |
 | `api-client.js` | - | 2026-03-16 |
 | `index.html` | v6.8 | 2026-03-16 |
-| `soundscape_picker.html` | - | 2026-03-20 (Feature 15: Offline download) |
+| `soundscape_picker.html` | - | 2026-03-21 (Feature 16: SW offline mode) |
 | `spatial_audio.js` | v5.1+ | 2026-03-20 (Feature 15: CachedSampleSource) |
 | `spatial_audio_app.js` | v2.8 | 2026-03-18 (Feature 14: Air absorption filter) |
-| `download_manager.js` | v1.0 | 2026-03-20 (Feature 15: New file) |
+| `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
+| `sw.js` | v1.0 | 2026-03-21 (Feature 16: New file) |
+| `deploy.ps1` | - | 2026-03-21 (Feature 16: Verification + versioning) |
 
 ### 🎯 Next Priority Items
 
-1. **Test Feature 15** - Verify offline download works on mobile devices
-2. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
-3. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
-4. **Behavior editing UI** - Visual timeline for behavior configuration (Feature 16)
-5. **Multi-user collaboration** - WebSocket-based real-time sync (Feature 17)
+1. **Test Feature 16** - Verify Service Worker offline mode works on mobile
+2. **Test Feature 15** - Verify offline download works on mobile devices
+3. **Test on mobile devices** - Verify GPS/compass work on phones with lazy loading + air absorption
+4. **Update map_editor.html** - Apply Feature 10 UI redesign to editor
+5. **Behavior editing UI** - Visual timeline for behavior configuration (Feature 17)
+6. **Multi-user collaboration** - WebSocket-based real-time sync (Feature 18)
 
 ### 🐛 Known Issues
 
@@ -2865,6 +2869,64 @@ None currently - all lazy loading bugs fixed:
 - ✅ Hysteresis prevents rapid load/dispose cycles
 - ✅ Zone naming clarified ('unload' → 'hysteresis')
 - ✅ Debug logging verifies zone transitions
+
+---
+
+## Session: Service Worker Offline Mode (2026-03-21)
+
+**Problem:** Service Worker cached corrupted `download_manager.js` and served it even after deploy fixed the server file.
+
+**Root Cause:**
+1. Old SW cache on phone had broken file
+2. No version control - cache name never changed
+3. No deploy verification - didn't catch server corruption
+4. No runtime guards - silent failure with no user feedback
+
+**Solution Implemented:**
+
+### 1. Service Worker with Versioned Caches
+- `CACHE_VERSION = 'YYYYMMDDHHMMSS'` (updated by deploy.ps1)
+- Cache name: `audio-ar-20260321185301` (isolated per deploy)
+- Old caches auto-deleted on SW activation
+
+### 2. Smart SW Registration
+- Check `getRegistration()` before `register()`
+- If SW already active → skip re-registration (works offline)
+- If online → `registration.update()` in background
+
+### 3. Deploy Verification
+- SSH after upload: `head -15 download_manager.js`
+- Check for corruption patterns (`MAX_CONCURRENT`, `SyntaxError`, `undefined`)
+- Auto re-upload if corrupted
+
+### 4. Runtime Guards
+- `window.DOWNLOAD_MANAGER_VERSION = '1.1'`
+- Constructor check: `if (!window.DOWNLOAD_MANAGER_VERSION) throw Error()`
+- Visible error UI with cache clear button
+
+### 5. Versioning System
+| Layer | Format | Updated By | Stripped By |
+|-------|--------|------------|-------------|
+| HTML → SW ref | `sw.js?v=20260321185301` | deploy.ps1 | pre-commit hook |
+| sw.js → CACHE_VERSION | `CACHE_VERSION = '20260321185301'` | deploy.ps1 | pre-commit hook |
+| Cache name | `audio-ar-20260321185301` | sw.js (runtime) | N/A |
+| Git repo | `CACHE_VERSION = 'v1'` | pre-commit hook | N/A |
+
+**Files Modified:**
+- `sw.js` (~360 lines) - Service Worker with versioned caches
+- `soundscape_picker.html` (~70 lines) - Smart SW registration
+- `deploy.ps1` (~50 lines) - Verification + versioning fix
+- `download_manager.js` (~10 lines) - Version guard
+- `.git/hooks/pre-commit*` (~40 lines) - Strip versions
+
+**Testing:**
+1. ✅ Deploy + verify: `& .\deploy.ps1` → "Verified: 4 critical files"
+2. ✅ Offline mode: Download → Airplane mode → Refresh → Page loads from cache
+3. ✅ Cache clearing: Deploy → Old cache deleted, new cache created
+
+**Documentation:** `FEATURES.md` (Feature 16), `SERVICE_WORKER_DOCUMENTATION.md`
+
+---
 
 ---
 

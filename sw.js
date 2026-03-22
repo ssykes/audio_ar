@@ -1,9 +1,14 @@
 /**
  * Service Worker for Audio AR
  * Simple cache-first strategy for offline pages
+ * 
+ * Cache version is updated automatically by deploy.ps1
  */
 
-const CACHE_NAME = 'audio-ar-v1';
+// Cache version - updated by deploy.ps1
+// Bumped to force cache refresh after download_manager.js corruption
+const CACHE_VERSION = 'v1';
+const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin)
 const FILES_TO_CACHE = [
@@ -31,32 +36,43 @@ const CDN_RESOURCES = [
 // Install: Cache all pages immediately
 self.addEventListener('install', (event) => {
   console.log('[SW] Install event');
-  
+
+  // Skip waiting - activate immediately instead of waiting for old SW to die
+  self.skipWaiting();
+
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('[SW] Opening cache:', CACHE_NAME);
         console.log('[SW] Caching', FILES_TO_CACHE.length, 'local files');
         console.log('[SW] Caching', CDN_RESOURCES.length, 'CDN resources');
-        
-        // Cache local files
-        return cache.addAll(FILES_TO_CACHE)
-          .then(() => {
-            console.log('[SW] ✅ Local files cached');
-            // Then cache CDN resources
-            return Promise.all(
-              CDN_RESOURCES.map(url => 
-                cache.add(url).catch(err => {
-                  console.warn('[SW] Failed to cache CDN resource:', url, err);
-                })
-              )
-            );
-          });
+
+        // Cache local files with detailed logging
+        return Promise.all(
+          FILES_TO_CACHE.map(async (file) => {
+            try {
+              console.log('[SW] 📥 Caching:', file);
+              await cache.add(file);
+              console.log('[SW] ✅ Cached:', file);
+            } catch (err) {
+              console.error('[SW] ❌ Failed to cache', file, ':', err);
+            }
+          })
+        ).then(() => {
+          console.log('[SW] ✅ Local files cached');
+          // Then cache CDN resources
+          return Promise.all(
+            CDN_RESOURCES.map(url =>
+              cache.add(url).catch(err => {
+                console.warn('[SW] Failed to cache CDN resource:', url, err);
+              })
+            )
+          );
+        });
       })
       .then(() => {
         console.log('[SW] ✅ All resources cached successfully');
-        console.log('[SW] Skipping waiting - activating now');
-        return self.skipWaiting();
+        console.log('[SW] Installation complete - SW will activate on next load');
       })
       .catch((error) => {
         console.error('[SW] ❌ Cache failed:', error);
@@ -66,24 +82,56 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: Take control immediately
+// Activate: Take control immediately and clean up old caches
 self.addEventListener('activate', (event) => {
   console.log('[SW] Activate event');
-  
+
   event.waitUntil(
     caches.keys()
       .then((cacheNames) => {
         console.log('[SW] Found existing caches:', cacheNames);
         return Promise.all(
           cacheNames
-            .filter((name) => name !== CACHE_NAME)
+            .filter((name) => {
+              // Delete old audio-ar caches (but keep soundscape caches!)
+              if (name.startsWith('audio-ar-') && name !== CACHE_NAME) {
+                console.log('[SW] 🗑️ Deleting old cache:', name);
+                return true;
+              }
+              return false;
+            })
             .map((name) => {
-              console.log('[SW] Deleting old cache:', name);
+              console.log('[SW] Deleting cache:', name);
               return caches.delete(name);
             })
         );
       })
-      .then(() => {
+      .then(async () => {
+        console.log('[SW] ✅ Old caches deleted');
+        
+        // Verify all critical files are cached
+        const cache = await caches.open(CACHE_NAME);
+        const cachedKeys = await cache.keys();
+        const cachedURLs = cachedKeys.map(k => k.url);
+        
+        console.log('[SW] 🔍 Verifying cached files...');
+        console.log('[SW] Expected:', FILES_TO_CACHE.length, 'files');
+        console.log('[SW] Cached:', cachedKeys.length, 'files');
+        
+        // Check for missing critical files
+        const missing = FILES_TO_CACHE.filter(file => {
+          const fullPath = self.location.origin + '/' + file;
+          return !cachedURLs.includes(fullPath);
+        });
+        
+        if (missing.length > 0) {
+          console.error('[SW] ⚠️ Missing critical files:', missing);
+          console.error('[SW] ⚠️ These files should be cached but are not!');
+          console.error('[SW] ⚠️ Offline mode may not work properly');
+        } else {
+          console.log('[SW] ✅ All critical files verified');
+        }
+        
         console.log('[SW] ✅ Activation complete');
         console.log('[SW] Claiming all clients');
         return self.clients.claim();
@@ -114,17 +162,56 @@ self.addEventListener('fetch', (event) => {
   }
   
   console.log('[SW] Fetch:', url.href);
-  
+  console.log('[SW] Request URL:', url.toString());
+  console.log('[SW] Request path:', url.pathname);
+
   event.respondWith(
-    caches.match(event.request)
-      .then((cachedResponse) => {
+    // Try exact match first, then try without query string
+    (async () => {
+      // Try exact match
+      let cachedResponse = await caches.match(event.request);
+      
+      if (!cachedResponse && url.search) {
+        // If no match and URL has query string, try without query string
+        const basePath = url.origin + url.pathname;
+        const baseRequest = new Request(basePath);
+        console.log('[SW] 🔄 Trying base URL without query string:', basePath);
+        cachedResponse = await caches.match(baseRequest);
+        
+        if (cachedResponse) {
+          console.log('[SW] ✅ Found cached file (without query string)');
+        }
+      }
+      
+      return cachedResponse;
+    })()
+      .then(async (cachedResponse) => {
         if (cachedResponse) {
           console.log('[SW] 📦 CACHE HIT:', url.href);
+          
+          // For HTML pages, also check if we have offline soundscapes
+          if (url.pathname.endsWith('soundscape_picker.html')) {
+            console.log('[SW] 🎧 Serving soundscape_picker.html from cache');
+            // Check if we have offline soundscapes cached
+            try {
+              const cacheNames = await caches.keys();
+              const soundscapeCaches = cacheNames.filter(name => name.startsWith('soundscape-'));
+              if (soundscapeCaches.length > 0) {
+                console.log('[SW] 🎧 Found', soundscapeCaches.length, 'offline soundscape cache(s)');
+              } else {
+                console.log('[SW] ⚠️ No offline soundscape caches found');
+              }
+            } catch (err) {
+              console.error('[SW] Error checking soundscape caches:', err);
+            }
+          }
+          
           return cachedResponse;
         }
-        
+
         console.log('[SW] 📦 CACHE MISS, fetching from network:', url.href);
-        
+        console.log('[SW] Cache miss for:', url.pathname);
+
         // Not in cache, try network
         return fetch(event.request)
           .then((networkResponse) => {
@@ -144,10 +231,79 @@ self.addEventListener('fetch', (event) => {
           })
           .catch((error) => {
             console.error('[SW] ❌ Network fetch failed:', url.href, error);
-            
+
             // For HTML pages, return a helpful offline page
             if (url.pathname.endsWith('.html') || url.pathname === '/') {
               console.log('[SW] 📄 Returning offline HTML page');
+              
+              // Special handling for soundscape_picker.html - check for offline soundscapes
+              if (url.pathname.endsWith('soundscape_picker.html')) {
+                console.log('[SW] 🎧 Offline soundscape_picker requested - checking for offline data...');
+                
+                // Return a page that tries to load offline soundscapes
+                return new Response(`
+                  <!DOCTYPE html>
+                  <html>
+                    <head>
+                      <title>Offline - Soundscape Picker</title>
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                      <style>
+                        body { font-family: sans-serif; text-align: center; padding: 50px 20px; background: #1a1a2e; color: #fff; }
+                        h1 { color: #00d9ff; }
+                        p { color: #888; max-width: 400px; margin: 20px auto; line-height: 1.6; }
+                        .btn { background: #00d9ff; color: #000; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; margin: 10px; }
+                        .btn:hover { background: #00ff88; }
+                        .success { color: #00ff88; }
+                        .error { color: #ff6b6b; }
+                      </style>
+                    </head>
+                    <body>
+                      <h1>📴 Offline Mode</h1>
+                      <p id="status">Checking for offline soundscapes...</p>
+                      <div id="actions" style="display:none;">
+                        <button class="btn" onclick="location.reload()">🔄 Refresh</button>
+                        <button class="btn" onclick="window.location.href='index.html'">🏠 Home</button>
+                      </div>
+                      <script>
+                        // Try to check localStorage for offline soundscapes
+                        try {
+                          var cachedCount = localStorage.getItem('offline_soundscapes_count');
+                          var hasToken = localStorage.getItem('audio_ar_token');
+                          
+                          if (hasToken && cachedCount && parseInt(cachedCount) > 0) {
+                            document.getElementById('status').innerHTML = 
+                              '✅ Found ' + cachedCount + ' offline soundscape(s)<br><br>' +
+                              '<span class="success">Redirecting to soundscape picker...</span>';
+                            
+                            // Redirect to the actual picker page after a short delay
+                            setTimeout(function() {
+                              window.location.href = 'soundscape_picker.html';
+                            }, 2000);
+                          } else {
+                            document.getElementById('status').innerHTML = 
+                              '⚠️ No offline soundscapes found<br><br>' +
+                              'To use offline mode:<br>' +
+                              '1️⃣ Go online<br>' +
+                              '2️⃣ Download soundscapes<br>' +
+                              '3️⃣ Go back offline';
+                            document.getElementById('actions').style.display = 'block';
+                          }
+                        } catch (e) {
+                          document.getElementById('status').innerHTML = 
+                              '⚠️ Unable to check offline status<br><br>' +
+                              '<span class="error">Error: ' + e.message + '</span>';
+                          document.getElementById('actions').style.display = 'block';
+                        }
+                      <\/script>
+                    </body>
+                  </html>
+                `, {
+                  status: 200,
+                  headers: { 'Content-Type': 'text/html' }
+                });
+              }
+              
+              // Generic offline page for other HTML files
               return new Response(`
                 <!DOCTYPE html>
                 <html>
@@ -169,24 +325,24 @@ self.addEventListener('fetch', (event) => {
                     <button class="btn" onclick="window.history.back()">← Back</button>
                   </body>
                 </html>
-              `, { 
+              `, {
                 status: 200,
                 headers: { 'Content-Type': 'text/html' }
               });
             }
-            
+
             // For map tiles, return a placeholder
             if (url.hostname.includes('tile.openstreetmap.org')) {
               console.log('[SW] 🗺️ Returning placeholder for map tile');
               return new Response(
                 '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect fill="#ccc" width="256" height="256"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="20" fill="#666">Offline</text></svg>',
-                { 
+                {
                   status: 200,
                   headers: { 'Content-Type': 'image/svg+xml' }
                 }
               );
             }
-            
+
             // For other resources, return empty response (don't break the page)
             console.log('[SW] ⚠️ Resource not available offline:', url.pathname);
             return new Response('', { status: 200 });

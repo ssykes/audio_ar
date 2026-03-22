@@ -208,6 +208,27 @@ foreach ($htmlFile in $HTML_FILES) {
 
 Write-Host ""
 
+# Update sw.js internal cache version
+Write-Host "Updating sw.js cache version..." -ForegroundColor Yellow
+
+$SW_FILE = Join-Path $LOCAL_PATH "sw.js"
+if (Test-Path $SW_FILE) {
+    $content = Get-Content $SW_FILE -Raw
+
+    # Update CACHE_VERSION to current version (matches both 'v1' and timestamp formats)
+    if ($content -match "const CACHE_VERSION = '[^']+'") {
+        $content = $content -replace "const CACHE_VERSION = '[^']+'", "const CACHE_VERSION = '$VERSION'"
+        Set-Content $SW_FILE $content -NoNewline
+        Write-Host "  sw.js cache version updated: $VERSION" -ForegroundColor Green
+    } else {
+        Write-Host "  ⚠️ CACHE_VERSION pattern not found in sw.js" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  ⚠️ sw.js not found" -ForegroundColor Yellow
+}
+
+Write-Host ""
+
 # CRITICAL: Create temporary copies of HTML files with cache-busting versions for deployment
 # (Git pre-commit hook strips versions from working directory, but server needs them)
 Write-Host "Creating deployment copies with cache-busting versions..." -ForegroundColor Yellow
@@ -289,6 +310,10 @@ Write-Host ""
 # Upload files
 $uploadedCount = 0
 $failedCount = 0
+$verifiedCount = 0
+
+# Critical files that need version verification
+$CRITICAL_FILES = @('download_manager.js', 'soundscape.js', 'api-client.js', 'spatial_audio.js')
 
 foreach ($file in $ALL_FILES) {
     $localFile = Join-Path $LOCAL_PATH $file
@@ -313,6 +338,31 @@ foreach ($file in $ALL_FILES) {
     if ($LASTEXITCODE -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green
         $uploadedCount++
+        
+        # GUARD: Verify critical files uploaded correctly
+        if ($CRITICAL_FILES -contains $file) {
+            Write-Host "   Verifying: $file" -NoNewline
+            
+            # SSH with timeout (5 seconds) to prevent hanging
+            $verifyResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "head -15 ${SERVER_PATH}/${file} 2>&1"
+            
+            # Check for common corruption indicators
+            if ($verifyResult -match 'MAX_CONCURRENT' -or $verifyResult -match 'SyntaxError' -or $verifyResult -match 'undefined') {
+                Write-Host " [CORRUPTED!]" -ForegroundColor Red
+                Write-Host "   ⚠️ File appears corrupted on server!" -ForegroundColor Yellow
+                Write-Host "   Server preview:" -ForegroundColor Gray
+                $verifyResult | Select-Object -First 5 | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
+                Write-Host "   Re-uploading..." -ForegroundColor Yellow
+                & scp $localFile $remotePath 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "   [Re-upload OK]" -ForegroundColor Green
+                    $verifiedCount++
+                }
+            } else {
+                Write-Host " [Verified]" -ForegroundColor Green
+                $verifiedCount++
+            }
+        }
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
         $failedCount++
@@ -335,8 +385,9 @@ Write-Host "========================================"
 Write-Host "  Summary"
 Write-Host "========================================"
 Write-Host ""
-Write-Host "   Uploaded: $uploadedCount files" -ForegroundColor Green
-Write-Host "   Failed:   $failedCount files" -ForegroundColor $(if ($failedCount -eq 0) { "Green" } else { "Red" })
+Write-Host "   Uploaded:  $uploadedCount files" -ForegroundColor Green
+Write-Host "   Verified:  $verifiedCount critical files" -ForegroundColor Green
+Write-Host "   Failed:    $failedCount files" -ForegroundColor $(if ($failedCount -eq 0) { "Green" } else { "Red" })
 Write-Host ""
 
 # Deploy sound files if they exist

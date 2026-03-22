@@ -1,14 +1,24 @@
 /**
  * OfflineDownloadManager - Manage offline soundscape downloads
- * 
+ *
  * Downloads audio files to Cache API for offline playback.
  * Each soundscape gets its own cache: `soundscape-{id}`
- * 
- * @version 1.0
+ *
+ * @version 1.1 - Fixed constructor initialization
  * @since Feature 15: Offline Soundscape Download
  */
+
+// Version guard - helps detect corrupted deployments
+window.DOWNLOAD_MANAGER_VERSION = '1.1';
+console.log('[download_manager.js] Loading v' + window.DOWNLOAD_MANAGER_VERSION + '...');
+
 class OfflineDownloadManager {
     constructor() {
+        // Version guard - verify class loaded correctly
+        if (!window.DOWNLOAD_MANAGER_VERSION) {
+            throw new Error('OfflineDownloadManager failed to load - file corruption detected');
+        }
+        
         this.cacheName = null;
         this.downloadQueue = new Map();
         this.maxRetries = 3;

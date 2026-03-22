@@ -102,7 +102,7 @@ Runtime: BehaviorExecutor.create(spec) → Live coordination
 ---
 
 ### Feature 15: Offline Soundscape Download
-**Status:** ✅ **COMPLETE** | **Date:** 2026-03-20 | **Version:** 1.0
+**Status:** ✅ **COMPLETE** | **Date:** 2026-03-20 | **Version:** 1.1 (Service Worker Integration)
 
 **Description:** Allow users to download audio files for offline playback with progress indicator
 
@@ -111,7 +111,7 @@ Runtime: BehaviorExecutor.create(spec) → Live coordination
 - Impact: Offline playback fails - audio requires network connection
 - Use cases: Remote locations, underground venues, airplane mode, poor network areas
 
-**Solution: Optional Download Button with Cache API**
+**Solution: Optional Download Button with Cache API + Service Worker**
 
 ```
 User opens soundscape_picker.html
@@ -139,7 +139,9 @@ User can now go offline and play
 | **15D** | `CachedSampleSource` class (cache-first) | `spatial_audio.js` | ~130 |
 | **15E** | Audio engine integration | `spatial_audio.js` | ~10 |
 | **15F** | Progress bar + toast styling | `soundscape_picker.html` (CSS) | ~80 |
-| **Total** | | **3 files** | **~810 lines** |
+| **17A** | Service Worker offline caching | `sw.js` | ~360 |
+| **17B** | Smart SW registration (offline-safe) | `soundscape_picker.html` | ~70 |
+| **Total** | | **4 files** | **~1,240 lines** |
 
 **Architecture:**
 
@@ -1791,21 +1793,153 @@ _distanceToRoute(lat, lon) {
 
 ---
 
-### Feature 16: Behavior Editing UI
+### Feature 16: Service Worker Offline Mode
+**Priority:** High | **Status:** ✅ Complete | **Date:** 2026-03-21
+
+**Description:** Service Worker for offline page caching, automatic cache invalidation, and corruption detection
+
+**Problem Solved:**
+- No offline support - lazy loading fails when network unavailable
+- Service Worker cache corruption - serves stale/broken files after deploy
+- No version control - cache name collisions between deploys
+- Silent failures - users see errors with no explanation or recovery
+
+**Solution:**
+- Service Worker with versioned cache names (`audio-ar-YYYYMMDDHHMMSS`)
+- Smart registration - checks existing SW before re-registering (works offline)
+- Automatic cache clearing - old caches deleted on SW activation
+- Deploy verification - SSH checks server files after upload
+- Runtime guards - version constants detect corrupted deployments
+- User-friendly error handling - shows recovery options when corruption detected
+
+**What Was Implemented:**
+
+| Component | File | Lines | Purpose |
+|-----------|------|-------|---------|
+| **Service Worker** | `sw.js` | ~360 | Cache-first strategy, versioned caches |
+| **Smart Registration** | `soundscape_picker.html` | ~70 | Check existing SW before registering |
+| **Deploy Verification** | `deploy.ps1` | ~50 | SSH verifies server files after upload |
+| **Version Guards** | `download_manager.js` | ~10 | Detect corrupted deployments |
+| **Error UI** | `soundscape_picker.html` | ~30 | Show user-friendly errors + recovery |
+| **Git Hooks** | `pre-commit*` | ~40 | Strip cache versions before commit |
+| **Total** | | **~560 lines** |
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Deploy Process                                             │
+│          ↓                                                  │
+│  1. deploy.ps1 generates timestamp                          │
+│          ↓                                                  │
+│  2. Updates HTML: sw.js?v=TIMESTAMP                         │
+│          ↓                                                  │
+│  3. Updates sw.js: CACHE_VERSION = 'TIMESTAMP'              │
+│          ↓                                                  │
+│  4. Uploads both to server                                  │
+│          ↓                                                  │
+│  5. SSH verifies: head -15 download_manager.js              │
+│          ↓                                                  │
+│  6. Checks for corruption patterns                          │
+│          ↓                                                  │
+│  ✅ Verified → Deploy complete                              │
+│  ❌ Corrupted → Auto re-upload                              │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Runtime (Browser)                                          │
+│          ↓                                                  │
+│  1. Page loads → navigator.serviceWorker.getRegistration()  │
+│          ↓                                                  │
+│  SW already active?                                         │
+│     ├─ YES → Skip register (works offline) ✅               │
+│     │        ↓                                             │
+│     │        If online: registration.update() (background)  │
+│     │                                                       │
+│     └─ NO → Register new SW (fetches sw.js?v=...)           │
+│              ↓                                              │
+│              If offline: fails gracefully, page still works │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  Cache Management                                           │
+│          ↓                                                  │
+│  New SW activates                                           │
+│          ↓                                                  │
+│  caches.keys() → ['audio-ar-OLD', 'audio-ar-NEW']           │
+│          ↓                                                  │
+│  Filter: name.startsWith('audio-ar-') && name !== NEW       │
+│          ↓                                                  │
+│  Delete old caches (keep soundscape-* caches)               │
+│          ↓                                                  │
+│  Verify critical files cached                               │
+│          ↓                                                  │
+│  ✅ Ready to serve offline                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Versioning Flow:**
+
+| Layer | Format | Updated By | Stripped By |
+|-------|--------|------------|-------------|
+| **HTML → SW ref** | `sw.js?v=20260321185301` | deploy.ps1 | pre-commit hook |
+| **sw.js → CACHE_VERSION** | `CACHE_VERSION = '20260321185301'` | deploy.ps1 | pre-commit hook |
+| **Cache name** | `audio-ar-20260321185301` | sw.js (runtime) | N/A |
+| **Git repo** | `CACHE_VERSION = 'v1'` | pre-commit hook | N/A |
+
+**Guards Against Corruption:**
+
+| Guard | Location | Detects |
+|-------|----------|---------|
+| **Version constant** | `window.DOWNLOAD_MANAGER_VERSION = '1.1'` | File mismatch |
+| **Constructor check** | `if (!window.DOWNLOAD_MANAGER_VERSION)` | Missing class |
+| **Deploy verification** | SSH `head -15` after upload | Server corruption |
+| **Error UI** | Visible error banner + cache clear button | User recovery |
+
+**Testing:**
+
+1. **Deploy + verify:**
+   ```powershell
+   & .\deploy.ps1
+   # Should show: "Verified: 4 critical files"
+   ```
+
+2. **Offline mode:**
+   - Download soundscape
+   - Airplane mode ON
+   - Refresh page
+   - ✅ Page loads from cache
+   - ✅ Soundscape list shows offline soundscapes
+   - ✅ Audio plays from cache
+
+3. **Cache clearing:**
+   - Deploy new version
+   - User visits page
+   - ✅ Old cache deleted
+   - ✅ New cache created
+   - ✅ User downloads preserved (`soundscape-*` caches kept)
+
+**Files Modified:** `sw.js`, `soundscape_picker.html`, `deploy.ps1`, `download_manager.js`, `.git/hooks/pre-commit*`
+
+**Documentation:** `SERVICE_WORKER_DOCUMENTATION.md`, `CLOUDFLARE_CACHE_TROUBLESHOOTING.md`
+
+---
+
+### Feature 17: Behavior Editing UI
 **Priority:** Medium | **Status:** 📋 Planned
 
 **Description:** Visual timeline for behavior configuration (drag-drop sounds, edit offsets, configure parameters)
 
 ---
 
-### Feature 17: Multi-User Collaboration
+### Feature 18: Multi-User Collaboration
 **Priority:** Low | **Status:** 📋 Planned
 
 **Description:** WebSocket-based real-time sync for multiple users editing same soundscape
 
 ---
 
-### Feature 18: Session-Based Cached Streaming
+### Feature 19: Session-Based Cached Streaming
 **Priority:** High | **Status:** 📋 Planned
 
 **Description:** Lazy loading with session cache to eliminate audio gaps on waypoint revisit
