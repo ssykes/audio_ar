@@ -279,6 +279,12 @@ class MapPlayerApp extends MapAppShared {
             // Load waypoints
             this.waypoints = data.waypoints || [];
 
+            // Restore behaviors from server (apply envelopeConfig to waypoints)
+            if (soundscape.behaviors && soundscape.behaviors.length > 0) {
+                this._applyBehaviorsToWaypoints(soundscape.behaviors);
+                this.debugLog(`📥 Restored ${soundscape.behaviors.length} behavior(s) from server`);
+            }
+
             // Restore nextId
             if (this.waypoints.length > 0) {
                 const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
@@ -305,7 +311,7 @@ class MapPlayerApp extends MapAppShared {
                 this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
             }
 
-            this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints)`);
+            this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints, ${soundscape.behaviors.length} behaviors)`);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
             this._showToast('⚠️ Using cached data', 'warning');

@@ -506,6 +506,11 @@ class MapAppShared {
             // Load waypoints from active soundscape
             this.waypoints = activeSoundscape.waypointData || [];
 
+            // Restore behaviors from soundscape
+            if (activeSoundscape.behaviors && activeSoundscape.behaviors.length > 0) {
+                this._applyBehaviorsToWaypoints(activeSoundscape.behaviors);
+            }
+
             // Restore nextId from waypoints
             if (this.waypoints.length > 0) {
                 const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
@@ -524,21 +529,41 @@ class MapAppShared {
             if (this.waypoints.length > 0) {
                 // Create bounds from all waypoint positions
                 const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
-                
+
                 // Fit map to show all waypoints with padding
                 this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
-                
+
                 const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
                 const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
-                
+
                 this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
             }
 
-            this.debugLog(`🎼 Loaded ${this.soundscapes.size} soundscape(s): ${activeSoundscape.name} (${this.waypoints.length} waypoints)`);
+            this.debugLog(`🎼 Loaded ${this.soundscapes.size} soundscape(s): ${activeSoundscape.name} (${this.waypoints.length} waypoints, ${activeSoundscape.behaviors?.length || 0} behaviors)`);
         } else {
             // Create default soundscape
             this._createDefaultSoundscape();
         }
+    }
+
+    /**
+     * Apply behaviors to waypoints (restore envelopeConfig from behaviors)
+     * @param {SoundBehavior[]} behaviors - Array of behavior specs
+     * @protected
+     */
+    _applyBehaviorsToWaypoints(behaviors) {
+        behaviors.forEach(behavior => {
+            if (behavior.type === 'distance_envelope' && behavior.memberIds && behavior.memberIds.length > 0) {
+                // Apply envelope config to each waypoint in the behavior
+                behavior.memberIds.forEach(wpId => {
+                    const wp = this.waypoints.find(w => w.id === wpId);
+                    if (wp) {
+                        wp.envelopeConfig = { ...behavior.config };
+                        this.debugLog(`📥 Restored envelope config for ${wpId}`);
+                    }
+                });
+            }
+        });
     }
 
     /**
@@ -563,6 +588,9 @@ class MapAppShared {
         const soundscape = this.getActiveSoundscape();
         if (!soundscape) return;
 
+        // Sync behaviors from waypoints with envelopeConfig
+        this._syncBehaviorsFromWaypoints(soundscape);
+
         // Update soundscape with current waypoints (clean data without Leaflet objects)
         soundscape.soundIds = this.waypoints.map(wp => wp.id);
         soundscape.waypointData = this.waypoints.map(wp => ({
@@ -577,13 +605,38 @@ class MapAppShared {
             soundUrl: wp.soundUrl,
             volume: wp.volume,
             loop: wp.loop,
-            soundConfig: wp.soundConfig
+            soundConfig: wp.soundConfig,
+            envelopeConfig: wp.envelopeConfig  // Include envelope config
         }));
 
         // Always save to localStorage (backup)
         SoundScapeStorage.saveAll(Array.from(this.soundscapes.values()), this.activeSoundscapeId);
 
         this.debugLog('💾 Saved to localStorage');
+    }
+
+    /**
+     * Sync behaviors from waypoints with envelopeConfig
+     * Auto-generates distance_envelope behaviors for waypoints that have envelopeConfig
+     * @param {SoundScape} soundscape - Soundscape to update
+     * @protected
+     */
+    _syncBehaviorsFromWaypoints(soundscape) {
+        // Find waypoints with envelopeConfig
+        const waypointsWithEnvelope = this.waypoints.filter(wp => wp.envelopeConfig);
+
+        // Clear existing distance_envelope behaviors
+        soundscape.behaviors = soundscape.behaviors.filter(b => b.type !== 'distance_envelope');
+
+        // Create distance_envelope behavior for each waypoint with envelopeConfig
+        waypointsWithEnvelope.forEach(wp => {
+            const behavior = new SoundBehavior('distance_envelope', [wp.id], wp.envelopeConfig);
+            soundscape.addBehavior(behavior);
+        });
+
+        if (waypointsWithEnvelope.length > 0) {
+            this.debugLog(`🔄 Synced ${waypointsWithEnvelope.length} distance_envelope behavior(s)`);
+        }
     }
 
     /**

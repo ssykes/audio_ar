@@ -1,8 +1,9 @@
 # Distance Envelope UI Implementation
 
-**Date:** 2026-03-22  
-**Feature:** 17 - Distance Envelope (Editor UI)  
-**Time Spent:** ~45 minutes  
+**Date:** 2026-03-22
+**Feature:** 17 - Distance Envelope (Editor UI + Persistence)
+**Sessions:** 1-5 (UI, Presets, Persistence)
+**Time Spent:** ~45 minutes (Session 5)
 **Status:** ✅ Complete
 
 ---
@@ -11,11 +12,67 @@
 
 Implemented a comprehensive modal dialog for editing waypoints with Distance Envelope controls in the Map Editor.
 
+**Session 5: Persistence** - Added save/load for distance envelope configurations via the behaviors system.
+
 ---
 
 ## 🎯 What Was Implemented
 
-### **1. Modal Dialog HTML** (`map_editor.html`)
+### **Session 5: Persistence (Save/Load)**
+
+**Location:** `map_shared.js`, `map_player.js`
+
+**Implementation:**
+
+1. **Auto-sync behaviors from waypoints** (`_syncBehaviorsFromWaypoints()`):
+   - Called before saving soundscape to localStorage/server
+   - Finds all waypoints with `envelopeConfig`
+   - Clears existing `distance_envelope` behaviors
+   - Creates new `SoundBehavior('distance_envelope')` for each waypoint
+   - Behavior config = waypoint's `envelopeConfig`
+
+2. **Apply behaviors to waypoints on load** (`_applyBehaviorsToWaypoints()`):
+   - Called when loading from localStorage or server
+   - Iterates through `distance_envelope` behaviors
+   - Restores `envelopeConfig` to matching waypoints
+   - Enables modal to show correct values when editing
+
+3. **Server save integration** (`_executeAutoSave()`):
+   - Already sends `soundscape.behaviors` array to server
+   - Behaviors stored in `behaviors` table (FK to soundscapes)
+   - Config serialized as JSON in `config_json` column
+
+4. **Server load integration** (`_loadSoundscapeFromServer()` in `map_player.js`):
+   - Loads behaviors from server response
+   - Calls `_applyBehaviorsToWaypoints()` to restore envelope configs
+   - Debug log shows behavior count
+
+**Persistence Flow:**
+
+```
+Editor (Save):
+  User edits waypoint envelope
+    → envelopeConfig saved to waypoint
+    → _syncBehaviorsFromWaypoints() creates behavior spec
+    → Auto-save sends behaviors[] to server
+    → Server stores in behaviors table
+
+Player (Load):
+  _loadSoundscapeFromServer() fetches soundscape + behaviors
+    → _applyBehaviorsToWaypoints() restores envelopeConfig
+    → Modal shows correct values when editing
+    → DistanceEnvelopeExecutor uses config at runtime
+```
+
+**Files Modified:**
+- `map_shared.js`: Added `_syncBehaviorsFromWaypoints()`, `_applyBehaviorsToWaypoints()`, updated `_saveSoundscapeToStorage()`, `_loadSoundscapeFromStorage()`
+- `map_player.js`: Updated `_loadSoundscapeFromServer()` to restore behaviors
+
+---
+
+### **Session 1-4: Modal Dialog UI**
+
+#### **1. Modal Dialog HTML** (`map_editor.html`)
 
 Added a full-featured modal dialog with:
 - **Basic Settings Section:**
