@@ -730,37 +730,46 @@ class CachedSampleSource extends SampleSource {
     }
 
     /**
-     * Check all soundscapes caches for this URL
+     * Check all soundscapes caches for this URL using Promise.any() for early exit
      * @returns {Promise<Response|null>} Cached response or null
      * @private
      */
     async _getCachedResponse() {
-        try {
-            const cacheNames = await caches.keys();
+        const cacheNames = await caches.keys();
+        const soundscapeCaches = cacheNames.filter(name =>
+            name.startsWith(CACHED_SAMPLE_SOURCE_CACHE_PREFIX)
+        );
 
-            for (const cacheName of cacheNames) {
-                // Only check soundscape caches
-                if (!cacheName.startsWith(CACHED_SAMPLE_SOURCE_CACHE_PREFIX)) {
-                    continue;
-                }
+        if (soundscapeCaches.length === 0) {
+            return null;
+        }
 
-                try {
-                    const cache = await caches.open(cacheName);
-                    const response = await cache.match(this.url);
-                    
-                    if (response) {
-                        console.log(`[CachedSampleSource] Found in ${cacheName}`);
-                        return response;
-                    }
-                } catch (cacheErr) {
-                    // Ignore individual cache errors, try next
-                    console.warn('[CachedSampleSource] Cache error:', cacheErr);
-                }
+        // Build array of cache check promises
+        const checkPromises = soundscapeCaches.map(async (cacheName) => {
+            const cache = await caches.open(cacheName);
+            const response = await cache.match(this.url);
+            if (!response) {
+                throw new Error('Not found in ' + cacheName);
             }
-            
-            return null;  // Not found in any cache
+            console.log(`[CachedSampleSource] ✅ Found in ${cacheName}`);
+            return response;
+        });
+
+        // Use Promise.any() for early exit (iOS Safari 14.5+)
+        if (typeof Promise.any !== 'undefined') {
+            try {
+                return await Promise.any(checkPromises);
+            } catch (err) {
+                // All caches rejected - not found
+                return null;
+            }
+        }
+
+        // Fallback: Promise.all() for older browsers (iOS Safari < 14.5)
+        try {
+            const results = await Promise.all(checkPromises);
+            return results.find(r => r !== null) || null;
         } catch (err) {
-            console.error('[CachedSampleSource] Error checking caches:', err);
             return null;
         }
     }

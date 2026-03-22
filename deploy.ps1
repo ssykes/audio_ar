@@ -281,6 +281,7 @@ $ALL_FILES = @(
     "offline.html",
     "spatial_audio.js",
     "sw.js",
+    "sw-register.js",
     "manifest.json",
     "icon-192.svg",
     "icon-512.svg",

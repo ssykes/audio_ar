@@ -9,7 +9,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = '20260322110849';
+const CACHE_VERSION = 'v1';
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin)
@@ -252,9 +252,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  console.log('[SW] Fetch:', url.href);
-  console.log('[SW] Request URL:', url.toString());
-  console.log('[SW] Request path:', url.pathname);
+  console.log('[SW] 📄 Fetch request:', url.pathname, url.search);
 
   event.respondWith(
     // Try exact match first, then try without query string

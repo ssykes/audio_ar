@@ -504,71 +504,25 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
+    <script src="sw-register.js"></script>
     <script src="soundscape.js"></script>
     <script src="download_manager.js"></script>
 
     <!-- Service Worker Registration (for offline support) -->
     <script>
-        // Service Worker for offline support
-        // Version query string updated by deploy.ps1
-        // Only register if not already registered for this version
-        if ('serviceWorker' in navigator) {
-            // Check if we already have a SW registered
-            navigator.serviceWorker.getRegistration()
-                .then((existingRegistration) => {
-                    if (existingRegistration && existingRegistration.active) {
-                        // SW already active - just use it (works offline)
-                        console.log('✅ Service Worker already active, skipping re-registration');
-                        return;
-                    }
-                    
-                    // No active SW - register new one
-                    console.log('📡 Registering new Service Worker...');
-                    return navigator.serviceWorker.register('sw.js?v=20260321212717')
-                        .then((registration) => {
-                            console.log('✅ Service Worker registered:', registration.scope);
-                            
-                            // Listen for updates (attached immediately, not in .then())
-                            registration.addEventListener('updatefound', () => {
-                                console.log('🔄 SW update found - new version available');
-                                const newWorker = registration.installing;
-
-                                if (newWorker) {
-                                    // New SW installing - wait for it to activate
-                                    newWorker.addEventListener('statechange', () => {
-                                        if (newWorker.state === 'installed') {
-                                            console.log('✅ New SW installed - auto-reloading to apply update');
-                                            // Force reload to use new SW (clears old cache)
-                                            window.location.reload();
-                                        }
-                                    });
-                                }
-                            });
-
-                            // Check for updates on every page load (when online)
-                            if (registration.active && navigator.onLine) {
-                                console.log('✅ Service Worker active, checking for updates...');
-                                // Force update check
-                                registration.update();
-                            }
-                            
-                            // Handle SW errors (e.g., corrupted cache)
-                            registration.addEventListener('error', (event) => {
-                                console.error('❌ SW error:', event);
-                                console.warn('⚠️ Service Worker cache may be corrupted');
-                                console.warn('💡 Try: Settings → Clear browsing data → Cached files');
-                            });
-                        })
-                        .catch((error) => {
-                            console.error('❌ Service Worker registration failed:', error);
-                            console.warn('⚠️ Offline mode unavailable - SW registration failed');
-                            console.warn('💡 This is expected if you are offline - cached page will still work');
-                        });
-                })
-                .catch((error) => {
-                    console.error('❌ Failed to check SW registration:', error);
-                });
-        }
+        // Use shared SW registration module
+        registerServiceWorker({
+            onReady: (registration) => {
+                console.log('[soundscape_picker] SW ready');
+                localStorage.setItem('sw_ready', 'true');
+            },
+            onUpdate: (registration) => {
+                console.log('[soundscape_picker] SW update available');
+            },
+            onError: (error) => {
+                console.error('[soundscape_picker] SW error:', error);
+            }
+        });
     </script>
 
     <!-- Service Worker Status Updates -->

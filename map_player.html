@@ -453,48 +453,25 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    
+
     <!-- Service Worker Registration (for offline support) -->
+    <script src="sw-register.js"></script>
     <script>
-        // Register service worker for offline page caching
-        // Version query string updated by deploy.ps1
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20260321212717')
-                .then((registration) => {
-                    console.log('✅ Service Worker registered:', registration.scope);
-                    console.log('✅ Service Worker active:', registration.active ? 'YES' : 'NO');
-                    
-                    // Update status when SW activates
-                    if (registration.active) {
-                        console.log('✅ Service Worker ALREADY ACTIVE');
-                        localStorage.setItem('sw_ready', 'true');
-                    }
-                    
-                    // Listen for updates
-                    registration.addEventListener('updatefound', () => {
-                        console.log('🔄 Service Worker update found');
-                        const newWorker = registration.installing;
-                        
-                        newWorker.addEventListener('statechange', () => {
-                            console.log('🔄 SW state:', newWorker.state);
-                            
-                            if (newWorker.state === 'installed') {
-                                console.log('✅ Service Worker installed');
-                            }
-                            
-                            if (newWorker.state === 'activated') {
-                                console.log('✅ Service Worker ACTIVATED');
-                                localStorage.setItem('sw_ready', 'true');
-                            }
-                        });
-                    });
-                })
-                .catch((error) => {
-                    console.error('❌ Service Worker registration failed:', error);
-                });
-        }
+        // Use shared SW registration module
+        registerServiceWorker({
+            onReady: (registration) => {
+                console.log('[map_player] SW ready');
+                localStorage.setItem('sw_ready', 'true');
+            },
+            onUpdate: (registration) => {
+                console.log('[map_player] SW update available');
+            },
+            onError: (error) => {
+                console.error('[map_player] SW error:', error);
+            }
+        });
     </script>
-    
+
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
     <script src="download_manager.js"></script>
