@@ -69,7 +69,8 @@ class SoundBehavior {
  * This class stores both soundIds AND waypointData for self-containment:
  * - soundIds: Ordered list of waypoint IDs (for behavior references)
  * - waypointData: Full waypoint data {id, lat, lon, name, soundUrl, volume, loop, etc.}
- * 
+ * - areas: Array of area data for polygon sound zones (Feature 17)
+ *
  * This allows the soundscape to be fully self-contained for persistence and export.
  * The MapPlacerApp maintains the authoritative waypoint list during editing.
  */
@@ -80,14 +81,16 @@ class SoundScape {
      * @param {string[]} soundIds - Array of waypoint IDs
      * @param {SoundBehavior[]} behaviors - Array of behavior specifications
      * @param {Object[]} waypointData - Optional: Full waypoint data for persistence
+     * @param {Object[]} areas - Optional: Full area data for polygon zones
      */
-    constructor(id, name, soundIds = [], behaviors = [], waypointData = []) {
+    constructor(id, name, soundIds = [], behaviors = [], waypointData = [], areas = []) {
         this.id = id;
         this.name = name;
         this.soundIds = soundIds;
         this.behaviors = behaviors;
         this.waypointData = waypointData;  // Full waypoint data for persistence
-        
+        this.areas = areas;  // Full area data for polygon zones (Feature 17)
+
         // === Dirty Flag (Session 6: Auto-save with dirty tracking) ===
         this.isDirty = false;  // Tracks unsaved changes
     }
@@ -137,6 +140,63 @@ class SoundScape {
         }
     }
 
+    // =============================================================================
+    // Feature 17: Area Management (Polygon Sound Zones)
+    // =============================================================================
+
+    /**
+     * Add an area to the soundscape
+     * @param {Object} areaData - Area data {id, name, polygon, soundUrl, volume, etc.}
+     */
+    addArea(areaData) {
+        if (!this.areas.find(a => a.id === areaData.id)) {
+            this.areas.push(areaData);
+            this.isDirty = true;
+        }
+    }
+
+    /**
+     * Update an area in the soundscape
+     * @param {string} areaId - Area ID to update
+     * @param {Object} updates - Fields to update
+     */
+    updateArea(areaId, updates) {
+        const area = this.areas.find(a => a.id === areaId);
+        if (area) {
+            Object.assign(area, updates);
+            this.isDirty = true;
+        }
+    }
+
+    /**
+     * Remove an area from the soundscape
+     * @param {string} areaId - Area ID to remove
+     */
+    deleteArea(areaId) {
+        const index = this.areas.findIndex(a => a.id === areaId);
+        if (index >= 0) {
+            this.areas.splice(index, 1);
+            this.isDirty = true;
+        }
+    }
+
+    /**
+     * Get all areas
+     * @returns {Object[]} Array of area data
+     */
+    getAreas() {
+        return this.areas.slice();  // Return copy
+    }
+
+    /**
+     * Get single area by ID
+     * @param {string} areaId
+     * @returns {Object|null}
+     */
+    getArea(areaId) {
+        return this.areas.find(a => a.id === areaId) || null;
+    }
+
     /**
      * Serialize to plain object for JSON storage
      * @returns {object}
@@ -147,7 +207,8 @@ class SoundScape {
             name: this.name,
             soundIds: this.soundIds,
             behaviors: this.behaviors.map(b => b.toJSON()),
-            waypointData: this.waypointData  // Include full waypoint data
+            waypointData: this.waypointData,  // Include full waypoint data
+            areas: this.areas  // Include full area data (Feature 17)
         };
     }
 
@@ -158,7 +219,14 @@ class SoundScape {
      */
     static fromJSON(data) {
         const behaviors = (data.behaviors || []).map(b => SoundBehavior.fromJSON(b));
-        return new SoundScape(data.id, data.name, data.soundIds, behaviors, data.waypointData || []);
+        return new SoundScape(
+            data.id,
+            data.name,
+            data.soundIds,
+            behaviors,
+            data.waypointData || [],
+            data.areas || []  // Load areas (Feature 17)
+        );
     }
 }
 

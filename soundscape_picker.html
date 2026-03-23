@@ -960,7 +960,7 @@
                 listEl.querySelectorAll('.delete-offline-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        const id = btn.closest('[data-soundscape-id]').dataset.soundscapeId;
+                        const id = btn.closest('[data-id]').dataset.id;
                         this._deleteOfflineCache(id);
                     });
                 });
@@ -1059,7 +1059,7 @@
                 listEl.querySelectorAll('.delete-offline-btn').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        const id = btn.closest('[data-soundscape-id]').dataset.soundscapeId;
+                        const id = btn.closest('[data-id]').dataset.id;
                         this._deleteOfflineCache(id);
                     });
                 });

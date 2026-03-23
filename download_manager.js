@@ -52,12 +52,18 @@ class OfflineDownloadManager {
      * @param {string} soundscapeId - Soundscape ID
      * @param {string} soundscapeName - Soundscape name (for UI/logging)
      * @param {Array} waypoints - Waypoint data (with sound URLs)
-     * @param {Object} soundscapeData - Optional full soundscape data (name, behaviors, etc.)
+     * @param {Object} soundscapeData - Optional full soundscape data (name, behaviors, areas, etc.)
      * @returns {Promise<{success: boolean, downloaded: number, failed: number, total: number}>}
      */
     async downloadSoundscape(soundscapeId, soundscapeName, waypoints, soundscapeData = null) {
-        // Extract unique sound URLs (avoid downloading same file twice)
-        const urls = [...new Set(waypoints.map(wp => wp.soundUrl).filter(url => url))];
+        // Extract unique sound URLs from waypoints
+        const waypointUrls = waypoints.map(wp => wp.soundUrl).filter(url => url);
+
+        // Feature 17: Extract unique sound URLs from areas
+        const areaUrls = (soundscapeData?.areas || []).map(a => a.soundUrl).filter(url => url);
+
+        // Combine and deduplicate (same audio file might be used in both waypoints and areas)
+        const urls = [...new Set([...waypointUrls, ...areaUrls])];
 
         if (urls.length === 0) {
             console.warn('[OfflineDownload] No audio URLs to download');

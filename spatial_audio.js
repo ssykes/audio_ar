@@ -68,6 +68,129 @@ const GPSUtils = {
      */
     relativeBearing(bearing, heading) {
         return (bearing - heading + 360) % 360;
+    },
+
+    /**
+     * Check if a point is inside a polygon using ray casting algorithm
+     * @param {number} lat - Point latitude
+     * @param {number} lng - Point longitude
+     * @param {Array<{lat: number, lng: number}>} polygon - Array of polygon vertices
+     * @returns {boolean} True if point is inside polygon
+     */
+    pointInPolygon(lat, lng, polygon) {
+        if (!polygon || polygon.length < 3) return false;
+
+        // Bounding box pre-check (fast rejection)
+        const bounds = GPSUtils.polygonBounds(polygon);
+        if (lat < bounds.minLat || lat > bounds.maxLat || lng < bounds.minLng || lng > bounds.maxLng) {
+            return false;
+        }
+
+        // Ray casting algorithm
+        let inside = false;
+        const n = polygon.length;
+
+        for (let i = 0, j = n - 1; i < n; j = i++) {
+            const xi = polygon[i].lat;
+            const yi = polygon[i].lng;
+            const xj = polygon[j].lat;
+            const yj = polygon[j].lng;
+
+            if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi)) {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    },
+
+    /**
+     * Calculate minimum distance from a point to any edge of a polygon
+     * @param {number} lat - Point latitude
+     * @param {number} lng - Point longitude
+     * @param {Array<{lat: number, lng: number}>} polygon - Array of polygon vertices
+     * @returns {number} Distance to nearest edge in meters
+     */
+    distanceToEdge(lat, lng, polygon) {
+        if (!polygon || polygon.length < 3) return Infinity;
+
+        let minDistance = Infinity;
+
+        for (let i = 0; i < polygon.length; i++) {
+            const j = (i + 1) % polygon.length;
+            const dist = GPSUtils.distanceToSegment(lat, lng, polygon[i].lat, polygon[i].lng, polygon[j].lat, polygon[j].lng);
+            if (dist < minDistance) {
+                minDistance = dist;
+            }
+        }
+
+        return minDistance;
+    },
+
+    /**
+     * Calculate distance from a point to a line segment
+     * @param {number} px - Point latitude
+     * @param {number} py - Point longitude
+     * @param {number} x1 - Segment start latitude
+     * @param {number} y1 - Segment start longitude
+     * @param {number} x2 - Segment end latitude
+     * @param {number} y2 - Segment end longitude
+     * @returns {number} Distance in meters
+     */
+    distanceToSegment(px, py, x1, y1, x2, y2) {
+        const A = px - x1;
+        const B = py - y1;
+        const C = x2 - x1;
+        const D = y2 - y1;
+
+        const dot = A * C + B * D;
+        const lenSq = C * C + D * D;
+        let param = -1;
+
+        if (lenSq !== 0) {
+            param = dot / lenSq;
+        }
+
+        let xx, yy;
+
+        if (param < 0) {
+            xx = x1;
+            yy = y1;
+        } else if (param > 1) {
+            xx = x2;
+            yy = y2;
+        } else {
+            xx = x1 + param * C;
+            yy = y1 + param * D;
+        }
+
+        return GPSUtils.distance(px, py, xx, yy);
+    },
+
+    /**
+     * Get bounding box of a polygon
+     * @param {Array<{lat: number, lng: number}>} polygon - Array of polygon vertices
+     * @returns {{minLat: number, maxLat: number, minLng: number, maxLng: number}}
+     */
+    polygonBounds(polygon) {
+        if (!polygon || polygon.length === 0) {
+            return { minLat: 0, maxLat: 0, minLng: 0, maxLng: 0 };
+        }
+
+        let minLat = polygon[0].lat;
+        let maxLat = polygon[0].lat;
+        let minLng = polygon[0].lng;
+        let maxLng = polygon[0].lng;
+
+        for (let i = 1; i < polygon.length; i++) {
+            const p = polygon[i];
+            if (p.lat < minLat) minLat = p.lat;
+            if (p.lat > maxLat) maxLat = p.lat;
+            if (p.lng < minLng) minLng = p.lng;
+            if (p.lng > maxLng) maxLng = p.lng;
+        }
+
+        return { minLat, maxLat, minLng, maxLng };
     }
 };
 
