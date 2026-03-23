@@ -202,6 +202,12 @@ class MapAppShared {
             if (this.state !== 'editor') return;
             if (this.isDragging) return;
             if (!this.allowEditing) return;
+            
+            // Session 4: Don't add waypoint if drawing an Area
+            if (this.isDrawingArea) return;
+            // Also check areaDrawer (Leaflet.Draw)
+            if (this.areaDrawer && this.areaDrawer.isEnabled) return;
+            
             this._addWaypoint(e.latlng.lat, e.latlng.lng);
         });
     }
@@ -369,6 +375,11 @@ class MapAppShared {
                 wp.circleMarker = null;
             }
         });
+        // Clear Area polygons (for MapEditorApp)
+        if (this.areaMarkers) {
+            this.areaMarkers.forEach(polygon => polygon.remove());
+            this.areaMarkers.clear();
+        }
         this.debugLog(`   ✅ Cleared old markers and circles`);
 
         // Load new waypoints from soundscape
@@ -387,6 +398,15 @@ class MapAppShared {
         this.debugLog(`   ✅ Created markers and circles for new soundscape`);
         this._updateWaypointList();
         this._updateSoundscapeSelector();
+
+        // Load Areas from soundscape (Session 4: Sound Area - Drawing)
+        if (soundscape.areas && soundscape.areas.length > 0) {
+            this.debugLog(`   📍 Loading ${soundscape.areas.length} Areas...`);
+            if (this._loadAreasIntoDrawer) {
+                this._loadAreasIntoDrawer(soundscape.areas);
+                this.debugLog(`   ✅ Loaded Areas into drawer`);
+            }
+        }
 
         // Center and zoom map to show all waypoints
         if (this.waypoints.length > 0) {
@@ -947,11 +967,17 @@ class MapAppShared {
         this.nextId = 1;
         this._updateWaypointList();
 
+        // Clear Areas (Session 4: Sound Area)
+        if (this._clearAllAreas) {
+            this._clearAllAreas();
+        }
+
         // Clear soundscape and mark dirty
         const soundscape = this.getActiveSoundscape();
         if (soundscape) {
             soundscape.soundIds = [];
             soundscape.waypointData = [];
+            soundscape.areas = [];
             this._markSoundscapeDirty();
             this._scheduleAutoSave();
         }

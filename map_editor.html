@@ -210,7 +210,7 @@
     <div id="app">
         <div id="sidebar">
             <div id="sidebar-header">
-                <h1>🗺️ Map Editor <span class="version">v6.155</span></h1>
+                <h1>🗺️ Map Editor <span class="version">v6.56</span></h1>
                 <p class="subtitle">Create and edit soundscapes</p>
 
                 <!-- User Info (read-only - login via index.html) -->
@@ -237,6 +237,7 @@
                 </div>
 
                 <button id="addWaypointBtn" class="btn btn-primary" style="display: none;">+ Add Sound</button>
+                <button id="addAreaBtn" class="btn btn-primary" style="display: none;">+ Draw Area</button>
                 <button id="startBtn" class="btn btn-primary">▶️ Start</button>
                 <button id="syncFromServerBtn" class="btn btn-success" style="display: none;">🔄 Sync from Server</button>
                 <button id="simulateBtn" class="btn btn-warning">🎮 Simulate</button>
@@ -293,6 +294,10 @@
                     <span>🔊 Sounds:</span>
                     <span class="status-value" id="soundsStatus">0</span>
                 </div>
+                <div class="status-item" id="drawingModeItem" style="display: none;">
+                    <span>✏️ Drawing:</span>
+                    <span class="status-value" id="drawingModeStatus">--</span>
+                </div>
             </div>
         </div>
         <div id="map"></div>
@@ -301,7 +306,50 @@
     <!-- Hidden file input for import -->
     <input type="file" id="importFileInput" accept=".json,application/json" style="display: none;">
 
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Draw CSS & JS (Session 4: Sound Area Drawing) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    
+    <!-- Custom styles for Leaflet.Draw vertex handles -->
+    <style>
+        /* Vertex handles (the dots you drag) */
+        .leaflet-editing-icon {
+            background-color: #ff6b6b !important;
+            border: 3px solid #fff !important;
+            border-radius: 50% !important;
+            width: 12px !important;
+            height: 12px !important;
+            margin-left: -6px !important;
+            margin-top: -6px !important;
+            cursor: move !important;
+            pointer-events: auto !important;
+            z-index: 2000 !important;
+            opacity: 1 !important;
+        }
+        
+        /* Midpoint handles (for adding vertices on edges) */
+        .leaflet-editing-icon-new {
+            background-color: #00ff88 !important;
+            border: 2px solid #fff !important;
+            width: 14px !important;
+            height: 14px !important;
+            margin-left: -7px !important;
+            margin-top: -7px !important;
+            cursor: pointer !important;
+            opacity: 1 !important;
+            z-index: 2001 !important;
+        }
+        
+        /* Highlight polygon edges when in edit mode */
+        .leaflet-editing .leaflet-interactive {
+            stroke: #ff6b6b !important;
+            stroke-width: 4px !important;
+        }
+    </style>
+    
     <script>
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';

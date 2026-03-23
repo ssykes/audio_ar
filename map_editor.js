@@ -2,7 +2,7 @@
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.39 - Default to Ashland, OR; fitBounds() for soundscapes
+ * @version 6.40 - Session 4: Sound Area drawing (polygon creation)
  * @author Spatial Audio AR Team
  *
  * Features:
@@ -12,13 +12,20 @@
  * - Server sync
  * - Simulation mode
  * - Auto-redirect to index.html if not logged in
+ * - Area drawing (Session 4): Click vertices, double-click to close
  */
 
-console.log('[map_editor.js] Loading v6.39...');
+console.log('[map_editor.js] Loading v6.40...');
 
 class MapEditorApp extends MapAppShared {
     constructor() {
         super({ mode: 'editor' });
+
+        // Area drawing using Leaflet.Draw (Session 4)
+        this.drawnItems = null;  // FeatureGroup for drawn areas
+        this.isAreaEditMode = false;  // Track edit mode
+        this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
+        this.nextAreaId = 1;
     }
 
     /**
@@ -72,6 +79,9 @@ class MapEditorApp extends MapAppShared {
         // Initialize UI based on mode flags
         this._initUI();
 
+        // Initialize Leaflet.Draw for Areas (Session 4)
+        this._initAreaDrawer();
+
         // Warn before closing page with unsaved changes
         window.addEventListener('beforeunload', (e) => {
             const soundscape = this.getActiveSoundscape();
@@ -110,11 +120,13 @@ class MapEditorApp extends MapAppShared {
         const userEmail = document.getElementById('userEmail');
         const soundscapeControls = document.getElementById('soundscapeControls');
         const addWaypointBtn = document.getElementById('addWaypointBtn');
+        const addAreaBtn = document.getElementById('addAreaBtn');
 
         if (userPanel) userPanel.style.display = 'block';
         if (userEmail) userEmail.textContent = this.api.user.email;
         if (soundscapeControls) soundscapeControls.style.display = 'block';
         if (addWaypointBtn) addWaypointBtn.style.display = 'block';
+        if (addAreaBtn) addAreaBtn.style.display = 'block';
 
         this.debugLog('🔐 Logged in as ' + this.api.user.email);
 
@@ -133,6 +145,30 @@ class MapEditorApp extends MapAppShared {
                 if (this.state !== 'editor') return;
                 this._showInstruction('Click on the map to place a sound');
             });
+        }
+
+        // Add Area button - start polygon drawing mode (Session 4: Sound Area)
+        const addAreaBtn = document.getElementById('addAreaBtn');
+        if (addAreaBtn) {
+            addAreaBtn.addEventListener('click', () => {
+                this.debugLog('🗺️ Draw Area button clicked');
+                if (this.state !== 'editor') return;
+                
+                // Toggle area edit mode
+                if (this.isAreaEditMode) {
+                    // Exit edit mode
+                    this.isAreaEditMode = false;
+                    this._updateDrawingModeUI(false);
+                    this._showInstruction('✏️ Area editing disabled', 'info');
+                } else {
+                    // Enter edit mode - show toolbar
+                    this.isAreaEditMode = true;
+                    this._updateDrawingModeUI(true);
+                    this._showInstruction('🗺️ Click polygon icon to draw, or pencil icon to edit existing Areas', 'info');
+                }
+            });
+        } else {
+            console.warn('addAreaBtn not found!');
         }
 
         const startBtn = document.getElementById('startBtn');
@@ -1132,6 +1168,389 @@ class MapEditorApp extends MapAppShared {
             this.debugLog('⚠️ Auto-sync check failed: ' + error.message);
             // Silently fail - continue with current data
         }
+    }
+
+    // =====================================================================
+    // AREA DRAWING (Session 4: Sound Area - using Leaflet.Draw)
+    // =====================================================================
+
+    /**
+     * Initialize Leaflet.Draw for Area editing
+     * @private
+     */
+    _initAreaDrawer() {
+        // Create feature group to store drawn items
+        this.drawnItems = new L.FeatureGroup();
+        this.map.addLayer(this.drawnItems);
+
+        // Create draw control
+        this.drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: this.drawnItems,
+                edit: {
+                    selectedPathOptions: {
+                        maintainColor: true,
+                        opacity: 0.6,
+                        fillOpacity: 0.3
+                    }
+                },
+                remove: false,  // We handle deletion ourselves
+                poly: {
+                    allowIntersection: true
+                }
+            },
+            draw: {
+                polygon: {
+                    allowIntersection: true,
+                    showArea: true,
+                    shapeOptions: {
+                        color: '#ff6b6b',
+                        fillColor: '#ff6b6b',
+                        fillOpacity: 0.3,
+                        weight: 3
+                    },
+                    metric: true
+                },
+                polyline: false,
+                rectangle: false,
+                circle: false,
+                marker: false,
+                circlemarker: false
+            }
+        });
+
+        this.map.addControl(this.drawControl);
+
+        // Event: Polygon created
+        this.map.on(L.Draw.Event.CREATED, (e) => {
+            if (e.layerType !== 'polygon') return;
+            
+            const layer = e.layer;
+            const latlngs = layer.getLatLngs()[0];
+            
+            this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
+            
+            // Get area name
+            const areaName = prompt('Area name:', 'Area ' + this.nextAreaId);
+            if (!areaName) {
+                // User cancelled - remove the layer
+                this.drawnItems.removeLayer(layer);
+                return;
+            }
+            
+            // Create Area object
+            const area = {
+                id: 'area' + this.nextAreaId++,
+                name: areaName,
+                polygon: latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng })),
+                soundUrl: this.soundConfig.soundUrl,
+                volume: this.soundConfig.volume,
+                loop: this.soundConfig.loop,
+                fadeZoneWidth: 5.0,
+                overlapMode: 'mix',
+                icon: '◈',
+                color: '#ff6b6b',
+                sortOrder: 0,
+                _leafletLayer: layer  // Store reference
+            };
+            
+            // Add to soundscape
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                soundscape.addArea(area);
+                this._markSoundscapeDirty();
+                this._scheduleAutoSave();
+            }
+            
+            // Store in area markers
+            this.areaMarkers.set(area.id, layer);
+            
+            // Bind popup
+            layer.bindPopup(this._createAreaPopupContent(area));
+            
+            // Add click handler for adding vertices
+            layer.on('click', (e) => {
+                if (this.isAreaEditMode) {
+                    e.originalEvent.stopPropagation();
+                    this._addVertexOnClick(area, e.latlng);
+                }
+            });
+            
+            this.debugLog(`✅ Created Area: ${area.name} (${latlngs.length} vertices)`);
+            this._showToast(`✅ Created Area: ${areaName}`, 'success');
+        });
+
+        // Event: Editing started
+        this.map.on(L.Draw.Event.EDITSTART, () => {
+            this.debugLog('✏️ Area edit mode started');
+            this.isAreaEditMode = true;
+            this._updateDrawingModeUI(true);
+            
+            // Disable map dragging
+            this.map.dragging.disable();
+            this.map.scrollWheelZoom.disable();
+            
+            // Disable popups while editing
+            this.drawnItems.eachLayer((layer) => {
+                if (layer.getPopup()) {
+                    layer._popupContent = layer.getPopup().getContent();
+                    layer.unbindPopup();
+                }
+            });
+        });
+
+        // Event: Polygon edited
+        this.map.on(L.Draw.Event.EDITED, (e) => {
+            e.layers.eachLayer((layer) => {
+                const area = this._findAreaByLayer(layer);
+                if (area) {
+                    // Update polygon data
+                    const latlngs = layer.getLatLngs()[0];
+                    area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+                    
+                    // Update soundscape
+                    const soundscape = this.getActiveSoundscape();
+                    if (soundscape) {
+                        soundscape.updateArea(area.id, area);
+                        this._markSoundscapeDirty();
+                        this._scheduleAutoSave();
+                    }
+                    
+                    this.debugLog(`✏️ Edited Area: ${area.name}`);
+                }
+            });
+            
+            // Re-enable map dragging
+            this.map.dragging.enable();
+            this.map.scrollWheelZoom.enable();
+        });
+
+        // Event: Editing stopped
+        this.map.on(L.Draw.Event.EDITSTOP, () => {
+            this.debugLog('✏️ Area edit mode stopped');
+            
+            // Re-enable popups
+            this.drawnItems.eachLayer((layer) => {
+                if (layer._popupContent) {
+                    layer.bindPopup(layer._popupContent);
+                    layer._popupContent = null;
+                }
+            });
+        });
+
+        this.debugLog('🗺️ Leaflet.Draw initialized for Areas');
+    }
+
+    /**
+     * Find area by Leaflet layer
+     * @param {L.Polygon} layer
+     * @returns {Object|null}
+     * @private
+     */
+    _findAreaByLayer(layer) {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return null;
+        
+        for (const area of soundscape.getAreas()) {
+            if (area._leafletLayer === layer) {
+                return area;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Add vertex when clicking on edge
+     * @param {Object} area
+     * @param {L.LatLng} clickLatlng
+     * @private
+     */
+    _addVertexOnClick(area, clickLatlng) {
+        const layer = area._leafletLayer;
+        if (!layer) return;
+        
+        const latlngs = layer.getLatLngs()[0];
+        
+        // Find closest edge
+        let closestIndex = 0;
+        let minDistance = Infinity;
+        
+        for (let i = 0; i < latlngs.length; i++) {
+            const nextIndex = (i + 1) % latlngs.length;
+            const distance = L.GeometryUtil.distanceToSegment(this.map, clickLatlng, latlngs[i], latlngs[nextIndex]);
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = i;
+            }
+        }
+        
+        // Insert vertex
+        latlngs.splice(closestIndex + 1, 0, clickLatlng);
+        layer.setLatLngs(latlngs);
+        
+        // Update area data
+        area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+        
+        this.debugLog(`✅ Added vertex to Area ${area.name} at index ${closestIndex + 1}`);
+    }
+
+    /**
+     * Update UI for drawing mode
+     * @param {boolean} isDrawing
+     * @private
+     */
+    _updateDrawingModeUI(isDrawing) {
+        const drawingModeItem = document.getElementById('drawingModeItem');
+        const drawingModeStatus = document.getElementById('drawingModeStatus');
+        const addAreaBtn = document.getElementById('addAreaBtn');
+
+        if (drawingModeItem && drawingModeStatus) {
+            drawingModeItem.style.display = isDrawing ? 'flex' : 'none';
+            drawingModeStatus.textContent = isDrawing ? 'Area editing' : '--';
+        }
+
+        if (addAreaBtn) {
+            addAreaBtn.textContent = isDrawing ? '✖ Done' : '+ Draw Area';
+            addAreaBtn.classList.toggle('btn-warning', isDrawing);
+            addAreaBtn.classList.toggle('btn-primary', !isDrawing);
+        }
+    }
+
+    /**
+     * Clear all areas
+     */
+    _clearAllAreas() {
+        // Remove from map
+        this.drawnItems.clearLayers();
+        this.areaMarkers.clear();
+        this.nextAreaId = 1;
+
+        // Clear from soundscape
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            soundscape.areas = [];
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
+        }
+
+        this.debugLog('🗑️ Cleared all Areas');
+    }
+
+    /**
+     * Load areas when switching soundscapes
+     * @param {Object[]} areas
+     */
+    _loadAreasIntoDrawer(areas) {
+        if (!areas || areas.length === 0) return;
+        
+        areas.forEach(area => {
+            const latlngs = area.polygon.map(v => [v.lat, v.lng]);
+            
+            const polygon = L.polygon(latlngs, {
+                color: area.color || '#ff6b6b',
+                fillColor: area.color || '#ff6b6b',
+                fillOpacity: 0.2,
+                weight: 2
+            });
+            
+            this.drawnItems.addLayer(polygon);
+            this.areaMarkers.set(area.id, polygon);
+            area._leafletLayer = polygon;
+            
+            // Bind popup
+            polygon.bindPopup(this._createAreaPopupContent(area));
+            
+            // Add click handler
+            polygon.on('click', (e) => {
+                if (this.isAreaEditMode) {
+                    e.originalEvent.stopPropagation();
+                    this._addVertexOnClick(area, e.latlng);
+                }
+            });
+        });
+        
+        this.debugLog(`📍 Loaded ${areas.length} Areas`);
+    }
+
+    /**
+     * Get popup content for Area
+     * @param {Object} area
+     * @returns {string}
+     * @private
+     */
+    _createAreaPopupContent(area) {
+        const content = `
+            <div style="min-width: 200px;">
+                <h3 style="margin: 0 0 10px 0;">${area.icon || '◈'} ${area.name}</h3>
+                <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
+                    <div>📍 ${area.polygon.length} vertices</div>
+                    <div>🔊 Volume: ${(area.volume * 100).toFixed(0)}%</div>
+                    <div>🎵 Sound: ${area.soundUrl.split('/').pop()}</div>
+                </div>
+                <div style="display: flex; gap: 5px;">
+                    <button id="edit-area-${area.id}" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
+                    <button id="delete-area-${area.id}" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
+                </div>
+            </div>
+        `;
+        
+        // Add event handlers after popup opens
+        setTimeout(() => {
+            const editBtn = document.getElementById(`edit-area-${area.id}`);
+            const deleteBtn = document.getElementById(`delete-area-${area.id}`);
+            
+            if (editBtn && area._leafletLayer) {
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Trigger edit mode for this layer
+                    if (this.drawControl) {
+                        const editHandler = this.drawControl._toolbars.edit;
+                        if (editHandler) {
+                            editHandler.enable();
+                        }
+                    }
+                });
+            }
+            
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this._deleteArea(area.id);
+                });
+            }
+        }, 100);
+        
+        return content;
+    }
+
+    /**
+     * Delete an Area
+     * @param {string} areaId
+     * @private
+     */
+    _deleteArea(areaId) {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return;
+
+        const area = soundscape.getArea(areaId);
+        if (!area) return;
+
+        if (!confirm(`Delete Area "${area.name}"?`)) return;
+
+        // Remove from soundscape
+        soundscape.deleteArea(areaId);
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        // Remove from map
+        if (area._leafletLayer) {
+            this.drawnItems.removeLayer(area._leafletLayer);
+        }
+        this.areaMarkers.delete(areaId);
+
+        this.debugLog(`🗑️ Deleted Area: ${area.name}`);
+        this._showToast(`🗑️ Deleted: ${area.name}`, 'info');
     }
 
     /**

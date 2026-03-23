@@ -129,6 +129,72 @@ Cache-busting versions are **automatically stripped** before committing.
 
 ---
 
+## 📝 Creating a New JavaScript File (Checklist)
+
+When creating a new `.js` file, complete these steps:
+
+### 1. **Add to `deploy.ps1`** (Required for deployment)
+
+**Step 1a:** Add version pattern near line 105:
+```powershell
+$NEW_FILE_PATTERN = 'new_file\.js\?v=\d+'
+```
+
+**Step 1b:** Add version update code near line 149:
+```powershell
+# Update new_file.js version
+if ($content -match $NEW_FILE_PATTERN) {
+    $content = $content -replace $NEW_FILE_PATTERN, "new_file.js?v=$VERSION"
+    Set-Content $filePath $content -NoNewline
+    Write-Host "  Updated: $htmlFile (new_file.js)" -ForegroundColor Green
+}
+```
+
+**Step 1c:** Add to `$ALL_FILES` array near line 315:
+```powershell
+$ALL_FILES = @(
+    # ... existing files ...
+    "new_file.js",  # ← Add here
+)
+```
+
+### 2. **Add to HTML with cache-busting** (Required for browser updates)
+
+```html
+<script src="new_file.js?v=20260323"></script>
+```
+
+**Note:** Deploy script will auto-update the version number on each deploy.
+
+### 3. **Verify Load Order** (If the script depends on other libraries)
+
+Ensure dependencies load **before** your script:
+```html
+<!-- Leaflet must load BEFORE leaflet.draw -->
+<script src="leaflet.js"></script>
+<script src="leaflet.draw.js"></script>
+<script src="area_drawer.js"></script>  <!-- Depends on both -->
+```
+
+### 4. **Test Deployment**
+
+```powershell
+& .\deploy.ps1
+```
+
+Verify in output:
+- ✅ `Updated: map_editor.html (new_file.js)` - Version updated
+- ✅ `new_file.js  100%  [OK]` - File uploaded
+
+### 5. **Verify on Server**
+
+Hard refresh browser (Ctrl+Shift+R) and check console:
+- ✅ No 404 errors
+- ✅ No "undefined" errors
+- ✅ Your console.log() appears
+
+---
+
 ## ⚠️ Cloudflare Cache Issue
 
 **Problem:** Cloudflare may cache JavaScript files despite no-cache headers.
