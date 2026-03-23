@@ -1053,7 +1053,7 @@ class MapAppShared {
      * Start simulation mode
      * @protected
      */
-    _startSimulation() {
+    async _startSimulation() {
         if (this.waypoints.length === 0) {
             this._showToast('Add at least one waypoint first', 'warning');
             return;
@@ -1083,7 +1083,7 @@ class MapAppShared {
         this._createSimListenerMarker();
 
         // Start audio (no GPS, no compass)
-        this._startSimAudio();
+        await this._startSimAudio();
 
         // Show simulation panel
         this._showSimPanel();
@@ -1179,7 +1179,7 @@ class MapAppShared {
      * Start simulation audio
      * @protected
      */
-    _startSimAudio() {
+    async _startSimAudio() {
         console.log('[MapShared] 🔊 Starting simulation audio...');
         this.debugLog('🔊 Starting simulation audio engine...');
 
@@ -1229,16 +1229,24 @@ class MapAppShared {
             this._showToast('❌ ' + error.message, 'error');
         };
 
-        // Start the audio
-        this.app.start().then(() => {
+        // Start the audio (with behaviors if available)
+        try {
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape && soundscape.behaviors && soundscape.behaviors.length > 0) {
+                console.log('[MapShared] 🎼 Starting simulation with behaviors:', soundscape.behaviors.length);
+                await this.app.startSoundScape(soundscape);
+            } else {
+                console.log('[MapShared] 🎵 Starting simulation without behaviors (default)');
+                await this.app.start();
+            }
             console.log('[MapShared] ✅ Simulation audio started');
             this.debugLog('✅ Simulation audio started');
             this._updateSimDisplay();
-        }).catch(err => {
+        } catch (err) {
             console.error('[MapShared] ❌ Sim audio start failed:', err);
             this.debugLog('❌ Simulation audio start failed: ' + err.message);
             this._showToast('❌ Audio start failed: ' + err.message, 'error');
-        });
+        }
     }
 
     /**

@@ -1167,7 +1167,7 @@ class MapPlacerApp {
         this._startSimulation();
     }
 
-    _startSimulation() {
+    async _startSimulation() {
         console.log('[MapPlacer] 🎮 Starting Simulation Mode...');
 
         this.simulationMode = true;
@@ -1182,7 +1182,7 @@ class MapPlacerApp {
         this._createSimListenerMarker();
 
         // Start audio (no GPS, no compass)
-        this._startSimAudio();
+        await this._startSimAudio();
 
         // Show simulation panel
         this._showSimPanel();
@@ -1263,7 +1263,7 @@ class MapPlacerApp {
         });
     }
 
-    _startSimAudio() {
+    async _startSimAudio() {
         console.log('[MapPlacer] 🔊 Starting simulation audio...');
 
         const soundConfigs = this.waypoints.map(wp => ({
@@ -1305,14 +1305,22 @@ class MapPlacerApp {
             this._showToast('❌ ' + error.message, 'error');
         };
 
-        // Start the audio
-        this.app.start().then(() => {
+        // Start the audio (with behaviors if available)
+        try {
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape && soundscape.behaviors && soundscape.behaviors.length > 0) {
+                console.log('[MapPlacer] 🎼 Starting simulation with behaviors:', soundscape.behaviors.length);
+                await this.app.startSoundScape(soundscape);
+            } else {
+                console.log('[MapPlacer] 🎵 Starting simulation without behaviors (default)');
+                await this.app.start();
+            }
             console.log('[MapPlacer] ✅ Simulation audio started');
             this._updateSimDisplay();
-        }).catch(err => {
+        } catch (err) {
             console.error('[MapPlacer] ❌ Sim audio start failed:', err);
             this._showToast('❌ Audio start failed: ' + err.message, 'error');
-        });
+        }
     }
 
     _updateSimAudio() {
