@@ -43,6 +43,12 @@ class Listener {
         this.lat = config.lat || 0;
         this.lon = config.lon || 0;
         this.heading = config.heading || 0;
+
+        // === Direction Tracking (for Area fade prediction) ===
+        this.prevLat = null;
+        this.prevLon = null;
+        this.prevTime = null;
+        this.movementVector = { direction: 0, speed: 0 };  // m/s
     }
 
     /**
@@ -52,9 +58,40 @@ class Listener {
      * @param {number} heading - Heading in degrees (0-360°)
      */
     update(lat, lon, heading) {
+        const now = Date.now();
+
+        // Store previous position for movement calculation
+        this.prevLat = this.lat;
+        this.prevLon = this.lon;
+        this.prevTime = this.prevTime || now;
+
         this.lat = lat;
         this.lon = lon;
-        this.heading = heading;
+        if (heading !== null) this.heading = heading;
+
+        // Calculate movement vector
+        this._updateMovementVector(now);
+    }
+
+    /**
+     * Calculate movement direction and speed
+     * @private
+     */
+    _updateMovementVector(now) {
+        if (this.prevLat === null || this.prevLon === null) {
+            this.movementVector = { direction: this.heading, speed: 0 };
+            return;
+        }
+
+        const dt = (now - this.prevTime) / 1000;  // Seconds
+        if (dt <= 0) return;
+
+        // Calculate distance and direction
+        const distance = GPSUtils.distance(this.prevLat, this.prevLon, this.lat, this.lon);
+        const direction = GPSUtils.bearing(this.prevLat, this.prevLon, this.lat, this.lon);
+        const speed = distance / dt;  // m/s
+
+        this.movementVector = { direction, speed };
     }
 
     /**
@@ -76,6 +113,37 @@ class Listener {
      */
     setHeading(heading) {
         this.heading = heading;
+    }
+
+    /**
+     * Get current heading
+     * @returns {number} Heading in degrees
+     */
+    getHeading() {
+        return this.heading;
+    }
+
+    /**
+     * Get movement vector (direction and speed)
+     * @returns {{direction: number, speed: number}} Direction in degrees, speed in m/s
+     */
+    getMovementVector() {
+        return this.movementVector;
+    }
+
+    /**
+     * Predict future position based on current movement
+     * @param {number} seconds - Seconds ahead to predict
+     * @returns {{lat: number, lon: number}} Predicted position
+     */
+    predictPosition(seconds) {
+        if (this.movementVector.speed <= 0) {
+            return { lat: this.lat, lon: this.lon };
+        }
+
+        const distance = this.movementVector.speed * seconds;
+        const pos = GPSUtils.placeSound(this.lat, this.lon, distance, this.movementVector.direction);
+        return { lat: pos.lat, lon: pos.lon };
     }
 }
 
@@ -1890,11 +1958,220 @@ class SpatialAudioApp {
     }
 }
 
+/**
+ * AreaManager - Manages Area sound sources for polygon zones
+ *
+ * Responsibilities:
+ * - Area lifecycle (create, start, stop, update, dispose)
+ * - Volume mixing for overlapping Areas
+ * - Direction-based fade prediction
+ * - Overlap mode handling (mix vs opaque)
+ *
+ * @version 1.0 (Feature: Sound Areas)
+ */
+class AreaManager {
+    constructor(audioContext, listener) {
+        this.audioContext = audioContext;
+        this.listener = listener;
+        this.areas = new Map();  // Map<areaId, AreaSoundSource>
+        this.activeAreas = new Set();  // Set of areaIds listener is inside
+    }
+
+    /**
+     * Load Area configurations and create sound sources
+     * @param {Array} areaConfigs - Array of Area data objects
+     */
+    loadAreas(areaConfigs) {
+        console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
+
+        for (const areaConfig of areaConfigs) {
+            try {
+                const areaSource = new AreaSoundSource(this.audioContext, areaConfig.id, {
+                    areaId: areaConfig.id,
+                    polygon: areaConfig.polygon,
+                    soundUrl: areaConfig.soundUrl,
+                    volume: areaConfig.volume || 0.8,
+                    loop: areaConfig.loop !== false,
+                    fadeZoneWidth: areaConfig.fadeZoneWidth || 5.0,
+                    overlapMode: areaConfig.overlapMode || 'mix',
+                    order: areaConfig.order || 0,
+                    gain: areaConfig.volume || 0.8
+                });
+
+                areaSource.init();
+                this.areas.set(areaConfig.id, areaSource);
+                console.log('[AreaManager] Loaded area:', areaConfig.id, '(polygon:', areaConfig.polygon.length, 'vertices)');
+            } catch (error) {
+                console.error('[AreaManager] Failed to load area', areaConfig.id, error);
+            }
+        }
+
+        console.log('[AreaManager] Total areas loaded:', this.areas.size);
+    }
+
+    /**
+     * Update all areas based on listener position
+     * Called on every GPS/position update
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @param {number} heading - Listener heading
+     */
+    update(listenerLat, listenerLon, heading) {
+        if (this.areas.size === 0) return;
+
+        const activeAreas = [];
+
+        // Update each area
+        for (const [areaId, areaSource] of this.areas) {
+            const isActive = areaSource.isActive(listenerLat, listenerLon);
+
+            if (isActive) {
+                activeAreas.push(areaSource);
+                this.activeAreas.add(areaId);
+
+                // Update volume based on position
+                areaSource.updateVolume(listenerLat, listenerLon);
+            } else {
+                this.activeAreas.delete(areaId);
+
+                // Fade out smoothly
+                if (areaSource.gain) {
+                    const t = this.audioContext.currentTime;
+                    areaSource.gain.gain.cancelScheduledValues(t);
+                    areaSource.gain.gain.setTargetAtTime(0, t, 0.1);
+                }
+            }
+        }
+
+        // Handle overlap mixing
+        if (activeAreas.length > 0) {
+            this._mixAreas(activeAreas);
+        }
+    }
+
+    /**
+     * Mix volumes for overlapping areas
+     * Handles both 'mix' and 'opaque' overlap modes
+     * @param {Array<AreaSoundSource>} activeAreas - Currently active areas
+     * @private
+     */
+    _mixAreas(activeAreas) {
+        // Separate by overlap mode
+        const mixAreas = activeAreas.filter(a => a.overlapMode === 'mix');
+        const opaqueAreas = activeAreas.filter(a => a.overlapMode === 'opaque');
+
+        // === OPAQUE MODE ===
+        // Only the highest-order (last placed) opaque area plays
+        if (opaqueAreas.length > 0) {
+            // Sort by order (descending - highest order wins)
+            opaqueAreas.sort((a, b) => b.order - a.order);
+            const topOpaque = opaqueAreas[0];
+
+            // Play top opaque area at full volume
+            if (topOpaque.gain) {
+                const t = this.audioContext.currentTime;
+                topOpaque.gain.gain.cancelScheduledValues(t);
+                topOpaque.gain.gain.setTargetAtTime(topOpaque.options.gain, t, 0.01);
+            }
+
+            // Mute all other opaque areas
+            for (let i = 1; i < opaqueAreas.length; i++) {
+                const area = opaqueAreas[i];
+                if (area.gain) {
+                    const t = this.audioContext.currentTime;
+                    area.gain.gain.cancelScheduledValues(t);
+                    area.gain.gain.setTargetAtTime(0, t, 0.1);
+                }
+            }
+        }
+
+        // === MIX MODE ===
+        // Crossfade all mix areas (equal mixing)
+        if (mixAreas.length > 0) {
+            // Simple equal mixing: each area plays at its calculated volume
+            // Future enhancement: normalize total volume to prevent clipping
+            for (const area of mixAreas) {
+                // Volume already set by updateVolume()
+                // No additional mixing needed for equal mix
+            }
+        }
+
+        // Debug: Log active areas (throttled)
+        if (Math.random() < 0.05) {
+            const activeInfo = activeAreas.map(a => `${a.areaId}(${a.overlapMode}:${a.order})`).join(', ');
+            console.log(`[AreaManager] Active areas: ${activeInfo}`);
+        }
+    }
+
+    /**
+     * Get direction of travel for fade prediction
+     * @returns {number} Direction in degrees (0-360°)
+     * @private
+     */
+    _getDirectionOfTravel() {
+        const movement = this.listener.getMovementVector();
+        return movement.direction;
+    }
+
+    /**
+     * Predict if listener will cross area boundary
+     * Uses movement vector to anticipate fade zone transitions
+     * @param {AreaSoundSource} areaSource - Area to check
+     * @param {number} secondsAhead - Seconds to predict
+     * @returns {boolean} True if will enter/exit area
+     * @private
+     */
+    _willCrossBoundary(areaSource, secondsAhead = 2) {
+        const predictedPos = this.listener.predictPosition(secondsAhead);
+        const currentInside = GPSUtils.pointInPolygon(
+            this.listener.lat,
+            this.listener.lon,
+            areaSource.polygon
+        );
+        const predictedInside = GPSUtils.pointInPolygon(
+            predictedPos.lat,
+            predictedPos.lon,
+            areaSource.polygon
+        );
+
+        return currentInside !== predictedInside;
+    }
+
+    /**
+     * Stop all areas and free resources
+     */
+    dispose() {
+        console.log('[AreaManager] Disposing all areas...');
+
+        for (const [areaId, areaSource] of this.areas) {
+            areaSource.stop();
+            areaSource.dispose();
+        }
+
+        this.areas.clear();
+        this.activeAreas.clear();
+        console.log('[AreaManager] Disposed');
+    }
+
+    /**
+     * Get area manager status for debugging
+     * @returns {{totalAreas: number, activeAreas: number, areaIds: string[]}}
+     */
+    getStatus() {
+        return {
+            totalAreas: this.areas.size,
+            activeAreas: this.activeAreas.size,
+            areaIds: Array.from(this.activeAreas)
+        };
+    }
+}
+
 // Export classes
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Listener, Sound, SpatialAudioApp };
+    module.exports = { Listener, Sound, SpatialAudioApp, AreaManager };
 } else {
     window.Listener = Listener;
     window.Sound = Sound;
     window.SpatialAudioApp = SpatialAudioApp;
+    window.AreaManager = AreaManager;
 }

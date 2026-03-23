@@ -926,6 +926,158 @@ class CachedSampleSource extends SampleSource {
 }
 
 /**
+ * AreaSoundSource - Sound source for polygon areas (no spatial panning)
+ *
+ * Unlike GpsSoundSource which uses HRTF panning for point sources,
+ * AreaSoundSource provides volume-only control for zone-based audio.
+ *
+ * Key Features:
+ * - No panning (consistent volume regardless of position within area)
+ * - Fade zone at boundaries (smooth enter/exit transitions)
+ * - Volume based on point-in-polygon + distance to edge
+ * - Supports all audio source types (samples, streams, oscillators)
+ *
+ * @version 1.0 (Feature: Sound Areas)
+ * @extends SampleSource
+ */
+class AreaSoundSource extends SampleSource {
+    constructor(engine, id, options = {}) {
+        super(engine, id, options);
+
+        // Area-specific properties
+        this.polygon = options.polygon || [];  // Array of {lat, lng} vertices
+        this.fadeZoneWidth = options.fadeZoneWidth || 5.0;  // Meters
+        this.overlapMode = options.overlapMode || 'mix';  // 'mix' | 'opaque'
+        this.order = options.order || 0;  // Placement order for opaque priority
+        this.areaId = options.areaId || id;  // Reference to Area data
+
+        // No panning for areas - disable panner
+        this.fixed = false;  // Not a fixed point source
+    }
+
+    /**
+     * Initialize audio nodes (no panner for areas)
+     */
+    init() {
+        // Create gain node (volume control only, no spatialization)
+        this.gain = this.engine.ctx.createGain();
+        this.gain.gain.value = this.options.gain || 0.5;
+
+        // Create wet/dry split for reverb (same as SampleSource)
+        this.dryGain = this.engine.ctx.createGain();
+        this.wetGain = this.engine.ctx.createGain();
+        this.dryGain.gain.value = 1.0;
+        this.wetGain.gain.value = 0.0;
+
+        // Connect dry path directly to master (no panner)
+        this.gain.connect(this.dryGain);
+        this.dryGain.connect(this.engine.masterGain);
+
+        // Connect wet path to reverb if available
+        if (this.engine.reverb) {
+            this.gain.connect(this.wetGain);
+            this.wetGain.connect(this.engine.reverb);
+        }
+
+        console.log('[AreaSoundSource] Initialized:', this.id, '(no panning, volume-only)');
+    }
+
+    /**
+     * Update volume based on listener position relative to area
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @returns {number} Current volume (0.0 - 1.0)
+     */
+    updateVolume(listenerLat, listenerLon) {
+        // Check if listener is inside polygon
+        const isInside = GPSUtils.pointInPolygon(listenerLat, listenerLon, this.polygon);
+
+        if (!isInside) {
+            // Outside polygon - silent
+            if (this.gain) {
+                this.gain.gain.value = 0;
+                this.dryGain.gain.value = 0;
+                this.wetGain.gain.value = 0;
+            }
+            return 0;
+        }
+
+        // Inside polygon - calculate distance to nearest edge
+        const distanceToEdge = GPSUtils.distanceToEdge(listenerLat, listenerLon, this.polygon);
+
+        // Calculate volume based on fade zone
+        let volume = 1.0;
+        if (distanceToEdge < this.fadeZoneWidth) {
+            // In fade zone - interpolate volume (0 at edge, 1 at inner boundary)
+            volume = distanceToEdge / this.fadeZoneWidth;
+            // Apply smooth curve (quadratic for smoother fade)
+            volume = Math.pow(volume, 0.5);  // Square root for smoother transition
+        }
+
+        // Apply volume smoothly (prevent clicks)
+        if (this.gain) {
+            const t = this.engine.ctx.currentTime;
+            this.gain.gain.cancelScheduledValues(t);
+            this.gain.gain.setTargetAtTime(volume * this.options.gain, t, 0.01);
+
+            // Apply distance-based reverb (same as GpsSoundSource)
+            this._updateReverbWetMix(distanceToEdge);
+        }
+
+        // Debug: Log volume changes (throttled)
+        if (Math.random() < 0.05) {
+            console.log(`[Area] ${this.id}: ${distanceToEdge.toFixed(1)}m from edge, volume: ${(volume * 100).toFixed(0)}%`);
+        }
+
+        return volume;
+    }
+
+    /**
+     * Update reverb wet/dry mix based on distance from edge
+     * Uses same logic as GpsSoundSource for consistency
+     * @param {number} distance - Distance from edge in meters
+     * @private
+     */
+    _updateReverbWetMix(distance) {
+        if (!this.dryGain || !this.wetGain) return;
+
+        const reverb = getReverbForDistance(distance);
+        this.wetGain.gain.value = reverb.wet;
+        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
+        this.currentWetValue = reverb.wet;
+    }
+
+    /**
+     * Check if area is active (listener inside or in fade zone)
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @returns {boolean} True if area should be playing
+     */
+    isActive(listenerLat, listenerLon) {
+        const isInside = GPSUtils.pointInPolygon(listenerLat, listenerLon, this.polygon);
+        if (!isInside) return false;
+
+        const distanceToEdge = GPSUtils.distanceToEdge(listenerLat, listenerLon, this.polygon);
+        return distanceToEdge < this.fadeZoneWidth || distanceToEdge > 0;
+    }
+
+    /**
+     * Get area info for debugging
+     * @returns {{id: string, areaId: string, isPlaying: boolean, volume: number, overlapMode: string}}
+     */
+    getInfo() {
+        return {
+            id: this.id,
+            areaId: this.areaId,
+            isPlaying: this.isPlaying,
+            volume: this.gain ? this.gain.gain.value : 0,
+            overlapMode: this.overlapMode,
+            order: this.order
+        };
+    }
+}
+
+/**
  * Sound Presets - Predefined sound configurations
  */
 const SoundPresets = {
@@ -1926,7 +2078,7 @@ class HeadingManager {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SpatialAudioEngine, SoundSource, OscillatorSource,
-        GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, SoundPresets,
+        GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, AreaSoundSource, SoundPresets,
         GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker
     };
 } else {
@@ -1937,6 +2089,7 @@ if (typeof module !== 'undefined' && module.exports) {
     window.MultiOscillatorSource = MultiOscillatorSource;
     window.SampleSource = SampleSource;
     window.CachedSampleSource = CachedSampleSource;
+    window.AreaSoundSource = AreaSoundSource;
     window.SoundPresets = SoundPresets;
     window.GPSUtils = GPSUtils;
     window.DeviceOrientationHelper = DeviceOrientationHelper;
@@ -1945,7 +2098,7 @@ if (typeof module !== 'undefined' && module.exports) {
     window.setReverbEnvironment = setReverbEnvironment;
     window.getReverbForDistance = getReverbForDistance;
     window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
-    console.log('[spatial_audio.js] v5.1+ (Feature 15: Offline Cache Support) loaded');
+    console.log('[spatial_audio.js] v5.1+ (Feature 15: Offline Cache Support + Sound Areas) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');
