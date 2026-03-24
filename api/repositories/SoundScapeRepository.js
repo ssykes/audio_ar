@@ -12,19 +12,21 @@
 const BaseRepository = require('./BaseRepository');
 const WaypointRepository = require('./WaypointRepository');
 const BehaviorRepository = require('./BehaviorRepository');
+const AreaRepository = require('./AreaRepository');
 
 class SoundScapeRepository extends BaseRepository {
   constructor(db) {
     super(db, 'soundscapes');
     this.waypointRepo = new WaypointRepository(db);
     this.behaviorRepo = new BehaviorRepository(db);
+    this.areaRepo = new AreaRepository(db);
   }
 
   /**
-   * Get full soundscape with waypoints and behaviors
+   * Get full soundscape with waypoints, behaviors, and areas
    * @param {string} id - Soundscape ID
    * @param {string} userId - User ID for authorization
-   * @returns {Promise<Object|null>} { soundscape, waypoints, behaviors } or null
+   * @returns {Promise<Object|null>} { soundscape, waypoints, behaviors, areas } or null
    */
   async getFull(id, userId) {
     // Verify ownership
@@ -33,15 +35,17 @@ class SoundScapeRepository extends BaseRepository {
       return null;
     }
 
-    const [waypoints, behaviors] = await Promise.all([
+    const [waypoints, behaviors, areas] = await Promise.all([
       this.waypointRepo.findBySoundscape(id),
-      this.behaviorRepo.findBySoundscape(id)
+      this.behaviorRepo.findBySoundscape(id),
+      this.areaRepo.findBySoundscape(id)
     ]);
 
     return {
       soundscape: this._toEntity(soundscape),
       waypoints,
-      behaviors
+      behaviors,
+      areas
     };
   }
 
@@ -68,27 +72,28 @@ class SoundScapeRepository extends BaseRepository {
   }
 
   /**
-   * Create soundscape with waypoints and behaviors (transactional)
+   * Create soundscape with waypoints, behaviors, and areas (transactional)
    * @param {Object} soundscapeData - Soundscape data (camelCase)
    * @param {Object[]} [waypoints] - Optional waypoints to create
    * @param {Object[]} [behaviors] - Optional behaviors to create
+   * @param {Object[]} [areas] - Optional areas to create
    * @returns {Promise<Object>} Created soundscape with children
    */
-  async createWithWaypoints(soundscapeData, waypoints = [], behaviors = []) {
+  async createWithWaypoints(soundscapeData, waypoints = [], behaviors = [], areas = []) {
     const client = await this.db.getClient();
-    
+
     try {
       await client.query('BEGIN');
-      
+
       // Create soundscape
       const row = this._toRow(soundscapeData);
       const createResult = await client.query(
         'INSERT INTO soundscapes (user_id, name, description) VALUES ($1, $2, $3) RETURNING *',
         [row.user_id, row.name, row.description || '']
       );
-      
+
       const soundscape = createResult.rows[0];
-      
+
       // Create waypoints
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
@@ -101,7 +106,7 @@ class SoundScapeRepository extends BaseRepository {
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
-      
+
       // Create behaviors
       const createdBehaviors = [];
       for (let i = 0; i < behaviors.length; i++) {
@@ -113,13 +118,27 @@ class SoundScapeRepository extends BaseRepository {
         );
         createdBehaviors.push(this._toEntity(bResult.rows[0]));
       }
-      
+
+      // Create areas
+      const createdAreas = [];
+      for (let i = 0; i < areas.length; i++) {
+        const area = areas[i];
+        const areaResult = await client.query(
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.volume ?? 0.8,
+           area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i]
+        );
+        createdAreas.push(this._toEntity(areaResult.rows[0]));
+      }
+
       await client.query('COMMIT');
-      
+
       return {
         soundscape: this._toEntity(soundscape),
         waypoints: createdWaypoints,
-        behaviors: createdBehaviors
+        behaviors: createdBehaviors,
+        areas: createdAreas
       };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -130,28 +149,30 @@ class SoundScapeRepository extends BaseRepository {
   }
 
   /**
-   * Save full soundscape (waypoints + behaviors) - replaces existing children
+   * Save full soundscape (waypoints + behaviors + areas) - replaces existing children
    * @param {string} id - Soundscape ID
    * @param {Object[]} waypoints - New waypoints (replaces existing)
    * @param {Object[]} behaviors - New behaviors (replaces existing)
+   * @param {Object[]} areas - New areas (replaces existing)
    * @returns {Promise<Object>} Updated soundscape with children
    */
-  async saveFull(id, waypoints, behaviors) {
+  async saveFull(id, waypoints, behaviors, areas = []) {
     const client = await this.db.getClient();
-    
+
     try {
       await client.query('BEGIN');
-      
+
       // Update soundscape timestamp
       await client.query(
         'UPDATE soundscapes SET updated_at = NOW() WHERE id = $1',
         [id]
       );
-      
+
       // Delete existing children
       await client.query('DELETE FROM waypoints WHERE soundscape_id = $1', [id]);
       await client.query('DELETE FROM behaviors WHERE soundscape_id = $1', [id]);
-      
+      await client.query('DELETE FROM areas WHERE soundscape_id = $1', [id]);
+
       // Insert new waypoints
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
@@ -164,7 +185,7 @@ class SoundScapeRepository extends BaseRepository {
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
-      
+
       // Insert new behaviors
       const createdBehaviors = [];
       for (let i = 0; i < behaviors.length; i++) {
@@ -176,16 +197,37 @@ class SoundScapeRepository extends BaseRepository {
         );
         createdBehaviors.push(this._toEntity(bResult.rows[0]));
       }
-      
+
+      // Insert new areas
+      const createdAreas = [];
+      for (let i = 0; i < areas.length; i++) {
+        const area = areas[i];
+        console.log(`[SoundScapeRepository] Area ${i}:`, JSON.stringify({
+          name: area.name,
+          soundUrl: area.soundUrl,
+          polygonVertices: area.polygon?.length,
+          hasPolygon: !!area.polygon
+        }));
+        const areaResult = await client.query(
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.volume ?? 0.8,
+           area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i]
+        );
+        console.log(`[SoundScapeRepository] Area ${i} inserted with id=${areaResult.rows[0].id}`);
+        createdAreas.push(this._toEntity(areaResult.rows[0]));
+      }
+
       await client.query('COMMIT');
-      
+
       // Reload soundscape
       const soundscape = await this.findById(id);
-      
+
       return {
         soundscape: this._toEntity(soundscape),
         waypoints: createdWaypoints,
-        behaviors: createdBehaviors
+        behaviors: createdBehaviors,
+        areas: createdAreas
       };
     } catch (error) {
       await client.query('ROLLBACK');

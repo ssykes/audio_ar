@@ -214,16 +214,19 @@ class ApiClient {
     }
 
     /**
-     * Save soundscape (waypoints + behaviors)
+     * Save soundscape (waypoints + behaviors + areas)
      * @param {string} id - Soundscape ID
      * @param {Object[]} waypoints - Waypoints to save
      * @param {Object[]} behaviors - Behaviors to save
+     * @param {Object[]} [areas=[]] - Areas to save
      * @param {AbortSignal} [signal] - Optional abort signal
      */
-    async saveSoundscape(id, waypoints, behaviors = [], signal = null) {
+    async saveSoundscape(id, waypoints, behaviors = [], areas = [], signal = null) {
+        const payload = { waypoints, behaviors, areas };
+        console.log('[api-client.js] saveSoundscape payload:', JSON.stringify(payload, null, 2));
         return await this.request(`/soundscapes/${id}/save`, {
             method: 'POST',
-            body: JSON.stringify({ waypoints, behaviors }),
+            body: JSON.stringify(payload),
             signal
         });
     }
@@ -234,7 +237,7 @@ class ApiClient {
      */
     async loadSoundscape(id) {
         const data = await this.getSoundscape(id);
-        
+
         // Use _toEntity for automatic snake_case → camelCase conversion
         return {
             soundscape: {
@@ -247,9 +250,11 @@ class ApiClient {
                     type: b.type,
                     memberIds: b.memberIds || b.member_ids,
                     config: b.configJson || b.config_json
-                }))
+                })),
+                areas: (data.areas || []).map(area => this._toEntity(area))
             },
-            waypoints: data.waypoints.map(wp => this._toEntity(wp))
+            waypoints: data.waypoints.map(wp => this._toEntity(wp)),
+            areas: (data.areas || []).map(area => this._toEntity(area))
         };
     }
 
@@ -277,59 +282,6 @@ class ApiClient {
     wpToServer(wp) {
         // Use new Data Mapper pattern
         return this._toRow(wp);
-    }
-
-    // =============================================================================
-    // Feature 17: Areas (Polygon Sound Zones)
-    // =============================================================================
-
-    /**
-     * Sync all areas for a soundscape
-     * @param {string} soundscapeId - Soundscape ID
-     * @param {Object[]} areas - Array of area data (camelCase)
-     * @returns {Promise<Object>} Server response
-     */
-    async syncAreas(soundscapeId, areas) {
-        return await this.request(`/soundscapes/${soundscapeId}/areas`, {
-            method: 'PUT',
-            body: JSON.stringify({ areas })
-        });
-    }
-
-    /**
-     * Save a single area
-     * @param {string} soundscapeId - Soundscape ID
-     * @param {Object} area - Area data (camelCase)
-     * @returns {Promise<Object>} Server response with saved area
-     */
-    async saveArea(soundscapeId, area) {
-        return await this.request(`/soundscapes/${soundscapeId}/areas`, {
-            method: 'POST',
-            body: JSON.stringify({ area })
-        });
-    }
-
-    /**
-     * Delete an area
-     * @param {string} soundscapeId - Soundscape ID
-     * @param {string} areaId - Area ID to delete
-     * @returns {Promise<Object>} Server response
-     */
-    async deleteArea(soundscapeId, areaId) {
-        return await this.request(`/soundscapes/${soundscapeId}/areas/${areaId}`, {
-            method: 'DELETE'
-        });
-    }
-
-    /**
-     * Load areas for a soundscape
-     * @param {string} soundscapeId - Soundscape ID
-     * @returns {Promise<Object[]>} Array of area data (camelCase)
-     */
-    async loadAreas(soundscapeId) {
-        const data = await this.request(`/soundscapes/${soundscapeId}/areas`);
-        // Use _toEntity for automatic snake_case → camelCase conversion
-        return (data.areas || []).map(area => this._toEntity(area));
     }
 }
 

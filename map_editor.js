@@ -2,7 +2,7 @@
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.40 - Session 4: Sound Area drawing (polygon creation)
+ * @version 6.41 - Areas fix: removed redundant loadAreas() call
  * @author Spatial Audio AR Team
  *
  * Features:
@@ -713,9 +713,12 @@ class MapEditorApp extends MapAppShared {
                 try {
                     const data = await this.api.loadSoundscape(ss.id);
                     const soundscape = SoundScape.fromJSON(data.soundscape);
-                    
+
                     // IMPORTANT: Add waypointData to soundscape (from data.waypoints, not data.soundscape)
                     soundscape.waypointData = data.waypoints;
+
+                    // Areas are already included in data.soundscape.areas (loaded by api.loadSoundscape)
+                    // and initialized by SoundScape.fromJSON() - no separate load needed
 
                     // Add to soundscapes map
                     this.soundscapes.set(soundscape.id, soundscape);
@@ -761,13 +764,27 @@ class MapEditorApp extends MapAppShared {
 
             const soundscape = this.getActiveSoundscape();
             // Use soundscape.waypointData (clean objects) instead of this.waypoints (may have Leaflet refs)
+            // Strip Leaflet properties from waypoints
+            const cleanWaypoints = soundscape.waypointData.map(wp => {
+                const { circleMarker, marker, ...cleanWp } = wp;
+                return cleanWp;
+            });
+
+            // Strip Leaflet layer references from areas
+            const cleanAreas = (soundscape.areas || []).map(area => {
+                const { _leafletLayer, ...cleanArea } = area;
+                return cleanArea;
+            });
+
+            // Save waypoints, behaviors, and areas in single call
             await this.api.saveSoundscape(
                 serverId,
-                soundscape.waypointData.map(wp => this.api.wpToServer(wp)),
-                soundscape.behaviors || []
+                cleanWaypoints,
+                soundscape.behaviors || [],
+                cleanAreas
             );
 
-            this.debugLog('✅ Saved to server');
+            this.debugLog('✅ Saved to server (waypoints + behaviors + areas)');
             this._updateSyncStatus(true);
         } catch (error) {
             this.debugLog('❌ Server save failed: ' + error.message);

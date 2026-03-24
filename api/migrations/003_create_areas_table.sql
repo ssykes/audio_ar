@@ -3,8 +3,8 @@
 -- Date: 2026-03-23
 
 CREATE TABLE areas (
-  id              TEXT PRIMARY KEY,
-  soundscape_id   TEXT NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  soundscape_id   UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   polygon         JSONB NOT NULL,          -- [{lat, lng}, ...]
   sound_url       TEXT NOT NULL,

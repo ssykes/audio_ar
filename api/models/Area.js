@@ -45,11 +45,14 @@ class Area {
      * @returns {Area}
      */
     static fromRow(row) {
+        // PostgreSQL JSONB returns objects, not strings - only parse if string
+        const polygon = typeof row.polygon === 'string' ? JSON.parse(row.polygon) : row.polygon;
+        
         return new Area(
             row.id,
             row.soundscape_id,
             row.name,
-            JSON.parse(row.polygon),
+            polygon,
             row.sound_url,
             row.volume ?? 0.8,
             row.loop ?? true,

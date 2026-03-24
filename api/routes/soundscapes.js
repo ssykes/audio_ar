@@ -99,11 +99,19 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Save full soundscape (waypoints + behaviors)
+// Save full soundscape (waypoints + behaviors + areas)
 router.post('/:id/save', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { waypoints, behaviors } = req.body;
+    const { waypoints, behaviors, areas } = req.body;
+
+    console.log(`[Soundscapes] Save request for ${id}:`);
+    console.log(`  - waypoints: ${waypoints?.length || 0}`);
+    console.log(`  - behaviors: ${behaviors?.length || 0}`);
+    console.log(`  - areas: ${areas?.length || 0}`);
+    if (areas && areas.length > 0) {
+      console.log(`  - First area:`, JSON.stringify(areas[0], null, 2));
+    }
 
     // Verify ownership
     const soundscape = await repo.findById(id);
@@ -111,8 +119,13 @@ router.post('/:id/save', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
-    // Save waypoints and behaviors (transactional)
-    const full = await repo.saveFull(id, waypoints || [], behaviors || []);
+    // Save waypoints, behaviors, and areas (transactional)
+    const full = await repo.saveFull(id, waypoints || [], behaviors || [], areas || []);
+
+    console.log(`[Soundscapes] Saved ${id}: ${full.waypoints.length} waypoints, ${full.behaviors.length} behaviors, ${full.areas.length} areas`);
+    if (full.areas.length > 0) {
+      console.log(`[Soundscapes] First saved area ID:`, full.areas[0].id);
+    }
 
     res.json({ message: 'Soundscape saved', soundscape: full });
   } catch (error) {

@@ -47,6 +47,18 @@ class AreaRepository extends BaseRepository {
   }
 
   /**
+   * Delete a single area by ID
+   * @param {string} areaId - Area ID
+   * @param {string} soundscapeId - Soundscape ID (for safety)
+   * @returns {Promise<boolean>} True if deleted
+   */
+  async deleteOne(areaId, soundscapeId) {
+    const query = 'DELETE FROM areas WHERE id = $1 AND soundscape_id = $2';
+    const result = await this.db.query(query, [areaId, soundscapeId]);
+    return result.rowCount > 0;
+  }
+
+  /**
    * Insert multiple areas for a soundscape
    * @param {string} soundscapeId - Soundscape ID
    * @param {Object[]} areas - Array of area data (camelCase)

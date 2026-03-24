@@ -376,6 +376,9 @@ class SpatialAudioApp {
         this.gpsTracker = null;
         this.isRunning = false;
 
+        // === SESSION 3: Area Manager for polygon sound zones ===
+        this.areaManager = null;  // Manages AreaSoundSource instances
+
         // Callbacks for UI
         this.onPositionUpdate = null;
         this.onStateChange = null;
@@ -455,6 +458,11 @@ class SpatialAudioApp {
             console.log('[SpatialAudioApp] Creating listener...');
             this.listener = new Listener();
             console.log('[SpatialAudioApp] Listener created');
+
+            // === SESSION 3: Create AreaManager for polygon sound zones ===
+            console.log('[SpatialAudioApp] Creating AreaManager...');
+            this.areaManager = new AreaManager(this.engine, this.listener);
+            console.log('[SpatialAudioApp] AreaManager created');
 
             // Get initial GPS position FIRST
             // Use pre-fetched position if available (avoids iOS permission race condition)
@@ -549,11 +557,30 @@ class SpatialAudioApp {
             this.engine = null;
         }
 
+        // === SESSION 3: Dispose AreaManager ===
+        if (this.areaManager) {
+            this.areaManager.dispose();
+            this.areaManager = null;
+        }
+
         this.sounds = [];
         this.listener = null;
         this.isRunning = false;
         this._setState('stopped');
         console.log('[SpatialAudioApp] Stopped');
+    }
+
+    /**
+     * SESSION 3: Load Area configurations into AreaManager
+     * @param {Array} areaConfigs - Array of Area data objects
+     */
+    loadAreas(areaConfigs) {
+        if (!this.areaManager) {
+            console.warn('[SpatialAudioApp] Cannot load areas - AreaManager not initialized');
+            return;
+        }
+        console.log('[SpatialAudioApp] Loading', areaConfigs.length, 'areas into AreaManager...');
+        this.areaManager.loadAreas(areaConfigs);
     }
 
     /**
@@ -794,6 +821,11 @@ class SpatialAudioApp {
                 // Update sound positions based on listener movement
                 this._updateSoundPositions();
 
+                // === SESSION 3: Update AreaManager with new position ===
+                if (this.areaManager) {
+                    this.areaManager.update(pos.lat, pos.lon, this.listener.heading);
+                }
+
                 // Notify UI of position update
                 this._notifyPositionUpdate();
 
@@ -839,6 +871,11 @@ class SpatialAudioApp {
 
             // Update sound positions based on heading change
             this._updateSoundPositions();
+
+            // === SESSION 3: Update AreaManager with new heading ===
+            if (this.areaManager) {
+                this.areaManager.update(this.listener.lat, this.listener.lon, heading);
+            }
 
             // Notify UI of position update
             this._notifyPositionUpdate();
@@ -1970,8 +2007,8 @@ class SpatialAudioApp {
  * @version 1.0 (Feature: Sound Areas)
  */
 class AreaManager {
-    constructor(audioContext, listener) {
-        this.audioContext = audioContext;
+    constructor(engine, listener) {
+        this.engine = engine;
         this.listener = listener;
         this.areas = new Map();  // Map<areaId, AreaSoundSource>
         this.activeAreas = new Set();  // Set of areaIds listener is inside
@@ -1986,7 +2023,7 @@ class AreaManager {
 
         for (const areaConfig of areaConfigs) {
             try {
-                const areaSource = new AreaSoundSource(this.audioContext, areaConfig.id, {
+                const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
                     soundUrl: areaConfig.soundUrl,
@@ -2036,7 +2073,7 @@ class AreaManager {
 
                 // Fade out smoothly
                 if (areaSource.gain) {
-                    const t = this.audioContext.currentTime;
+                    const t = this.engine.ctx.currentTime;
                     areaSource.gain.gain.cancelScheduledValues(t);
                     areaSource.gain.gain.setTargetAtTime(0, t, 0.1);
                 }
@@ -2069,7 +2106,7 @@ class AreaManager {
 
             // Play top opaque area at full volume
             if (topOpaque.gain) {
-                const t = this.audioContext.currentTime;
+                const t = this.engine.ctx.currentTime;
                 topOpaque.gain.gain.cancelScheduledValues(t);
                 topOpaque.gain.gain.setTargetAtTime(topOpaque.options.gain, t, 0.01);
             }
@@ -2078,7 +2115,7 @@ class AreaManager {
             for (let i = 1; i < opaqueAreas.length; i++) {
                 const area = opaqueAreas[i];
                 if (area.gain) {
-                    const t = this.audioContext.currentTime;
+                    const t = this.engine.ctx.currentTime;
                     area.gain.gain.cancelScheduledValues(t);
                     area.gain.gain.setTargetAtTime(0, t, 0.1);
                 }

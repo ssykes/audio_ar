@@ -631,6 +631,15 @@ class MapPlayerApp extends MapAppShared {
                 reverbEnabled: true
             });
 
+            // === SESSION 3: Load Areas from soundscape into AreaManager ===
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
+                console.log('[MapPlayer] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager...');
+                this.app.loadAreas(soundscape.areas);
+            } else {
+                console.log('[MapPlayer] 🗺️ No areas in soundscape');
+            }
+
             // ---------------------------------------------------------------------
             // STEP 6: Set up callbacks
             // ---------------------------------------------------------------------
@@ -681,7 +690,7 @@ class MapPlayerApp extends MapAppShared {
             console.log('[MapPlayer] 🚀 Starting soundscape...');
 
             // Use startSoundScape if we have a soundscape with behaviors, otherwise use start()
-            const soundscape = this.getActiveSoundscape();
+            // (soundscape variable already declared above for Area loading)
             if (soundscape && soundscape.behaviors &&
                 soundscape.behaviors.length > 0) {
                 console.log('[MapPlayer] 🎼 Starting with behaviors:', soundscape.behaviors.length);

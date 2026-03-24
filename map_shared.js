@@ -2,7 +2,7 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.11 - Fixed duplicate waypoints: added isEditing guard to prevent reentrant _editWaypoint calls
+ * @version 6.12 - Areas fix: removed redundant loadAreas(), unified save/load
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -590,15 +590,26 @@ class MapAppShared {
             return cleanWp; // Keep camelCase - server repository handles snake_case conversion
         });
 
+        // Strip Leaflet layer references from areas
+        const cleanAreas = (soundscape.areas || []).map(area => {
+            const { _leafletLayer, ...cleanArea } = area;
+            return cleanArea;
+        });
+
+        // Debug: log what we're sending
+        this.debugLog(`📦 Saving: ${cleanWaypoints.length} waypoints, ${behaviors.length} behaviors, ${cleanAreas.length} areas`);
+
+        // Save waypoints, behaviors, and areas in single call
         this.api.saveSoundscape(
             serverId,
             cleanWaypoints,
             behaviors,
+            cleanAreas,
             signal  // Pass abort signal
         )
         .then(() => {
             soundscape.isDirty = false;
-            this.debugLog('✅ Auto-saved to server');
+            this.debugLog('✅ Auto-saved to server (waypoints + behaviors + areas)');
             this._updateSyncStatus(true);
         })
         .catch((error) => {
@@ -650,11 +661,17 @@ class MapAppShared {
             return cleanWp;
         });
 
+        // Strip Leaflet layer references from areas
+        const cleanAreas = (soundscape.areas || []).map(area => {
+            const { _leafletLayer, ...cleanArea } = area;
+            return cleanArea;
+        });
+
         // Await the save (no abort controller for force save)
-        await this.api.saveSoundscape(serverId, cleanWaypoints, behaviors);
+        await this.api.saveSoundscape(serverId, cleanWaypoints, behaviors, cleanAreas);
 
         soundscape.isDirty = false;
-        this.debugLog('✅ Force-saved to server');
+        this.debugLog('✅ Force-saved to server (waypoints + behaviors + areas)');
         this._updateSyncStatus(true);
     }
 
@@ -1206,6 +1223,14 @@ class MapAppShared {
             reverbEnabled: true
         });
 
+        // === SESSION 3: Load Areas from soundscape into AreaManager (simulation) ===
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
+            console.log('[MapShared] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (sim)...');
+            this.debugLog(`🗺️ Loading ${soundscape.areas.length} areas for simulation...`);
+            this.app.loadAreas(soundscape.areas);
+        }
+
         // Set callbacks
         this.app.onPositionUpdate = (data) => {
             this._updateSimDisplay();
@@ -1261,6 +1286,11 @@ class MapAppShared {
 
         // Update sound positions
         this.app._updateSoundPositions();
+
+        // === SESSION 3: Update AreaManager with simulated position ===
+        if (this.app.areaManager) {
+            this.app.areaManager.update(this.simListenerLat, this.simListenerLon, 0);
+        }
     }
 
     /**

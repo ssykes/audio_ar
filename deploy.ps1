@@ -463,9 +463,11 @@ $API_FILES = @(
     "repositories/WaypointRepository.js",
     "repositories/BehaviorRepository.js",
     "repositories/SoundScapeRepository.js",
+    "repositories/AreaRepository.js",
     "models/SoundScape.js",
     "models/Waypoint.js",
-    "models/Behavior.js"
+    "models/Behavior.js",
+    "models/Area.js"
 )
 
 $apiPath = Join-Path $LOCAL_PATH "api"
@@ -502,7 +504,7 @@ if (Test-Path $apiPath) {
     }
     
     Write-Host ""
-    Write-Host "Installing dependencies and restarting API server..." -ForegroundColor Cyan
+    Write-Host "Installing dependencies..." -ForegroundColor Cyan
 
     # Install dependencies
     Write-Host "   Installing npm packages..." -NoNewline
@@ -514,68 +516,42 @@ if (Test-Path $apiPath) {
         $npmResult | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
     }
 
-    # Stop existing server gracefully (PM2 managed)
-    Write-Host "   Stopping existing API server..." -NoNewline
-    & ssh -n $SERVER_USER@$SERVER_HOST "pm2 stop audio-ar-api 2>&1" | Out-Null
-    Start-Sleep -Seconds 1
-    Write-Host " [OK]" -ForegroundColor Green
-    
-    # Force kill any remaining node processes on port 3000 (with sudo)
-    Write-Host "   Killing any processes on port 3000..." -NoNewline
-    $killResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo fuser -k 3000/tcp 2>&1" 
-    Start-Sleep -Seconds 3  # Wait longer for port to be released
-    if ($killResult -match "killed" -or $killResult -eq "") {
+    # PM2 will handle the restart - just verify PM2 is running
+    Write-Host "   Verifying PM2 is running..." -NoNewline
+    $pm2Check = & ssh -n $SERVER_USER@$SERVER_HOST "pgrep -f 'pm2' 2>&1"
+    if ($pm2Check -and $pm2Check.Trim() -ne "") {
         Write-Host " [OK]" -ForegroundColor Green
     } else {
-        Write-Host " [OK] (no process on port)" -ForegroundColor Green
+        Write-Host " [WARNING - PM2 not running]" -ForegroundColor Yellow
     }
 
-    # Delete old PM2 process and create fresh one (prevents restart conflicts)
-    Write-Host "   Deleting old PM2 process..." -NoNewline
-    & ssh -n $SERVER_USER@$SERVER_HOST "pm2 delete audio-ar-api 2>&1" | Out-Null
+    # Restart API server using PM2
+    Write-Host "   Restarting API server (PM2)..." -NoNewline
+    
+    # Stop first to ensure port is free, then start (avoids EADDRINUSE)
+    & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && pm2 stop api 2>&1" | Out-Null
     Start-Sleep -Seconds 2
     
-    # Force kill any remaining node processes on port 3000 (with sudo)
-    Write-Host "   Killing any processes on port 3000..." -NoNewline
-    $killResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo fuser -k 3000/tcp 2>&1" 
-    Start-Sleep -Seconds 5  # Wait longer for kernel to release port
-    if ($killResult -match "killed" -or $killResult -eq "") {
+    $startResult = & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && pm2 start api 2>&1"
+    if ($startResult -match "online" -or $LASTEXITCODE -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green
     } else {
-        Write-Host " [OK] (no process on port)" -ForegroundColor Green
+        Write-Host " [FAILED]" -ForegroundColor Red
+        Write-Host "   $startResult" -ForegroundColor Gray
     }
-    
-    # Verify port is actually free before starting
-    Write-Host "   Verifying port 3000 is free..." -NoNewline
-    $portCheck = & ssh -n $SERVER_USER@$SERVER_HOST "sudo lsof -i :3000 2>&1"
-    if ($portCheck -eq "" -or $portCheck -match "COMMAND") {
-        Write-Host " [OK]" -ForegroundColor Green
-    } else {
-        Write-Host " [FAILED - port still in use]" -ForegroundColor Red
-        Write-Host "   Waiting 10 more seconds..." -ForegroundColor Yellow
-        Start-Sleep -Seconds 10
-    }
+    Start-Sleep -Seconds 3  # Wait for service to start
 
-    # Start fresh PM2 process
-    Write-Host "   Starting API server with PM2..." -NoNewline
-    & ssh -n $SERVER_USER@$SERVER_HOST "cd ${SERVER_PATH}/api && pm2 start server.js --name audio-ar-api 2>&1" 2>$null
-    Start-Sleep -Seconds 5  # Wait for process to start
-
-    # Check if it's running (use head -1 to get single PID, timeout after 5s)
-    $checkResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 list | grep audio-ar-api" 2>$null
-    if ($checkResult -and $checkResult.Trim() -ne "") {
+    # Check if it's running
+    Write-Host "   Verifying API server status..." -NoNewline
+    $statusResult = & ssh -n $SERVER_USER@$SERVER_HOST "pm2 status api 2>&1"
+    if ($statusResult -match "online") {
         Write-Host " [OK]" -ForegroundColor Green
-        Write-Host "   ✅ API server is running with PM2!" -ForegroundColor Green
-        
-        # Show PM2 status
-        Write-Host ""
-        Write-Host "   PM2 Status:" -ForegroundColor Cyan
-        & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 status audio-ar-api" 2>$null
-        
-        # Show last 20 log lines (helps catch startup errors)
+        Write-Host "   ✅ API server is running!" -ForegroundColor Green
+
+        # Show last 20 log lines from PM2
         Write-Host ""
         Write-Host "   Last 20 log lines (checking for errors...)" -ForegroundColor Cyan
-        $logs = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "pm2 logs audio-ar-api --lines 20 --nostream" 2>$null
+        $logs = & ssh -n $SERVER_USER@$SERVER_HOST "pm2 logs api --lines 20 --nostream 2>&1"
         if ($logs) {
             $logs | ForEach-Object {
                 if ($_ -match "error|Error|ERROR|failed|Failed") {
@@ -587,8 +563,8 @@ if (Test-Path $apiPath) {
         }
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
-        Write-Host "   ⚠️ Server may have failed to start - check PM2 logs" -ForegroundColor Yellow
-        Write-Host "   Run: pm2 logs audio-ar-api --lines 50" -ForegroundColor Gray
+        Write-Host "   ⚠️ Server may have failed to start - check logs" -ForegroundColor Yellow
+        Write-Host "   Run: ssh $SERVER_USER@$SERVER_HOST 'pm2 logs api --lines 50'" -ForegroundColor Gray
     }
 
     Write-Host ""
@@ -602,6 +578,25 @@ Write-Host "  Deploy Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Running database migrations (if needed)..." -ForegroundColor Cyan
+
+# Copy migration file to server and run it
+$migrationFile = Join-Path $LOCAL_PATH "api\migrations\003_create_areas_table.sql"
+if (Test-Path $migrationFile) {
+    # Copy to server temp location
+    & scp "$migrationFile" "${SERVER_USER}@${SERVER_HOST}:/tmp/003_create_areas_table.sql" 2>$null
+    
+    # Run migration and grant permissions
+    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -f /tmp/003_create_areas_table.sql 2>&1"
+    
+    # Grant permissions to user
+    & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -c 'GRANT ALL PRIVILEGES ON TABLE areas TO $SERVER_USER;' 2>&1" | Out-Null
+    
+    Write-Host "   ✅ Database schema verified" -ForegroundColor Green
+} else {
+    Write-Host "   ⚠️ Migration file not found (skipping)" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
 Write-Host "   Landing Page:       http://ssykes.net/index.html" -ForegroundColor White
