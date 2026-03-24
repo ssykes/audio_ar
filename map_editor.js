@@ -858,17 +858,19 @@ class MapEditorApp extends MapAppShared {
             // Get GPS position
             console.log('[MapEditor] 📍 Requesting GPS...');
             let gpsResolved = false;
+            let gpsGranted = false;
             const initialGPS = await new Promise((resolve) => {
                 const timeoutId = setTimeout(() => {
                     if (!gpsResolved) {
                         console.warn('[MapEditor] ⚠️ GPS timeout - using fallback');
-                        resolve({ lat: 0, lon: 0 });
+                        resolve(null);  // No initial position - will use waypoint center
                     }
                 }, 12000);
 
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         gpsResolved = true;
+                        gpsGranted = true;
                         clearTimeout(timeoutId);
                         console.log(`[MapEditor] 📍 GPS GRANTED ✅ (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}, accuracy: ${pos.coords.accuracy.toFixed(1)}m)`);
                         resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
@@ -876,8 +878,8 @@ class MapEditorApp extends MapAppShared {
                     (err) => {
                         gpsResolved = true;
                         clearTimeout(timeoutId);
-                        console.warn(`[MapEditor] 📍 GPS ERROR ❌: ${err.message}`);
-                        resolve({ lat: 0, lon: 0 });
+                        console.warn(`[MapEditor] 📍 GPS ERROR ❌: ${err.message} - will center on soundscapes`);
+                        resolve(null);  // No initial position - will use waypoint center
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                 );
@@ -1221,23 +1223,34 @@ class MapEditorApp extends MapAppShared {
 
         this.map.addControl(this.drawControl);
 
+        // Event: Drawing started (Session 4: Prevent waypoint creation while drawing)
+        this.map.on(L.Draw.Event.DRAWSTART, () => {
+            console.log('[MapEditor] DRAWSTART fired - setting isDrawingArea = true');
+            this.isDrawingArea = true;
+            console.log('[MapEditor] isDrawingArea is now:', this.isDrawingArea);
+        });
+
+        // Event: Drawing stopped
+        this.map.on(L.Draw.Event.DRAWSTOP, () => {
+            console.log('[MapEditor] DRAWSTOP fired - setting isDrawingArea = false');
+            this.isDrawingArea = false;
+            console.log('[MapEditor] isDrawingArea is now:', this.isDrawingArea);
+        });
+
         // Event: Polygon created
         this.map.on(L.Draw.Event.CREATED, (e) => {
             if (e.layerType !== 'polygon') return;
-            
+
             const layer = e.layer;
             const latlngs = layer.getLatLngs()[0];
-            
+
+            console.log('[MapEditor] CREATED event - layerType:', e.layerType, 'layer:', layer, 'on map:', this.map.hasLayer(layer));
+
             this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
-            
-            // Get area name
-            const areaName = prompt('Area name:', 'Area ' + this.nextAreaId);
-            if (!areaName) {
-                // User cancelled - remove the layer
-                this.drawnItems.removeLayer(layer);
-                return;
-            }
-            
+
+            // Auto-name area (similar to waypoints: Sound 1, Sound 2, ...)
+            const areaName = 'Sound ' + (this.areaMarkers.size + 1);
+
             // Create Area object
             const area = {
                 id: 'area' + this.nextAreaId++,
@@ -1253,7 +1266,7 @@ class MapEditorApp extends MapAppShared {
                 sortOrder: 0,
                 _leafletLayer: layer  // Store reference
             };
-            
+
             // Add to soundscape
             const soundscape = this.getActiveSoundscape();
             if (soundscape) {
@@ -1261,13 +1274,18 @@ class MapEditorApp extends MapAppShared {
                 this._markSoundscapeDirty();
                 this._scheduleAutoSave();
             }
-            
+
             // Store in area markers
             this.areaMarkers.set(area.id, layer);
-            
+
+            // IMPORTANT: Explicitly add the layer to drawnItems (Leaflet.Draw doesn't auto-add)
+            this.drawnItems.addLayer(layer);
+
+            console.log('[MapEditor] After storing - layer on map:', this.map.hasLayer(layer), 'in drawnItems:', this.drawnItems.hasLayer(layer));
+
             // Bind popup
             layer.bindPopup(this._createAreaPopupContent(area));
-            
+
             // Add click handler for adding vertices
             layer.on('click', (e) => {
                 if (this.isAreaEditMode) {
@@ -1275,7 +1293,9 @@ class MapEditorApp extends MapAppShared {
                     this._addVertexOnClick(area, e.latlng);
                 }
             });
-            
+
+            console.log('[MapEditor] After bindPopup - layer on map:', this.map.hasLayer(layer));
+
             this.debugLog(`✅ Created Area: ${area.name} (${latlngs.length} vertices)`);
             this._showToast(`✅ Created Area: ${areaName}`, 'success');
         });
