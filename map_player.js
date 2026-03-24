@@ -93,8 +93,8 @@ class MapPlayerApp extends MapAppShared {
             // Auto-sync if data has changed
             await this._autoSyncIfNeeded();
         } else {
-            this.debugLog('📂 Not logged in - loading from localStorage');
-            this._loadSoundscapeFromStorage();  // Fallback to localStorage
+            this.debugLog('🔓 Not logged in - cannot load soundscapes (server required)');
+            this._showToast('🔓 Please login via index.html to load soundscapes', 'warning');
         }
 
         console.log('Map Player ready');
@@ -308,9 +308,7 @@ class MapPlayerApp extends MapAppShared {
             this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints)`);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
-            this._showToast('⚠️ Using cached data', 'warning');
-            // Fallback to localStorage
-            this._loadSoundscapeFromStorage();
+            this._showToast('⚠️ Server load failed', 'error');
         }
     }
 

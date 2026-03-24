@@ -49,14 +49,12 @@ class MapEditorApp extends MapAppShared {
         // Position will be used if no soundscapes exist
         await this._getInitialGPS();
 
-        // Load soundscape from server if logged in, otherwise from localStorage
+        // Load soundscape from server (editor requires login)
         // This will center the map on the first soundscape's waypoints (if any exist)
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
             // Skip auto-sync check - we just loaded from server, so data is fresh
             this.debugLog('✅ Just loaded from server - skipping auto-sync check');
-        } else {
-            this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
 
         // If no soundscapes were loaded and we have GPS position, center on it
@@ -244,13 +242,45 @@ class MapEditorApp extends MapAppShared {
      * Handle logout - redirect to index.html
      * @private
      */
-    _handleLogout() {
-        if (!confirm('Are you sure you want to logout? Unsaved changes will be lost.')) {
-            return;
-        }
+    async _handleLogout() {
+        const soundscape = this.getActiveSoundscape();
+        const hasUnsavedChanges = soundscape?.isDirty || false;
 
-        // Save current soundscape before logout
-        this._saveSoundscapeToStorage();
+        if (hasUnsavedChanges) {
+            const confirmed = confirm(
+                '⚠️ You have unsaved changes.\n\n' +
+                'Click OK to save before logout, or Cancel to logout without saving.'
+            );
+            if (!confirmed) {
+                // User chose to logout without saving
+                this.debugLog('⚠️ Logout without saving - changes will be lost');
+            } else {
+                // Force save before logout - wait for completion
+                this.debugLog('💾 Saving before logout...');
+                this._showToast('💾 Saving before logout...', 'info');
+
+                try {
+                    // Cancel any pending auto-save
+                    if (this.saveDebounceTimer) {
+                        clearTimeout(this.saveDebounceTimer);
+                        this.saveDebounceTimer = null;
+                    }
+                    if (this.saveAbortController) {
+                        this.saveAbortController.abort();
+                        this.saveAbortController = null;
+                    }
+
+                    // Force immediate save
+                    await this._executeAutoSaveForce();
+
+                    this.debugLog('✅ Saved before logout');
+                    this._showToast('✅ Saved - logging out', 'success');
+                } catch (error) {
+                    this.debugLog('❌ Failed to save before logout: ' + error.message);
+                    this._showToast('⚠️ Save failed - changes may be lost', 'error');
+                }
+            }
+        }
 
         this.api.logout();
         this.isLoggedIn = false;
@@ -566,7 +596,21 @@ class MapEditorApp extends MapAppShared {
             soundConfig: wp.soundConfig
         }));
 
-        SoundScapeStorage.export(soundscape, this.waypoints);
+        const data = {
+            version: '3.0',
+            exportedAt: new Date().toISOString(),
+            soundscape: soundscape.toJSON(),
+            waypoints: this.waypoints
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `soundscape_${soundscape.id}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.debugLog('[Export] Exported:', a.download);
         this._showToast('✅ Soundscape exported', 'success');
     }
 
@@ -605,40 +649,40 @@ class MapEditorApp extends MapAppShared {
             }
         }
 
-        SoundScapeStorage.import(file, (result, error) => {
-            if (error || !result) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                const soundscape = SoundScape.fromJSON(data.soundscape);
+                const waypoints = data.waypoints || [];
+
+                // Clear current data
+                this._clearAllWaypoints();
+
+                // Load imported data as new soundscape
+                this.soundscapes.set(soundscape.id, soundscape);
+                this.activeSoundscapeId = soundscape.id;
+                this.waypoints = waypoints;
+
+                // Restore nextId
+                if (this.waypoints.length > 0) {
+                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                    this.nextId = maxId + 1;
+                }
+
+                // Render waypoints
+                this.waypoints.forEach(wp => this._createMarker(wp));
+                this._updateWaypointList();
+                this._updateSoundscapeSelector();
+
+                this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints)`);
+                this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
+            } catch (error) {
+                this.debugLog('❌ Import failed: ' + error.message);
                 this._showToast('❌ Import failed: ' + (error?.message || 'Unknown error'), 'error');
-                return;
             }
-
-            // Clear current data
-            this._clearAllWaypoints();
-
-            // Load imported data as new soundscape
-            const soundscape = result.soundscape;
-            this.waypoints = result.waypoints;
-
-            // Add to soundscapes map
-            this.soundscapes.set(soundscape.id, soundscape);
-            this.activeSoundscapeId = soundscape.id;
-
-            // Restore nextId
-            if (this.waypoints.length > 0) {
-                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                this.nextId = maxId + 1;
-            }
-
-            // Render waypoints
-            this.waypoints.forEach(wp => this._createMarker(wp));
-            this._updateWaypointList();
-            this._updateSoundscapeSelector();
-
-            // Save to localStorage
-            this._saveSoundscapeToStorage();
-
-            this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints)`);
-            this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
-        });
+        };
+        reader.readAsText(file);
     }
 
     /**
@@ -696,9 +740,8 @@ class MapEditorApp extends MapAppShared {
             this._updateSyncStatus(true);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
-            this._showToast('⚠️ Using local data (server sync failed)', 'warning');
-            // Fallback to localStorage
-            this._loadSoundscapeFromStorage();
+            this._showToast('⚠️ Server sync failed', 'error');
+            this._updateSyncStatus(false);
         }
     }
 

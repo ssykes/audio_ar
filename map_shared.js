@@ -511,103 +511,13 @@ class MapAppShared {
     }
 
     /**
-     * Load soundscape from localStorage
-     * @protected
-     */
-    _loadSoundscapeFromStorage() {
-        const data = SoundScapeStorage.getAll();
-        if (data && data.soundscapes && data.soundscapes.length > 0) {
-            // Load all soundscapes into map
-            this.soundscapes.clear();
-            data.soundscapes.forEach(soundscape => {
-                this.soundscapes.set(soundscape.id, soundscape);
-            });
-
-            // Set active soundscape
-            this.activeSoundscapeId = data.activeId || data.soundscapes[0].id;
-            const activeSoundscape = this.getActiveSoundscape();
-
-            // Load waypoints from active soundscape
-            this.waypoints = activeSoundscape.waypointData || [];
-
-            // Restore nextId from waypoints
-            if (this.waypoints.length > 0) {
-                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                this.nextId = maxId + 1;
-            }
-
-            // Render waypoints on map
-            this.waypoints.forEach(wp => {
-                this._createMarker(wp);
-            });
-
-            this._updateWaypointList();
-            this._updateSoundscapeSelector();
-
-            // Center and zoom map to show all waypoints
-            if (this.waypoints.length > 0) {
-                // Create bounds from all waypoint positions
-                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
-                
-                // Fit map to show all waypoints with padding
-                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
-                
-                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
-                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
-                
-                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
-            }
-
-            this.debugLog(`🎼 Loaded ${this.soundscapes.size} soundscape(s): ${activeSoundscape.name} (${this.waypoints.length} waypoints)`);
-        } else {
-            // Create default soundscape
-            this._createDefaultSoundscape();
-        }
-    }
-
-    /**
-     * Create default soundscape
-     * @protected
-     */
-    _createDefaultSoundscape() {
-        // Generate a proper UUID-like ID instead of using 'default' (which isn't a valid UUID)
-        const id = 'soundscape_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
-        const soundscape = new SoundScape(id, 'Default Soundscape', [], []);
-        this.soundscapes.set(id, soundscape);
-        this.activeSoundscapeId = id;
-        this._updateSoundscapeSelector();
-        this.debugLog('🎼 Created default soundscape: ' + id);
-    }
-
-    /**
-     * Save soundscape to localStorage
+     * Save soundscape to storage (stub - localStorage removed)
+     * Server auto-save handles persistence
      * @protected
      */
     _saveSoundscapeToStorage() {
-        const soundscape = this.getActiveSoundscape();
-        if (!soundscape) return;
-
-        // Update soundscape with current waypoints (clean data without Leaflet objects)
-        soundscape.soundIds = this.waypoints.map(wp => wp.id);
-        soundscape.waypointData = this.waypoints.map(wp => ({
-            id: wp.id,
-            name: wp.name,
-            lat: wp.lat,
-            lon: wp.lon,
-            type: wp.type,
-            icon: wp.icon,
-            color: wp.color,
-            activationRadius: wp.activationRadius,
-            soundUrl: wp.soundUrl,
-            volume: wp.volume,
-            loop: wp.loop,
-            soundConfig: wp.soundConfig
-        }));
-
-        // Always save to localStorage (backup)
-        SoundScapeStorage.saveAll(Array.from(this.soundscapes.values()), this.activeSoundscapeId);
-
-        this.debugLog('💾 Saved to localStorage');
+        // No-op: localStorage soundscape cache removed
+        // Server auto-save handles all persistence
     }
 
     /**
@@ -634,6 +544,12 @@ class MapAppShared {
             this.saveDebounceTimer = null;
         }
 
+        // Cancel any pending save request (prevents race conditions)
+        if (this.saveAbortController) {
+            this.saveAbortController.abort();
+            this.saveAbortController = null;
+        }
+
         // Schedule save after 2 seconds (resets on each call)
         this.saveDebounceTimer = setTimeout(() => {
             this._executeAutoSave();
@@ -658,7 +574,11 @@ class MapAppShared {
         }
 
         this.debugLog('☁️ Auto-saving to server...');
-        
+
+        // Create abort controller for this save request
+        this.saveAbortController = new AbortController();
+        const { signal } = this.saveAbortController;
+
         // Use soundscape.waypointData (clean data) instead of this.waypoints
         const wpData = soundscape.waypointData || [];
         const behaviors = soundscape.behaviors || [];
@@ -673,7 +593,8 @@ class MapAppShared {
         this.api.saveSoundscape(
             serverId,
             cleanWaypoints,
-            behaviors
+            behaviors,
+            signal  // Pass abort signal
         )
         .then(() => {
             soundscape.isDirty = false;
@@ -681,11 +602,60 @@ class MapAppShared {
             this._updateSyncStatus(true);
         })
         .catch((error) => {
+            if (error.name === 'AbortError') {
+                this.debugLog('⚠️ Save aborted (new edit in progress)');
+                return;
+            }
             this.debugLog('❌ Server save failed: ' + error.message);
-            this._showToast('⚠️ Server sync failed - saved locally', 'warning');
+            this._showToast('⚠️ Server sync failed - changes not saved', 'error');
             this._updateSyncStatus(false);
             // Keep isDirty = true so it will retry later
+        })
+        .finally(() => {
+            this.saveAbortController = null;
         });
+    }
+
+    /**
+     * Execute forced save to server (returns promise for awaiting)
+     * Used for explicit saves before logout/navigation
+     * @returns {Promise<void>}
+     * @protected
+     */
+    async _executeAutoSaveForce() {
+        if (!this.isLoggedIn) {
+            throw new Error('Not logged in');
+        }
+
+        const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
+        if (!serverId) {
+            throw new Error('No server ID mapped');
+        }
+
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape || !soundscape.isDirty) {
+            this.debugLog('✅ No changes - skipping forced save');
+            return;
+        }
+
+        this.debugLog('☁️ Force-saving to server...');
+
+        // Use soundscape.waypointData (clean data) instead of this.waypoints
+        const wpData = soundscape.waypointData || [];
+        const behaviors = soundscape.behaviors || [];
+
+        // Strip Leaflet properties (circleMarker, marker) before sending to server
+        const cleanWaypoints = wpData.map(wp => {
+            const { circleMarker, marker, ...cleanWp } = wp;
+            return cleanWp;
+        });
+
+        // Await the save (no abort controller for force save)
+        await this.api.saveSoundscape(serverId, cleanWaypoints, behaviors);
+
+        soundscape.isDirty = false;
+        this.debugLog('✅ Force-saved to server');
+        this._updateSyncStatus(true);
     }
 
     // =====================================================================

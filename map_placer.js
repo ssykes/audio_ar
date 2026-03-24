@@ -101,14 +101,12 @@ class MapPlacerApp {
         this._setupEventListeners();
         this._initDebugConsole();
         await this._getInitialGPS();
-        
-        // Load soundscape from server if logged in, otherwise from localStorage
+
+        // Load soundscape from server (placer requires login)
         if (this.isLoggedIn) {
             await this._loadSoundscapeFromServer();
-        } else {
-            this._loadSoundscapeFromStorage();  // Fallback to localStorage
         }
-        
+
         console.log('Map Placer ready (Editor Mode)');
     }
 
@@ -224,59 +222,6 @@ class MapPlacerApp {
         if (subtitle) subtitle.textContent = 'Player Mode - Walk to explore';
 
         this._showToast('📱 Player Mode: Walk to explore the soundscape', 'info');
-    }
-
-    /**
-     * Load soundscapes from localStorage (Session 5B: Multi-Soundscape Support)
-     * @private
-     */
-    _loadSoundscapeFromStorage() {
-        const data = SoundScapeStorage.getAll();
-        if (data && data.soundscapes && data.soundscapes.length > 0) {
-            // Load all soundscapes into map
-            this.soundscapes.clear();
-            data.soundscapes.forEach(soundscape => {
-                this.soundscapes.set(soundscape.id, soundscape);
-            });
-
-            // Set active soundscape
-            this.activeSoundscapeId = data.activeId || data.soundscapes[0].id;
-            const activeSoundscape = this.getActiveSoundscape();
-
-            // Load waypoints from active soundscape
-            this.waypoints = activeSoundscape.waypointData || [];
-
-            // Restore nextId from waypoints
-            if (this.waypoints.length > 0) {
-                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                this.nextId = maxId + 1;
-            }
-
-            // Render waypoints on map
-            this.waypoints.forEach(wp => {
-                this._createMarker(wp);
-            });
-
-            this._updateWaypointList();
-            this._updateSoundscapeSelector();
-
-            this.debugLog(`🎼 Loaded ${this.soundscapes.size} soundscape(s): ${activeSoundscape.name} (${this.waypoints.length} waypoints)`);
-        } else {
-            // Create default soundscape
-            this._createDefaultSoundscape();
-        }
-    }
-
-    /**
-     * Create default soundscape
-     * @private
-     */
-    _createDefaultSoundscape() {
-        const soundscape = new SoundScape('default', 'Default Soundscape', [], []);
-        this.soundscapes.set('default', soundscape);
-        this.activeSoundscapeId = 'default';
-        this._updateSoundscapeSelector();
-        this.debugLog('🎼 Created default soundscape');
     }
 
     /**
@@ -1702,7 +1647,21 @@ class MapPlacerApp {
             soundConfig: wp.soundConfig
         }));
 
-        SoundScapeStorage.export(soundscape, this.waypoints);
+        const data = {
+            version: '3.0',
+            exportedAt: new Date().toISOString(),
+            soundscape: soundscape.toJSON(),
+            waypoints: this.waypoints
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `soundscape_${soundscape.id}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.debugLog('[Export] Exported:', a.download);
         this._showToast('✅ Soundscape exported', 'success');
     }
 
@@ -1741,40 +1700,40 @@ class MapPlacerApp {
             }
         }
 
-        SoundScapeStorage.import(file, (result, error) => {
-            if (error || !result) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = JSON.parse(event.target.result);
+                const soundscape = SoundScape.fromJSON(data.soundscape);
+                const waypoints = data.waypoints || [];
+
+                // Clear current data
+                this._clearAllWaypoints();
+
+                // Load imported data as new soundscape
+                this.soundscapes.set(soundscape.id, soundscape);
+                this.activeSoundscapeId = soundscape.id;
+                this.waypoints = waypoints;
+
+                // Restore nextId
+                if (this.waypoints.length > 0) {
+                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                    this.nextId = maxId + 1;
+                }
+
+                // Render waypoints
+                this.waypoints.forEach(wp => this._createMarker(wp));
+                this._updateWaypointList();
+                this._updateSoundscapeSelector();
+
+                this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints)`);
+                this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
+            } catch (error) {
+                this.debugLog('❌ Import failed: ' + error.message);
                 this._showToast('❌ Import failed: ' + (error?.message || 'Unknown error'), 'error');
-                return;
             }
-
-            // Clear current data
-            this._clearAllWaypoints();
-
-            // Load imported data as new soundscape
-            const soundscape = result.soundscape;
-            this.waypoints = result.waypoints;
-
-            // Add to soundscapes map
-            this.soundscapes.set(soundscape.id, soundscape);
-            this.activeSoundscapeId = soundscape.id;
-
-            // Restore nextId
-            if (this.waypoints.length > 0) {
-                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                this.nextId = maxId + 1;
-            }
-
-            // Render waypoints
-            this.waypoints.forEach(wp => this._createMarker(wp));
-            this._updateWaypointList();
-            this._updateSoundscapeSelector();
-
-            // Save to localStorage
-            this._saveSoundscapeToStorage();
-
-            this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints)`);
-            this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
-        });
+        };
+        reader.readAsText(file);
     }
 
     /**
@@ -1931,9 +1890,8 @@ class MapPlacerApp {
             this._updateSyncStatus(true);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
-            this._showToast('⚠️ Using local data (server sync failed)', 'warning');
-            // Fallback to localStorage
-            this._loadSoundscapeFromStorage();
+            this._showToast('⚠️ Server sync failed', 'error');
+            this._updateSyncStatus(false);
         }
     }
 

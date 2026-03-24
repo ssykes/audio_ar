@@ -68,12 +68,19 @@ class ApiClient {
         };
 
         try {
-            // Add timeout (10 seconds)
+            // Add timeout (10 seconds) - respects any passed abort signal
             const controller = new AbortController();
             const timeoutId = setTimeout(() => {
                 console.error(`[ApiClient] Request timeout for: ${url}`);
                 controller.abort();
             }, 10000);
+
+            // If a signal was passed, chain it to our controller
+            if (options.signal) {
+                options.signal.addEventListener('abort', () => {
+                    controller.abort();
+                });
+            }
 
             config.signal = controller.signal;
 
@@ -208,11 +215,16 @@ class ApiClient {
 
     /**
      * Save soundscape (waypoints + behaviors)
+     * @param {string} id - Soundscape ID
+     * @param {Object[]} waypoints - Waypoints to save
+     * @param {Object[]} behaviors - Behaviors to save
+     * @param {AbortSignal} [signal] - Optional abort signal
      */
-    async saveSoundscape(id, waypoints, behaviors = []) {
+    async saveSoundscape(id, waypoints, behaviors = [], signal = null) {
         return await this.request(`/soundscapes/${id}/save`, {
             method: 'POST',
-            body: JSON.stringify({ waypoints, behaviors })
+            body: JSON.stringify({ waypoints, behaviors }),
+            signal
         });
     }
 
