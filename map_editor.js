@@ -2,7 +2,7 @@
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.41 - Areas fix: removed redundant loadAreas() call
+ * @version 6.42 - Areas fix: init drawer before loading soundscapes
  * @author Spatial Audio AR Team
  *
  * Features:
@@ -15,7 +15,7 @@
  * - Area drawing (Session 4): Click vertices, double-click to close
  */
 
-console.log('[map_editor.js] Loading v6.40...');
+console.log('[map_editor.js] Loading v6.42...');
 
 class MapEditorApp extends MapAppShared {
     constructor() {
@@ -49,6 +49,9 @@ class MapEditorApp extends MapAppShared {
         // Position will be used if no soundscapes exist
         await this._getInitialGPS();
 
+        // Initialize Leaflet.Draw for Areas BEFORE loading soundscapes (fix: areas need drawnItems)
+        this._initAreaDrawer();
+
         // Load soundscape from server (editor requires login)
         // This will center the map on the first soundscape's waypoints (if any exist)
         if (this.isLoggedIn) {
@@ -76,9 +79,6 @@ class MapEditorApp extends MapAppShared {
 
         // Initialize UI based on mode flags
         this._initUI();
-
-        // Initialize Leaflet.Draw for Areas (Session 4)
-        this._initAreaDrawer();
 
         // Warn before closing page with unsaved changes
         window.addEventListener('beforeunload', (e) => {
@@ -137,14 +137,6 @@ class MapEditorApp extends MapAppShared {
      * @private
      */
     _setupEventListeners() {
-        const addBtn = document.getElementById('addWaypointBtn');
-        if (addBtn) {
-            addBtn.addEventListener('click', () => {
-                if (this.state !== 'editor') return;
-                this._showInstruction('Click on the map to place a sound');
-            });
-        }
-
         // Add Area button - start polygon drawing mode (Session 4: Sound Area)
         const addAreaBtn = document.getElementById('addAreaBtn');
         if (addAreaBtn) {
@@ -1348,9 +1340,15 @@ class MapEditorApp extends MapAppShared {
 
             // Add click handler for adding vertices
             layer.on('click', (e) => {
+                console.log('[MapEditor] Area click - isAreaEditMode:', this.isAreaEditMode);
                 if (this.isAreaEditMode) {
                     e.originalEvent.stopPropagation();
                     this._addVertexOnClick(area, e.latlng);
+                } else {
+                    // Not in edit mode - allow popup to show
+                    // But stop propagation so map click doesn't create waypoint
+                    e.originalEvent.stopPropagation();
+                    console.log('[MapEditor] Area click - stopped propagation, popup should show');
                 }
             });
 
@@ -1408,12 +1406,12 @@ class MapEditorApp extends MapAppShared {
         // Event: Editing stopped
         this.map.on(L.Draw.Event.EDITSTOP, () => {
             this.debugLog('✏️ Area edit mode stopped');
-            
-            // Re-enable popups
+
+            // Re-enable popups with fresh content (event handlers need to be re-attached)
             this.drawnItems.eachLayer((layer) => {
-                if (layer._popupContent) {
-                    layer.bindPopup(layer._popupContent);
-                    layer._popupContent = null;
+                const area = this._findAreaByLayer(layer);
+                if (area) {
+                    layer.bindPopup(this._createAreaPopupContent(area));
                 }
             });
         });
@@ -1522,34 +1520,54 @@ class MapEditorApp extends MapAppShared {
      * @param {Object[]} areas
      */
     _loadAreasIntoDrawer(areas) {
-        if (!areas || areas.length === 0) return;
+        console.log('[MapEditor] _loadAreasIntoDrawer called with:', areas);
         
-        areas.forEach(area => {
-            const latlngs = area.polygon.map(v => [v.lat, v.lng]);
+        if (!areas || areas.length === 0) {
+            console.log('[MapEditor] No areas to load');
+            return;
+        }
+
+        // Safety check: ensure drawnItems is initialized
+        if (!this.drawnItems) {
+            this.debugLog('⚠️ _loadAreasIntoDrawer: drawnItems not initialized yet');
+            return;
+        }
+
+        console.log('[MapEditor] Loading', areas.length, 'areas...');
+        areas.forEach((area, index) => {
+            console.log('[MapEditor] Loading area', index + 1, ':', area.name, area.polygon.length, 'vertices');
             
+            const latlngs = area.polygon.map(v => [v.lat, v.lng]);
+
             const polygon = L.polygon(latlngs, {
                 color: area.color || '#ff6b6b',
                 fillColor: area.color || '#ff6b6b',
                 fillOpacity: 0.2,
                 weight: 2
             });
-            
+
             this.drawnItems.addLayer(polygon);
             this.areaMarkers.set(area.id, polygon);
             area._leafletLayer = polygon;
-            
+
             // Bind popup
             polygon.bindPopup(this._createAreaPopupContent(area));
-            
+
             // Add click handler
             polygon.on('click', (e) => {
+                console.log('[MapEditor] Area click - isAreaEditMode:', this.isAreaEditMode);
                 if (this.isAreaEditMode) {
                     e.originalEvent.stopPropagation();
                     this._addVertexOnClick(area, e.latlng);
+                } else {
+                    // Not in edit mode - allow popup to show
+                    // But stop propagation so map click doesn't create waypoint
+                    e.originalEvent.stopPropagation();
+                    console.log('[MapEditor] Area click - stopped propagation, popup should show');
                 }
             });
         });
-        
+
         this.debugLog(`📍 Loaded ${areas.length} Areas`);
     }
 
@@ -1579,27 +1597,46 @@ class MapEditorApp extends MapAppShared {
         setTimeout(() => {
             const editBtn = document.getElementById(`edit-area-${area.id}`);
             const deleteBtn = document.getElementById(`delete-area-${area.id}`);
-            
+
             if (editBtn && area._leafletLayer) {
                 editBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    // Trigger edit mode for this layer
-                    if (this.drawControl) {
-                        const editHandler = this.drawControl._toolbars.edit;
+                    e.preventDefault();
+                    this.debugLog(`✏️ Editing area: ${area.name}`);
+                    
+                    // Close the popup first
+                    if (area._leafletLayer) {
+                        area._leafletLayer.closePopup();
+                    }
+                    
+                    // Enable editing on the specific layer
+                    if (this.drawnItems) {
+                        // Use Leaflet.Draw's edit handler
+                        const editHandler = this.map.editHandler;
                         if (editHandler) {
                             editHandler.enable();
+                        } else {
+                            // Fallback: trigger edit via drawnItems
+                            this.drawnItems.eachLayer((layer) => {
+                                if (layer === area._leafletLayer) {
+                                    layer.editing.enable();
+                                }
+                            });
                         }
                     }
+                    
+                    this._showInstruction(`✏️ Editing: ${area.name}. Drag vertices to reshape. Click Save when done.`, 'info');
                 });
             }
-            
+
             if (deleteBtn) {
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
+                    e.preventDefault();
                     this._deleteArea(area.id);
                 });
             }
-        }, 100);
+        }, 50);
         
         return content;
     }
