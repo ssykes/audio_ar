@@ -199,30 +199,17 @@ class MapAppShared {
 
         // Map click handler (only in editor mode with editing allowed)
         this.map.on('click', (e) => {
-            console.log('[MapShared] Map click - state:', this.state, 'isDragging:', this.isDragging, 'allowEditing:', this.allowEditing, 'isDrawingArea:', this.isDrawingArea);
-            console.log('[MapShared] Map click - latlng:', e.latlng.lat.toFixed(4), e.latlng.lng.toFixed(4));
-            if (this.state !== 'editor') {
-                console.log('[MapShared] Aborted: not in editor state');
-                return;
-            }
-            if (this.isDragging) {
-                console.log('[MapShared] Aborted: isDragging');
-                return;
-            }
-            if (!this.allowEditing) {
-                console.log('[MapShared] Aborted: allowEditing is false');
-                return;
-            }
+            if (this.state !== 'editor') return;
+            if (this.isDragging) return;
+            if (!this.allowEditing) return;
 
             // Session 4: Don't add waypoint if drawing an Area
             if (this.isDrawingArea) {
-                console.log('[MapShared] Skipping waypoint - drawing area');
                 return;
             }
             // Also check areaDrawer (Leaflet.Draw)
             if (this.areaDrawer && this.areaDrawer.isEnabled) return;
 
-            console.log('[MapShared] Creating waypoint at:', e.latlng.lat.toFixed(4), e.latlng.lng.toFixed(4));
             this._addWaypoint(e.latlng.lat, e.latlng.lng);
         });
     }

@@ -2,7 +2,7 @@
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.42 - Areas fix: init drawer before loading soundscapes
+ * @version 6.43 - Always-on area editing: Leaflet.Draw toolbar always visible
  * @author Spatial Audio AR Team
  *
  * Features:
@@ -15,7 +15,7 @@
  * - Area drawing (Session 4): Click vertices, double-click to close
  */
 
-console.log('[map_editor.js] Loading v6.42...');
+console.log('[map_editor.js] Loading v6.43...');
 
 class MapEditorApp extends MapAppShared {
     constructor() {
@@ -23,7 +23,6 @@ class MapEditorApp extends MapAppShared {
 
         // Area drawing using Leaflet.Draw (Session 4)
         this.drawnItems = null;  // FeatureGroup for drawn areas
-        this.isAreaEditMode = false;  // Track edit mode
         this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
         this.nextAreaId = 1;
     }
@@ -137,30 +136,6 @@ class MapEditorApp extends MapAppShared {
      * @private
      */
     _setupEventListeners() {
-        // Add Area button - start polygon drawing mode (Session 4: Sound Area)
-        const addAreaBtn = document.getElementById('addAreaBtn');
-        if (addAreaBtn) {
-            addAreaBtn.addEventListener('click', () => {
-                this.debugLog('🗺️ Draw Area button clicked');
-                if (this.state !== 'editor') return;
-                
-                // Toggle area edit mode
-                if (this.isAreaEditMode) {
-                    // Exit edit mode
-                    this.isAreaEditMode = false;
-                    this._updateDrawingModeUI(false);
-                    this._showInstruction('✏️ Area editing disabled', 'info');
-                } else {
-                    // Enter edit mode - show toolbar
-                    this.isAreaEditMode = true;
-                    this._updateDrawingModeUI(true);
-                    this._showInstruction('🗺️ Click polygon icon to draw, or pencil icon to edit existing Areas', 'info');
-                }
-            });
-        } else {
-            console.warn('addAreaBtn not found!');
-        }
-
         const startBtn = document.getElementById('startBtn');
         if (startBtn) {
             startBtn.addEventListener('click', () => this._handleStartClick());
@@ -1277,16 +1252,12 @@ class MapEditorApp extends MapAppShared {
 
         // Event: Drawing started (Session 4: Prevent waypoint creation while drawing)
         this.map.on(L.Draw.Event.DRAWSTART, () => {
-            console.log('[MapEditor] DRAWSTART fired - setting isDrawingArea = true');
             this.isDrawingArea = true;
-            console.log('[MapEditor] isDrawingArea is now:', this.isDrawingArea);
         });
 
         // Event: Drawing stopped
         this.map.on(L.Draw.Event.DRAWSTOP, () => {
-            console.log('[MapEditor] DRAWSTOP fired - setting isDrawingArea = false');
             this.isDrawingArea = false;
-            console.log('[MapEditor] isDrawingArea is now:', this.isDrawingArea);
         });
 
         // Event: Polygon created
@@ -1295,8 +1266,6 @@ class MapEditorApp extends MapAppShared {
 
             const layer = e.layer;
             const latlngs = layer.getLatLngs()[0];
-
-            console.log('[MapEditor] CREATED event - layerType:', e.layerType, 'layer:', layer, 'on map:', this.map.hasLayer(layer));
 
             this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
 
@@ -1333,48 +1302,17 @@ class MapEditorApp extends MapAppShared {
             // IMPORTANT: Explicitly add the layer to drawnItems (Leaflet.Draw doesn't auto-add)
             this.drawnItems.addLayer(layer);
 
-            console.log('[MapEditor] After storing - layer on map:', this.map.hasLayer(layer), 'in drawnItems:', this.drawnItems.hasLayer(layer));
-
             // Bind popup
             layer.bindPopup(this._createAreaPopupContent(area));
 
-            // Add click handler for adding vertices
+            // Add click handler for areas - always show popup, never add vertices on click
             layer.on('click', (e) => {
-                console.log('[MapEditor] Area click - isAreaEditMode:', this.isAreaEditMode);
-                if (this.isAreaEditMode) {
-                    e.originalEvent.stopPropagation();
-                    this._addVertexOnClick(area, e.latlng);
-                } else {
-                    // Not in edit mode - allow popup to show
-                    // But stop propagation so map click doesn't create waypoint
-                    e.originalEvent.stopPropagation();
-                    console.log('[MapEditor] Area click - stopped propagation, popup should show');
-                }
+                // Always stop propagation so map click doesn't create waypoint
+                e.originalEvent.stopPropagation();
             });
-
-            console.log('[MapEditor] After bindPopup - layer on map:', this.map.hasLayer(layer));
 
             this.debugLog(`✅ Created Area: ${area.name} (${latlngs.length} vertices)`);
             this._showToast(`✅ Created Area: ${areaName}`, 'success');
-        });
-
-        // Event: Editing started
-        this.map.on(L.Draw.Event.EDITSTART, () => {
-            this.debugLog('✏️ Area edit mode started');
-            this.isAreaEditMode = true;
-            this._updateDrawingModeUI(true);
-            
-            // Disable map dragging
-            this.map.dragging.disable();
-            this.map.scrollWheelZoom.disable();
-            
-            // Disable popups while editing
-            this.drawnItems.eachLayer((layer) => {
-                if (layer.getPopup()) {
-                    layer._popupContent = layer.getPopup().getContent();
-                    layer.unbindPopup();
-                }
-            });
         });
 
         // Event: Polygon edited
@@ -1385,7 +1323,7 @@ class MapEditorApp extends MapAppShared {
                     // Update polygon data
                     const latlngs = layer.getLatLngs()[0];
                     area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
-                    
+
                     // Update soundscape
                     const soundscape = this.getActiveSoundscape();
                     if (soundscape) {
@@ -1393,25 +1331,8 @@ class MapEditorApp extends MapAppShared {
                         this._markSoundscapeDirty();
                         this._scheduleAutoSave();
                     }
-                    
+
                     this.debugLog(`✏️ Edited Area: ${area.name}`);
-                }
-            });
-            
-            // Re-enable map dragging
-            this.map.dragging.enable();
-            this.map.scrollWheelZoom.enable();
-        });
-
-        // Event: Editing stopped
-        this.map.on(L.Draw.Event.EDITSTOP, () => {
-            this.debugLog('✏️ Area edit mode stopped');
-
-            // Re-enable popups with fresh content (event handlers need to be re-attached)
-            this.drawnItems.eachLayer((layer) => {
-                const area = this._findAreaByLayer(layer);
-                if (area) {
-                    layer.bindPopup(this._createAreaPopupContent(area));
                 }
             });
         });
@@ -1474,28 +1395,6 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Update UI for drawing mode
-     * @param {boolean} isDrawing
-     * @private
-     */
-    _updateDrawingModeUI(isDrawing) {
-        const drawingModeItem = document.getElementById('drawingModeItem');
-        const drawingModeStatus = document.getElementById('drawingModeStatus');
-        const addAreaBtn = document.getElementById('addAreaBtn');
-
-        if (drawingModeItem && drawingModeStatus) {
-            drawingModeItem.style.display = isDrawing ? 'flex' : 'none';
-            drawingModeStatus.textContent = isDrawing ? 'Area editing' : '--';
-        }
-
-        if (addAreaBtn) {
-            addAreaBtn.textContent = isDrawing ? '✖ Done' : '+ Draw Area';
-            addAreaBtn.classList.toggle('btn-warning', isDrawing);
-            addAreaBtn.classList.toggle('btn-primary', !isDrawing);
-        }
-    }
-
-    /**
      * Clear all areas
      */
     _clearAllAreas() {
@@ -1520,12 +1419,7 @@ class MapEditorApp extends MapAppShared {
      * @param {Object[]} areas
      */
     _loadAreasIntoDrawer(areas) {
-        console.log('[MapEditor] _loadAreasIntoDrawer called with:', areas);
-        
-        if (!areas || areas.length === 0) {
-            console.log('[MapEditor] No areas to load');
-            return;
-        }
+        if (!areas || areas.length === 0) return;
 
         // Safety check: ensure drawnItems is initialized
         if (!this.drawnItems) {
@@ -1533,10 +1427,7 @@ class MapEditorApp extends MapAppShared {
             return;
         }
 
-        console.log('[MapEditor] Loading', areas.length, 'areas...');
-        areas.forEach((area, index) => {
-            console.log('[MapEditor] Loading area', index + 1, ':', area.name, area.polygon.length, 'vertices');
-            
+        areas.forEach((area) => {
             const latlngs = area.polygon.map(v => [v.lat, v.lng]);
 
             const polygon = L.polygon(latlngs, {
@@ -1553,18 +1444,9 @@ class MapEditorApp extends MapAppShared {
             // Bind popup
             polygon.bindPopup(this._createAreaPopupContent(area));
 
-            // Add click handler
+            // Add click handler - always stop propagation to prevent waypoint creation
             polygon.on('click', (e) => {
-                console.log('[MapEditor] Area click - isAreaEditMode:', this.isAreaEditMode);
-                if (this.isAreaEditMode) {
-                    e.originalEvent.stopPropagation();
-                    this._addVertexOnClick(area, e.latlng);
-                } else {
-                    // Not in edit mode - allow popup to show
-                    // But stop propagation so map click doesn't create waypoint
-                    e.originalEvent.stopPropagation();
-                    console.log('[MapEditor] Area click - stopped propagation, popup should show');
-                }
+                e.originalEvent.stopPropagation();
             });
         });
 
