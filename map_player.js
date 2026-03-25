@@ -2,7 +2,7 @@
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
  *
- * @version 7.0 - Session 10 UI redesign: Icon bar + bottom status bar
+ * @version 7.1 - Add area visualization on map
  *
  * Features:
  * - Auto-sync on page load (timestamp-based)
@@ -13,13 +13,16 @@
  * - Debug modal with copy to clipboard
  */
 
-console.log('[map_player.js] Loading v7.0...');
+console.log('[map_player.js] Loading v7.1...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
         super({ mode: 'player' });
         // Initialize offline download manager for offline soundscape loading
         this.downloadManager = new OfflineDownloadManager();
+        // Area visualization (read-only)
+        this.drawnItems = null;  // FeatureGroup for area polygons
+        this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
     }
 
     /**
@@ -140,7 +143,91 @@ class MapPlayerApp extends MapAppShared {
             marker.dragging.disable();
         });
 
+        // Initialize area drawer for visualization (read-only)
+        this._initAreaDrawer();
+
         this._showToast('📱 Player Mode: Walk to explore the soundscape', 'info');
+    }
+
+    /**
+     * Initialize Leaflet.Draw for area visualization (read-only)
+     * @private
+     */
+    _initAreaDrawer() {
+        this.debugLog('🗺️ _initAreaDrawer called');
+        
+        // Create feature group to store drawn areas
+        this.drawnItems = new L.FeatureGroup();
+        this.map.addLayer(this.drawnItems);
+        
+        this.debugLog('✅ drawnItems initialized and added to map');
+    }
+
+    /**
+     * Load areas into drawer for visualization
+     * @param {Object[]} areas
+     * @private
+     */
+    _loadAreasIntoDrawer(areas) {
+        this.debugLog('🗺️ _loadAreasIntoDrawer called with ' + (areas ? areas.length : 0) + ' areas');
+        
+        if (!areas || areas.length === 0) {
+            this.debugLog('⚠️ No areas to load');
+            return;
+        }
+
+        // Safety check: ensure drawnItems is initialized
+        if (!this.drawnItems) {
+            this.debugLog('⚠️ _loadAreasIntoDrawer: drawnItems not initialized yet');
+            return;
+        }
+
+        this.debugLog('✅ drawnItems exists, loading areas...');
+
+        areas.forEach((area, idx) => {
+            this.debugLog(`  Area ${idx + 1}: ${area.name}, ${area.polygon?.length || 0} vertices`);
+            
+            const latlngs = area.polygon.map(v => [v.lat, v.lng]);
+
+            const polygon = L.polygon(latlngs, {
+                color: area.color || '#ff6b6b',
+                fillColor: area.color || '#ff6b6b',
+                fillOpacity: 0.2,
+                weight: 2
+            });
+
+            this.drawnItems.addLayer(polygon);
+            this.areaMarkers.set(area.id, polygon);
+
+            // Bind popup (read-only info)
+            polygon.bindPopup(this._createAreaPopupContent(area));
+
+            // Add click handler - stop propagation to prevent map clicks
+            polygon.on('click', (e) => {
+                e.originalEvent.stopPropagation();
+            });
+        });
+
+        this.debugLog(`📍 Loaded ${areas.length} Areas`);
+    }
+
+    /**
+     * Get popup content for Area (read-only)
+     * @param {Object} area
+     * @returns {string}
+     * @private
+     */
+    _createAreaPopupContent(area) {
+        return `
+            <div style="min-width: 200px;">
+                <h3 style="margin: 0 0 10px 0;">${area.icon || '◈'} ${area.name}</h3>
+                <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
+                    <div>📍 ${area.polygon.length} vertices</div>
+                    <div>🔊 Volume: ${(area.volume * 100).toFixed(0)}%</div>
+                    <div>🎵 Sound: ${area.soundUrl.split('/').pop()}</div>
+                </div>
+            </div>
+        `;
     }
 
     /**
@@ -266,6 +353,10 @@ class MapPlayerApp extends MapAppShared {
             const data = await this.api.loadSoundscape(this.activeSoundscapeId);
             const soundscape = SoundScape.fromJSON(data.soundscape);
 
+            this.debugLog('📦 Server data received:');
+            this.debugLog('  - data.soundscape.areas: ' + (data.soundscape.areas ? data.soundscape.areas.length : 'undefined'));
+            this.debugLog('  - soundscape.areas: ' + (soundscape.areas ? soundscape.areas.length : 'undefined'));
+
             // Clear existing
             this.soundscapes.clear();
             this.waypoints = [];
@@ -288,7 +379,12 @@ class MapPlayerApp extends MapAppShared {
             // Render waypoints
             this.waypoints.forEach(wp => this._createMarker(wp));
             this._updateWaypointList();
-            
+
+            // Load areas for visualization
+            const areas = soundscape.areas || [];
+            this.debugLog('🗺️ Loading ' + areas.length + ' areas into drawer...');
+            this._loadAreasIntoDrawer(areas);
+
             this.debugLog('✅ Created ' + this.waypoints.length + ' waypoint markers on map');
 
             // Center and zoom map to show all waypoints
@@ -371,6 +467,11 @@ class MapPlayerApp extends MapAppShared {
                 this._createMarker(wp);
             });
             this._updateWaypointList();
+
+            // Load areas for visualization
+            const areas = cachedData.areas || [];
+            this._loadAreasIntoDrawer(areas);
+            this.debugLog(`📊 Areas in cache: ${areas.length}`);
 
             this.debugLog('✅ Created ' + this.waypoints.length + ' waypoint markers on map');
 
