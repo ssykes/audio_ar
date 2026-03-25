@@ -2,7 +2,7 @@
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
  *
- * @version 7.1 - Add area visualization on map
+ * @version 7.3 - Added Force Update button to clear SW cache on mobile
  *
  * Features:
  * - Auto-sync on page load (timestamp-based)
@@ -11,9 +11,10 @@
  * - Icon bar with floating toolbar
  * - Bottom status bar (GPS + Heading + Sounds)
  * - Debug modal with copy to clipboard
+ * - Debug modal with force update button (clear SW cache)
  */
 
-console.log('[map_player.js] Loading v7.1...');
+console.log('[map_player.js] Loading v7.3...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -271,6 +272,52 @@ class MapPlayerApp extends MapAppShared {
         if (debugCopyBtn) {
             debugCopyBtn.addEventListener('click', () => this._copyDebugToClipboard());
         }
+
+        // Force SW update (clear cache and reload)
+        const debugUpdateBtn = document.getElementById('debugUpdateBtn');
+        if (debugUpdateBtn) {
+            debugUpdateBtn.addEventListener('click', () => this._forceSWUpdate());
+        }
+    }
+
+    /**
+     * Force Service Worker update - clear all caches and reload
+     * Useful for testing on mobile devices
+     * @private
+     */
+    async _forceSWUpdate() {
+        this._debugLog('🔄 Forcing Service Worker update...', 'info');
+        
+        try {
+            // Unregister all service workers
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.unregister();
+                this._debugLog('✅ Service Worker unregistered: ' + registration.scope, 'success');
+            }
+
+            // Clear all caches
+            const cacheNames = await caches.keys();
+            for (const cacheName of cacheNames) {
+                await caches.delete(cacheName);
+                this._debugLog('🗑️ Cache deleted: ' + cacheName, 'warning');
+            }
+
+            // Clear localStorage (optional - keeps soundscape data)
+            // localStorage.clear();
+
+            this._showToast('🔄 Clearing cache and reloading...', 'info');
+            this._debugLog('💡 Reloading page...', 'info');
+            
+            // Force hard reload
+            setTimeout(() => {
+                window.location.reload(true);
+            }, 1500);
+
+        } catch (error) {
+            this._debugLog('❌ Failed to clear SW: ' + error.message, 'error');
+            this._showToast('❌ Clear failed - try manually clearing browser data', 'error');
+        }
     }
 
     /**
@@ -426,8 +473,13 @@ class MapPlayerApp extends MapAppShared {
 
             // Get cached soundscape data (including waypoints)
             const cachedData = await this.downloadManager.getCachedSoundscape(this.activeSoundscapeId);
-            
+
             this.debugLog(`📦 Raw cached data: ${cachedData ? 'found' : 'NULL'}`);
+            
+            if (cachedData) {
+                this.debugLog(`📋 Cached data keys: ${Object.keys(cachedData).join(', ')}`);
+                this.debugLog(`📋 cachedData.areas value: ${JSON.stringify(cachedData.areas)}`);
+            }
 
             if (!cachedData) {
                 const errorMsg = 'Soundscape not available offline. Please download it first while online.';
@@ -437,6 +489,16 @@ class MapPlayerApp extends MapAppShared {
 
             this.debugLog(`✅ Retrieved cached data for ${cachedData.name}`);
             this.debugLog(`📊 Waypoints in cache: ${cachedData.waypoints?.length || 0}`);
+            this.debugLog(`🗺️ Areas in cache: ${cachedData.areas?.length || 0}`);
+            this.debugLog(`🎭 Behaviors in cache: ${cachedData.behaviors?.length || 0}`);
+
+            // Check if cached data is missing areas (downloaded before areas support was added)
+            const hasAreasData = cachedData.areas !== undefined;
+            if (!hasAreasData) {
+                this.debugLog('⚠️ Cached data missing areas property (downloaded with old version)');
+                this.debugLog('💡 Go online and re-download the soundscape to get areas');
+                this._showToast('💡 Areas not in cache - re-download soundscape when online', 'info');
+            }
 
             // Clear existing
             this.soundscapes.clear();
@@ -470,6 +532,9 @@ class MapPlayerApp extends MapAppShared {
 
             // Load areas for visualization
             const areas = cachedData.areas || [];
+            if (areas.length > 0) {
+                this.debugLog(`🗺️ Loading ${areas.length} areas into drawer...`);
+            }
             this._loadAreasIntoDrawer(areas);
             this.debugLog(`📊 Areas in cache: ${areas.length}`);
 

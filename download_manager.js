@@ -4,7 +4,7 @@
  * Downloads audio files to Cache API for offline playback.
  * Each soundscape gets its own cache: `soundscape-{id}`
  *
- * @version 1.1 - Fixed constructor initialization
+ * @version 1.2 - Added logging to diagnose missing areas in cached data
  * @since Feature 15: Offline Soundscape Download
  */
 
@@ -12,7 +12,7 @@
 // Configuration Constants
 // ============================================================================
 
-const DOWNLOAD_MANAGER_VERSION = '1.1';
+const DOWNLOAD_MANAGER_VERSION = '1.2';
 
 // Cache and storage key prefixes
 const CACHE_PREFIX = 'soundscape-';
@@ -71,7 +71,9 @@ class OfflineDownloadManager {
         }
 
         console.log(`[OfflineDownload] Starting download: ${soundscapeName}`);
-        console.log(`[OfflineDownload] ${urls.length} unique audio file(s)`);
+        console.log(`[OfflineDownload] 📍 Waypoints: ${waypoints.length}`);
+        console.log(`[OfflineDownload] 🗺️ Areas: ${(soundscapeData?.areas || []).length}`);
+        console.log(`[OfflineDownload] 🔊 ${urls.length} unique audio file(s) to download`);
 
         // Create cache for this soundscape
         this.cacheName = `${CACHE_PREFIX}${soundscapeId}`;
@@ -109,16 +111,30 @@ class OfflineDownloadManager {
             this._onProgress(soundscapeId, downloaded, total);
         }
 
-        // Store full soundscape data for offline loading (including waypoints)
+        // Store full soundscape data for offline loading (including waypoints and areas)
         if (downloaded > 0) {
-            await this._storeSoundscapeData(soundscapeId, {
+            // Restructure: Include areas inside soundscapeData object for unified offline access
+            const structuredData = {
                 id: soundscapeId,
                 name: soundscapeName,
                 waypoints: waypoints,
-                soundscapeData: soundscapeData,
+                areas: soundscapeData?.areas || [],
+                behaviors: soundscapeData?.behaviors || [],
+                soundscape: soundscapeData?.soundscape || null,
                 downloadedAt: new Date().toISOString()
+            };
+            
+            console.log(`[OfflineDownload] 💾 Structured data before storing:`, {
+                id: structuredData.id,
+                name: structuredData.name,
+                waypointCount: structuredData.waypoints?.length || 0,
+                areaCount: structuredData.areas?.length || 0,
+                behaviorCount: structuredData.behaviors?.length || 0,
+                areas: structuredData.areas
             });
-            console.log(`[OfflineDownload] 💾 Stored soundscape data for offline loading`);
+            
+            await this._storeSoundscapeData(soundscapeId, structuredData);
+            console.log(`[OfflineDownload] 💾 Stored soundscape data for offline loading (waypoints: ${waypoints.length}, areas: ${structuredData.areas.length})`);
         }
 
         // Log summary
@@ -141,13 +157,17 @@ class OfflineDownloadManager {
     /**
      * Store full soundscape data in localStorage for offline loading
      * @param {string} soundscapeId
-     * @param {Object} data - Full soundscape data including waypoints
+     * @param {Object} data - Full soundscape data including waypoints, areas, and behaviors
      * @private
      */
     async _storeSoundscapeData(soundscapeId, data) {
         try {
-            localStorage.setItem(STORAGE_KEY_PREFIX + soundscapeId, JSON.stringify(data));
-            console.log(`[OfflineDownload] Stored offline data for ${soundscapeId}`);
+            const serialized = JSON.stringify(data);
+            console.log(`[OfflineDownload] 📝 Serializing data for ${soundscapeId}: ${serialized.length} bytes`);
+            console.log(`[OfflineDownload] 📝 Areas in serialized data: ${JSON.stringify(data.areas)}`);
+            
+            localStorage.setItem(STORAGE_KEY_PREFIX + soundscapeId, serialized);
+            console.log(`[OfflineDownload] Stored offline data for ${soundscapeId} (waypoints: ${data.waypoints?.length || 0}, areas: ${data.areas?.length || 0})`);
         } catch (err) {
             console.error(`[OfflineDownload] Failed to store soundscape data:`, err);
             // Try to store just waypoints if full data is too large
@@ -156,6 +176,7 @@ class OfflineDownloadManager {
                     id: soundscapeId,
                     name: data.name,
                     waypoints: data.waypoints,
+                    areas: data.areas || [],
                     downloadedAt: data.downloadedAt
                 };
                 localStorage.setItem(STORAGE_KEY_PREFIX + soundscapeId, JSON.stringify(minimalData));
@@ -293,9 +314,9 @@ class OfflineDownloadManager {
 
     /**
      * Get cached soundscape data (for offline loading)
-     * Returns full soundscape data including waypoints
+     * Returns full soundscape data including waypoints, areas, and behaviors
      * @param {string} soundscapeId
-     * @returns {Promise<{id: string, name: string, waypoints: Array, soundscapeData?: Object, downloadedAt: string} | null>}
+     * @returns {Promise<{id: string, name: string, waypoints: Array, areas: Array, behaviors: Array, soundscape?: Object, downloadedAt: string} | null>}
      */
     async getCachedSoundscape(soundscapeId) {
         try {
@@ -307,6 +328,17 @@ class OfflineDownloadManager {
 
             const data = JSON.parse(stored);
             console.log(`[OfflineDownload] ✅ Retrieved cached data for ${soundscapeId}`);
+            console.log(`[OfflineDownload] 📋 Data keys: ${Object.keys(data).join(', ')}`);
+            console.log(`[OfflineDownload] 📊 Waypoints: ${data.waypoints?.length || 0}, Areas: ${data.areas?.length || 0}, Behaviors: ${data.behaviors?.length || 0}`);
+            
+            // Check for missing properties (downloaded with old version)
+            if (data.areas === undefined) {
+                console.warn(`[OfflineDownload] ⚠️ Cached data missing 'areas' property - downloaded with old version`);
+            }
+            if (data.behaviors === undefined) {
+                console.warn(`[OfflineDownload] ⚠️ Cached data missing 'behaviors' property - downloaded with old version`);
+            }
+            
             return data;
         } catch (err) {
             console.error(`[OfflineDownload] Error retrieving cached soundscape:`, err);

@@ -356,6 +356,21 @@
             opacity: 0.7;
         }
 
+        .debug-update-btn {
+            background: rgba(0, 217, 255, 0.2);
+            border: none;
+            color: #00d9ff;
+            font-size: 1em;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .debug-update-btn:hover {
+            background: rgba(0, 217, 255, 0.4);
+        }
+
         .debug-modal-content {
             flex: 1;
             overflow-y: auto;
@@ -488,6 +503,7 @@
             <span class="debug-modal-title">📋 Debug Log</span>
             <div class="debug-modal-actions">
                 <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋 Copy</button>
+                <button class="debug-update-btn" id="debugUpdateBtn" title="Force update (clear SW cache)">🔄</button>
                 <button class="debug-modal-close" id="debugCloseBtn">×</button>
             </div>
         </div>
@@ -1087,16 +1103,22 @@
                     console.log(`[OfflineDownload] Fetching full soundscape data: ${soundscapeId}`);
                     const fullData = await this.api.getSoundscape(soundscapeId);
                     const waypoints = fullData.waypoints || [];
+                    const areas = fullData.areas || [];
 
-                    if (waypoints.length === 0) {
+                    if (waypoints.length === 0 && areas.length === 0) {
                         alert('This soundscape has no sounds to download');
                         btn.disabled = false;
                         btn.textContent = originalText;
                         return;
                     }
 
-                    // Extract unique URLs for logging and size check
-                    const urls = [...new Set(waypoints.map(wp => wp.soundUrl).filter(url => url))];
+                    // Extract unique URLs for logging and size check (from waypoints AND areas)
+                    const waypointUrls = waypoints.map(wp => wp.soundUrl).filter(url => url);
+                    const areaUrls = areas.map(a => a.soundUrl).filter(url => url);
+                    const urls = [...new Set([...waypointUrls, ...areaUrls])];
+                    
+                    console.log(`[OfflineDownload] 📍 Waypoints: ${waypoints.length}`);
+                    console.log(`[OfflineDownload] 🗺️ Areas: ${areas.length}`);
                     console.log(`[OfflineDownload] Will download ${urls.length} unique file(s):`, urls);
 
                     // Check for large files (>50 MB) and warn user
@@ -1137,12 +1159,21 @@
 
                     // Start download
                     console.log(`[OfflineDownload] Calling downloadSoundscape()...`);
+                    this._debugLog(`📥 Starting download: ${soundscape.name}`, 'info');
+                    this._debugLog(`📍 Waypoints to download: ${waypoints.length}`, 'info');
+                    this._debugLog(`🗺️ Areas to download: ${areas.length}`, 'info');
+                    this._debugLog(`📦 Areas data: ${JSON.stringify(areas.map(a => ({ id: a.id, name: a.name, soundUrl: a.soundUrl })))}`, 'info');
 
+                    // Pass restructured data: areas, behaviors inside soundscapeData object
                     const result = await this.downloadManager.downloadSoundscape(
                         soundscapeId,
                         soundscape.name,
                         waypoints,
-                        fullData.soundscape  // Pass full soundscape data (with behaviors, etc.)
+                        {
+                            soundscape: fullData.soundscape,
+                            behaviors: fullData.behaviors || [],
+                            areas: areas
+                        }
                     );
 
                     console.log(`[OfflineDownload] downloadSoundscape() returned:`, result);
@@ -1415,6 +1446,38 @@
                         }).catch(err => {
                             this._debugLog('❌ Failed to copy: ' + err.message, 'error');
                         });
+                    }
+                });
+
+                // Force SW update handler
+                document.getElementById('debugUpdateBtn')?.addEventListener('click', async () => {
+                    this._debugLog('🔄 Forcing Service Worker update...', 'info');
+                    
+                    try {
+                        // Unregister all service workers
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (const registration of registrations) {
+                            await registration.unregister();
+                            this._debugLog('✅ SW unregistered: ' + registration.scope, 'success');
+                        }
+
+                        // Clear all caches
+                        const cacheNames = await caches.keys();
+                        for (const cacheName of cacheNames) {
+                            await caches.delete(cacheName);
+                            this._debugLog('🗑️ Cache deleted: ' + cacheName, 'warning');
+                        }
+
+                        this._showToast('🔄 Clearing cache and reloading...', 'info');
+                        this._debugLog('💡 Reloading page...', 'info');
+                        
+                        setTimeout(() => {
+                            window.location.reload(true);
+                        }, 1500);
+
+                    } catch (error) {
+                        this._debugLog('❌ Failed to clear SW: ' + error.message, 'error');
+                        this._showToast('❌ Clear failed - try manually clearing browser data', 'error');
                     }
                 });
             }

@@ -3,6 +3,11 @@
  * Simple cache-first strategy for offline pages
  *
  * Cache version is updated automatically by deploy.ps1
+ * 
+ * Features:
+ * - Auto-updates when deploy changes CACHE_VERSION
+ * - Message handlers for manual update triggers (SKIP_WAITING, CLIENTS_CLAIM)
+ * - Cleans up old audio-ar caches on activate (preserves soundscape caches)
  */
 
 // ============================================================================
@@ -216,6 +221,22 @@ self.addEventListener('activate', (event) => {
         return self.clients.claim();
       })
   );
+});
+
+// Message handler - allow pages to trigger SW update check
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('[SW] 🔄 Received SKIP_WAITING message');
+    self.skipWaiting();
+  }
+  if (event.data && event.data.type === 'CLIENTS_CLAIM') {
+    console.log('[SW] 🔄 Received CLIENTS_CLAIM message');
+    self.clients.claim();
+  }
+  if (event.data && event.data.type === 'CACHE_VERSION') {
+    // Return current cache version to caller
+    event.ports[0].postMessage({ type: 'CACHE_VERSION', version: CACHE_VERSION });
+  }
 });
 
 // Fetch: Cache-first strategy

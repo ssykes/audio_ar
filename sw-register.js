@@ -4,14 +4,28 @@
  * Shared SW registration for all pages - ensures consistent behavior
  * across soundscape_picker.html, map_player.html, and other pages.
  *
- * Features:
- * - Avoids duplicate registration if already active
- * - Auto-updates when new version available
- * - Auto-reloads on SW update
- * - Version check to force update when deploy changes version
- * - Error handling for corrupted caches
+ * ⚠️ KNOWN BUG: Service Worker cache not auto-updating on deploy
+ * ================================================================
+ * 
+ * Problem: After deploy, mobile browsers continue serving stale cached files
+ * even though the server has new code. The SW update check is async and doesn't
+ * complete before the page loads with old cached content.
+ * 
+ * Root cause: The SW update flow:
+ * 1. Page loads with old SW controlling it
+ * 2. SW checks for update (async) ← Too late, page already loaded
+ * 3. New SW downloads and installs
+ * 4. New SW waits for old SW to die (skipWaiting called)
+ * 5. New SW activates and claims clients ← Requires page reload
+ * 
+ * Workaround: Force SW update check on EVERY page load (line 124)
+ * This ensures new deploys are picked up, but adds network overhead.
+ * 
+ * TODO: Proper fix - use BroadcastChannel or message passing to force
+ * reload when new SW activates, without requiring manual cache clear.
+ * See: https://web.dev/service-worker-lifecycle/#wait
  *
- * @version 1.1 - Add version check to force SW update
+ * @version 1.2 - Always check for SW updates on page load (workaround for cache bug)
  * @since Feature 16B: Service Worker Refactor
  */
 
@@ -108,16 +122,26 @@
                     if (newWorker.state === 'installed') {
                         console.log('[SW] ✅ New version installed - auto-reloading');
                         // Force reload to use new SW (clears old cache)
-                        window.location.reload();
+                        if (navigator.serviceWorker.controller) {
+                            // Only reload if there was a previous controller (not first load)
+                            window.location.reload();
+                        }
                     }
                 });
             }
         });
 
-        // Check for updates on every page load (when online)
-        if (registration.active && navigator.onLine) {
-            console.log('[SW] ✅ Active, checking for updates...');
-            registration.update();
+        // ALWAYS check for updates on every page load (when online)
+        // This ensures new deploys are picked up immediately
+        if (navigator.onLine) {
+            console.log('[SW] 🔄 Checking for SW update on every load...');
+            registration.update().then(updated => {
+                if (updated) {
+                    console.log('[SW] ✅ SW update check completed');
+                }
+            }).catch(err => {
+                console.warn('[SW] ⚠️ SW update check failed:', err);
+            });
         }
 
         // Handle SW errors (e.g., corrupted cache)
@@ -132,5 +156,26 @@
     // Export to window for global access
     window.registerServiceWorker = registerServiceWorker;
 
-    console.log('[sw-register.js] Loaded v1.1');
+    // Also export a function to manually check for updates (useful for debug UI)
+    window.checkForSWUpdate = function() {
+        console.log('[SW] 🔄 Manual update check requested');
+        return navigator.serviceWorker.getRegistration()
+            .then(reg => {
+                if (reg) {
+                    return reg.update().then(updated => {
+                        if (updated) {
+                            console.log('[SW] ✅ Update found and applied');
+                        } else {
+                            console.log('[SW] ✅ Already up to date');
+                        }
+                        return updated;
+                    });
+                } else {
+                    console.warn('[SW] ⚠️ No SW registration found');
+                    return Promise.resolve(false);
+                }
+            });
+    };
+
+    console.log('[sw-register.js] Loaded v1.2');
 })();

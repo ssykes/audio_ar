@@ -243,11 +243,30 @@
             justify-content: center;
             transition: all 0.2s;
         }
-        
+
         .debug-modal-close:hover {
             background: rgba(255, 255, 255, 0.2);
         }
-        
+
+        .debug-update-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+            font-size: 1em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .debug-update-btn:hover {
+            background: rgba(0, 217, 255, 0.4);
+        }
+
         .debug-modal-content {
             flex: 1;
             background: #0d0d1a;
@@ -434,6 +453,7 @@
                 <span class="debug-modal-title">📋 Debug Log</span>
                 <div class="debug-modal-actions">
                     <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋</button>
+                    <button class="debug-update-btn" id="debugUpdateBtn" title="Force update (clear SW cache)">🔄</button>
                     <button class="debug-modal-close" id="debugCloseBtn">×</button>
                 </div>
             </div>
