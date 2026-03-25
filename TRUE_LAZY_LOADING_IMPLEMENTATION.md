@@ -250,7 +250,7 @@ If issues arise:
    git checkout HEAD -- spatial_audio_app.js
    ```
 
-3. **Fallback:** Use `map_placer.html` (not yet updated to lazy loading)
+3. **Fallback:** Use `map_editor.html` (not yet updated to lazy loading)
 
 ---
 
@@ -265,7 +265,6 @@ If issues arise:
 **Cache-busting:** Update HTML references:
 - `map_editor.html` → `spatial_audio_app.js?v=20260318xxxxxx`
 - `map_player.html` → `spatial_audio_app.js?v=20260318xxxxxx`
-- `map_placer.html` → `spatial_audio_app.js?v=20260318xxxxxx`
 
 ---
 

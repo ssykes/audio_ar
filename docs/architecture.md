@@ -406,8 +406,10 @@ Map Placer includes auto-capture debug logging for field testing:
 - [x] Player mode - hear placed sounds at GPS positions
 
 **Deliverables:**
-- `map_placer.html` v2.0 - Visual waypoint editor with Player Mode
-- `map_placer.js` - Map-based sound placement with audio playback
+- `map_editor.html` v2.0 - Visual waypoint editor
+- `map_editor.js` - Map-based sound placement
+- `map_player.html` - Player mode for walking soundscapes
+- `map_player.js` - Player mode implementation
 
 **TODO:**
 - [ ] JSON import (load configs)
@@ -430,8 +432,10 @@ single_sound_v2.html    # v2.71 - Single GPS sound with full player mode
 auto_rotate.html        # v3.0 - Multiple sounds with compass rotation
 
 # Phase 6: Map-based waypoint editor + player
-map_placer.html         # v2.0 - Visual map editor with Player Mode
-map_placer.js           # v2.0 - Player mode implementation
+map_editor.html         # v2.0 - Visual map editor
+map_editor.js           # v2.0 - Editor implementation
+map_player.html         # - Player mode for walking
+map_player.js           # - Player mode implementation
 
 # Future: Multi-sound GPS experience
 audio_ar_app.html   # v10.17 - Multi-source GPS audio (backup - needs update)

@@ -13,7 +13,7 @@
 - Migration from old single-soundscape format
 
 **Files Modified:**
-- `map_placer.js` - ~400 lines changed
+- `map_editor.js` - ~400 lines changed
 - `soundscape.js` - ~50 lines (migration fix, debug logging)
 
 **Status:** ✅ **Completed** - Multi-soundscape support working

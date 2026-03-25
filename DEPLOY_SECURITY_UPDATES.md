@@ -78,7 +78,7 @@ Expected: `"error": "Password must be at least 6 characters"`
 
 ```bash
 # Check CSP headers
-curl -I https://spoot.wtf/map_placer.html | grep -i "content-security-policy"
+curl -I https://spoot.wtf/map_editor.html | grep -i "content-security-policy"
 
 # Should include:
 # - https://unpkg.com

@@ -107,15 +107,15 @@ This backs up only the Audio AR project files (faster, but not a full system bac
 ## Restore Test (Do This Quarterly!)
 
 1. **Extract backup .zip** to temp folder
-2. **Pick one file** (e.g., `map_placer.html`)
+2. **Pick one file** (e.g., `map_editor.html`)
 3. **Upload to server:**
    ```powershell
-   scp .\backups\backup_*\map_placer.html ssykes@macminiwebsever:/tmp/
+   scp .\backups\backup_*\map_editor.html ssykes@macminiwebsever:/tmp/
    ```
 4. **SSH to server and verify:**
    ```bash
    ssh ssykes@macminiwebsever
-   cat /tmp/map_placer.html | head
+   cat /tmp/map_editor.html | head
    ```
 5. **If it works:** You have a valid backup! ✅
 

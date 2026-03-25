@@ -114,7 +114,7 @@
    - Wait for propagation (5-30 min)
 
 8. **Test:**
-   - Visit `https://ssykes.net/map_placer.html`
+   - Visit `https://ssykes.net/map_editor.html`
    - Check HTTP Observatory
 
 ---
@@ -173,7 +173,7 @@
 
 4. **Verify:**
    ```bash
-   curl -kI https://spoot.wtf/map_placer.html
+   curl -kI https://spoot.wtf/map_editor.html
    ```
 
 ---
@@ -313,7 +313,7 @@ ssh ssykes@macminiwebsever "ps aux | grep node"
 
 ### Test Security Headers
 ```powershell
-curl -kI https://spoot.wtf/map_placer.html
+curl -kI https://spoot.wtf/map_editor.html
 ```
 
 ---

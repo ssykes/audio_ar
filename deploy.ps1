@@ -33,7 +33,6 @@ $DISPLAY_VERSION_FILES = @(
     "single_sound_v2.html",
     "index.html",
     "auto_rotate.html",
-    "map_placer.html",
     "map_editor.html",
     "map_player.html",
     "soundscape_picker.html"
@@ -65,7 +64,6 @@ Write-Host ""
 Write-Host "Updating API URL to relative path..." -ForegroundColor Yellow
 
 $MAP_FILES = @(
-    "map_placer.html",
     "map_editor.html",
     "map_player.html",
     "index.html"
@@ -95,7 +93,6 @@ $HTML_FILES = @(
     "single_sound_v2.html",
     "index.html",
     "auto_rotate.html",
-    "map_placer.html",
     "map_editor.html",
     "map_player.html",
     "soundscape_picker.html"
@@ -106,7 +103,6 @@ $JS_VERSION_PATTERN = 'spatial_audio\.js\?v=\d+'
 $DEBUG_LOGGER_PATTERN = 'debug_logger\.js\?v=\d+'
 $APP_VERSION_PATTERN = 'spatial_audio_app\.js\?v=\d+'
 $WAKE_LOCK_PATTERN = 'wake_lock_helper\.js\?v=\d+'
-$MAP_PLACER_PATTERN = 'map_placer\.js\?v=\d+'
 $MAP_SHARED_PATTERN = 'map_shared\.js\?v=\d+'
 $MAP_EDITOR_PATTERN = 'map_editor\.js\?v=\d+'
 $MAP_PLAYER_PATTERN = 'map_player\.js\?v=\d+'
@@ -147,13 +143,6 @@ foreach ($htmlFile in $HTML_FILES) {
             $content = $content -replace $WAKE_LOCK_PATTERN, "wake_lock_helper.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (wake_lock_helper.js)" -ForegroundColor Green
-        }
-
-        # Update map_placer.js version
-        if ($content -match $MAP_PLACER_PATTERN) {
-            $content = $content -replace $MAP_PLACER_PATTERN, "map_placer.js?v=$VERSION"
-            Set-Content $filePath $content -NoNewline
-            Write-Host "  Updated: $htmlFile (map_placer.js)" -ForegroundColor Green
         }
 
         # Update map_shared.js version
@@ -265,7 +254,6 @@ Write-Host "Creating deployment copies with cache-busting versions..." -Foregrou
 $HTML_FILES_WITH_VERSIONS = @(
     "map_player.html",
     "map_editor.html",
-    "map_placer.html",
     "index.html",
     "single_sound_v2.html",
     "soundscape_picker.html",
@@ -315,8 +303,6 @@ $ALL_FILES = @(
     "icon-192.svg",
     "icon-512.svg",
     "deploy.ps1",
-    "map_placer.html",
-    "map_placer.js",
     "map_editor.html",
     "map_editor.js",
     "map_player.html",
@@ -603,7 +589,6 @@ Write-Host "   Landing Page:       http://ssykes.net/index.html" -ForegroundColo
 Write-Host "   Soundscape Picker:  http://ssykes.net/soundscape_picker.html" -ForegroundColor White
 Write-Host "   Map Editor:         http://ssykes.net/map_editor.html" -ForegroundColor White
 Write-Host "   Map Player:         http://ssykes.net/map_player.html" -ForegroundColor White
-Write-Host "   Map Placer:         http://ssykes.net/map_placer.html (legacy)" -ForegroundColor White
 Write-Host "   Test Page:          http://ssykes.net/auto_rotate.html" -ForegroundColor White
 Write-Host "   Single Sound:       http://ssykes.net/single_sound_v2.html" -ForegroundColor White
 Write-Host ""

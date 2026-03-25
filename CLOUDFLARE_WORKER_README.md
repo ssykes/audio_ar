@@ -81,10 +81,10 @@ zone_name = "spoot.wtf"
 After deployment, verify headers are working:
 
 ### Method 1: Browser DevTools
-1. Open `https://spoot.wtf/map_placer.html`
+1. Open `https://spoot.wtf/map_editor.html`
 2. Press F12 → **Network** tab
 3. Refresh page
-4. Click on `map_placer.html` request
+4. Click on `map_editor.html` request
 5. Check **Response Headers** section
 6. Look for:
    - `Content-Security-Policy`
@@ -95,7 +95,7 @@ After deployment, verify headers are working:
 
 ### Method 2: Command Line
 ```bash
-curl -kI https://spoot.wtf/map_placer.html
+curl -kI https://spoot.wtf/map_editor.html
 ```
 
 Expected output should include all security headers.

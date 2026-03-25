@@ -12,15 +12,15 @@ Files: `spatial_audio.js`, `spatial_audio_app.js`
 
 **3: SoundScape Persistence** ✅
 `SoundScape` class, `SoundScapeStorage` localStorage helpers, auto-save, export/import JSON.
-Files: `soundscape.js`, `map_placer.html`, `map_placer.js`
+Files: `soundscape.js`, `map_editor.html`, `map_editor.js`
 
 **4: Hit List Cleanup** ✅
 Button renamed to "💾 Save As...", auto-save feedback, unused `options` parameter removed.
-Files: `map_placer.html`, `map_placer.js`, `soundscape.js`
+Files: `map_editor.html`, `map_editor.js`, `soundscape.js`
 
 **5: Multi-Soundscape Support** ✅ (5A-E)
 Multiple soundscapes via Map, switching helpers, map centering, server sync, timestamp auto-sync.
-Files: `soundscape.js`, `map_placer.js`, `api-client.js`, `map_player.js`
+Files: `soundscape.js`, `map_editor.js`, `api-client.js`, `map_player.js`
 
 **6: Separate Editor/Player Pages** ✅
 Base class `MapAppShared`, child classes `MapEditorApp` (full editing), `MapPlayerApp` (read-only).
