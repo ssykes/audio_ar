@@ -35,7 +35,7 @@
     const SW_URL = 'sw.js';
 
     // Cache version - updated by deploy.ps1
-    const CACHE_VERSION = 'v1';
+    const CACHE_VERSION = '20260325110716';
 
     /**
      * Register service worker with update checking
