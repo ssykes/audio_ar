@@ -512,7 +512,9 @@ class MapPlayerApp extends MapAppShared {
         this.debugModal = document.getElementById('debugModal');
         this.debugModalContent = document.getElementById('debugModalContent');
         if (this.debugModalContent) {
-            this.debugLog('🎧 Map Player v7.0 ready');
+            // Log version info for troubleshooting
+            this.debugLog('🎧 Map Player v7.1 ready');
+            this.debugLog('📄 map_player.js: v7.1 (areas visualization)');
             this.debugLog('📍 Waiting for GPS...');
 
             // Auto-scroll debug console
