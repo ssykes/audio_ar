@@ -1221,14 +1221,6 @@ class MapAppShared {
             reverbEnabled: true
         });
 
-        // === SESSION 3: Load Areas from soundscape into AreaManager (simulation) ===
-        const soundscape = this.getActiveSoundscape();
-        if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
-            console.log('[MapShared] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (sim)...');
-            this.debugLog(`🗺️ Loading ${soundscape.areas.length} areas for simulation...`);
-            this.app.loadAreas(soundscape.areas);
-        }
-
         // Set callbacks
         this.app.onPositionUpdate = (data) => {
             this._updateSimDisplay();
@@ -1252,7 +1244,7 @@ class MapAppShared {
             this._showToast('❌ ' + error.message, 'error');
         };
 
-        // Start the audio (with behaviors if available)
+        // Start the audio FIRST (creates listener, initializes positions)
         try {
             const soundscape = this.getActiveSoundscape();
             if (soundscape && soundscape.behaviors && soundscape.behaviors.length > 0) {
@@ -1264,6 +1256,15 @@ class MapAppShared {
             }
             console.log('[MapShared] ✅ Simulation audio started');
             this.debugLog('✅ Simulation audio started');
+            
+            // === SESSION 3: Load Areas AFTER app.start() (listener now exists) ===
+            // This ensures updateVolume() has valid listener coordinates
+            if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
+                console.log('[MapShared] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (sim, post-start)...');
+                this.debugLog(`🗺️ Loading ${soundscape.areas.length} areas for simulation...`);
+                await this.app.loadAreas(soundscape.areas);
+            }
+            
             this._updateSimDisplay();
         } catch (err) {
             console.error('[MapShared] ❌ Sim audio start failed:', err);

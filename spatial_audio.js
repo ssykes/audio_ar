@@ -961,7 +961,7 @@ class AreaSoundSource extends SampleSource {
     init() {
         // Create gain node (volume control only, no spatialization)
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.5;
+        this.gain.gain.value = this.options.gain || 1.0;  // Default 100% volume for areas
 
         // Create wet/dry split for reverb (same as SampleSource)
         this.dryGain = this.engine.ctx.createGain();
@@ -983,22 +983,51 @@ class AreaSoundSource extends SampleSource {
     }
 
     /**
+     * Load audio buffer for area sound
+     * @returns {Promise<boolean>} True if loaded successfully
+     */
+    async load() {
+        if (!this.options.soundUrl) {
+            console.warn('[AreaSoundSource] No soundUrl provided:', this.id);
+            return false;
+        }
+
+        try {
+            console.log('[AreaSoundSource] Loading:', this.options.soundUrl);
+            const response = await fetch(this.options.soundUrl);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
+            console.log('[AreaSoundSource] Loaded:', this.id, 'Duration:', this.buffer.duration.toFixed(2) + 's');
+            return true;
+        } catch (error) {
+            console.error('[AreaSoundSource] Load failed:', this.id, error);
+            return false;
+        }
+    }
+
+    /**
      * Update volume based on listener position relative to area
      * @param {number} listenerLat - Listener latitude
      * @param {number} listenerLon - Listener longitude
      * @returns {number} Current volume (0.0 - 1.0)
      */
     updateVolume(listenerLat, listenerLon) {
+        // Guard: Check if audio nodes are ready
+        if (!this.gain || !this.sourceNode) {
+            return 0;
+        }
+
         // Check if listener is inside polygon
         const isInside = GPSUtils.pointInPolygon(listenerLat, listenerLon, this.polygon);
 
         if (!isInside) {
             // Outside polygon - silent
-            if (this.gain) {
-                this.gain.gain.value = 0;
-                this.dryGain.gain.value = 0;
-                this.wetGain.gain.value = 0;
-            }
+            this.gain.gain.value = 0;
+            this.dryGain.gain.value = 0;
+            this.wetGain.gain.value = 0;
             return 0;
         }
 
@@ -1015,14 +1044,12 @@ class AreaSoundSource extends SampleSource {
         }
 
         // Apply volume smoothly (prevent clicks)
-        if (this.gain) {
-            const t = this.engine.ctx.currentTime;
-            this.gain.gain.cancelScheduledValues(t);
-            this.gain.gain.setTargetAtTime(volume * this.options.gain, t, 0.01);
+        const t = this.engine.ctx.currentTime;
+        this.gain.gain.cancelScheduledValues(t);
+        this.gain.gain.setTargetAtTime(volume * this.options.gain, t, 0.01);
 
-            // Apply distance-based reverb (same as GpsSoundSource)
-            this._updateReverbWetMix(distanceToEdge);
-        }
+        // Apply distance-based reverb (same as GpsSoundSource)
+        this._updateReverbWetMix(distanceToEdge);
 
         // Debug: Log volume changes (throttled)
         if (Math.random() < 0.05) {
@@ -1048,17 +1075,13 @@ class AreaSoundSource extends SampleSource {
     }
 
     /**
-     * Check if area is active (listener inside or in fade zone)
+     * Check if area is active (listener inside polygon)
      * @param {number} listenerLat - Listener latitude
      * @param {number} listenerLon - Listener longitude
      * @returns {boolean} True if area should be playing
      */
     isActive(listenerLat, listenerLon) {
-        const isInside = GPSUtils.pointInPolygon(listenerLat, listenerLon, this.polygon);
-        if (!isInside) return false;
-
-        const distanceToEdge = GPSUtils.distanceToEdge(listenerLat, listenerLon, this.polygon);
-        return distanceToEdge < this.fadeZoneWidth || distanceToEdge > 0;
+        return GPSUtils.pointInPolygon(listenerLat, listenerLon, this.polygon);
     }
 
     /**

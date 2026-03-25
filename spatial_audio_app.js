@@ -574,13 +574,13 @@ class SpatialAudioApp {
      * SESSION 3: Load Area configurations into AreaManager
      * @param {Array} areaConfigs - Array of Area data objects
      */
-    loadAreas(areaConfigs) {
+    async loadAreas(areaConfigs) {
         if (!this.areaManager) {
             console.warn('[SpatialAudioApp] Cannot load areas - AreaManager not initialized');
             return;
         }
         console.log('[SpatialAudioApp] Loading', areaConfigs.length, 'areas into AreaManager...');
-        this.areaManager.loadAreas(areaConfigs);
+        await this.areaManager.loadAreas(areaConfigs);
     }
 
     /**
@@ -2018,7 +2018,7 @@ class AreaManager {
      * Load Area configurations and create sound sources
      * @param {Array} areaConfigs - Array of Area data objects
      */
-    loadAreas(areaConfigs) {
+    async loadAreas(areaConfigs) {
         console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
 
         for (const areaConfig of areaConfigs) {
@@ -2036,6 +2036,17 @@ class AreaManager {
                 });
 
                 areaSource.init();
+                const loaded = await areaSource.load();  // Load audio buffer
+                if (loaded) {
+                    areaSource.start();  // Start playing (initially silent)
+                    // CRITICAL: Immediately update volume based on listener position
+                    // Otherwise areas will be silent until listener moves
+                    const initialVolume = areaSource.updateVolume(
+                        this.listener.lat,
+                        this.listener.lon
+                    );
+                    console.log('[AreaManager] Area', areaConfig.id, 'started at', (initialVolume * 100).toFixed(0) + '% volume');
+                }
                 this.areas.set(areaConfig.id, areaSource);
                 console.log('[AreaManager] Loaded area:', areaConfig.id, '(polygon:', areaConfig.polygon.length, 'vertices)');
             } catch (error) {

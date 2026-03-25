@@ -803,7 +803,7 @@ class MapPlayerApp extends MapAppShared {
             const soundscape = this.getActiveSoundscape();
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
                 console.log('[MapPlayer] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager...');
-                this.app.loadAreas(soundscape.areas);
+                await this.app.loadAreas(soundscape.areas);
             } else {
                 console.log('[MapPlayer] 🗺️ No areas in soundscape');
             }
