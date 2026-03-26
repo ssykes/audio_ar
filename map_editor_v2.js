@@ -1,63 +1,11 @@
 /**
- * Map Editor Mockup - JavaScript
+ * Map Editor v2 - JavaScript
  *
- * Mock UI for map editor with soundscape management,
+ * Modern UI for map editor with soundscape management,
  * area/waypoint editing, and debug logging.
  */
 
-console.log('[map_editor_mockup.js] Script started');
-
-// Mock data
-const soundscapes = {
-    '1': {
-        name: 'Forest Ambience',
-        description: 'Peaceful forest sounds with birds and wind',
-        waypoints: 12,
-        areas: 3,
-        modified: '2026-03-21',
-        areasList: [
-            { id: 1, name: 'Forest Zone', type: 'area', icon: '◈', meta: '3 vertices', color: '#ff6b6b' },
-            { id: 2, name: 'Clearing', type: 'area', icon: '◈', meta: '5 vertices', color: '#ff6b6b' },
-            { id: 3, name: 'Stream Area', type: 'area', icon: '◈', meta: '4 vertices', color: '#ff6b6b' }
-        ],
-        waypointsList: [
-            { id: 1, name: 'Bird Song 1', type: 'waypoint', icon: '🎵', meta: '20m', color: '#00d9ff' },
-            { id: 2, name: 'Bird Song 2', type: 'waypoint', icon: '🎵', meta: '35m', color: '#00d9ff' },
-            { id: 3, name: 'Wind Chimes', type: 'waypoint', icon: '🎵', meta: '50m', color: '#00d9ff' },
-            { id: 4, name: 'Fountain', type: 'waypoint', icon: '🎵', meta: '65m', color: '#00d9ff' },
-            { id: 5, name: 'Leaves Rustle', type: 'waypoint', icon: '🎵', meta: '80m', color: '#00d9ff' }
-        ]
-    },
-    '2': {
-        name: 'Urban Soundscape',
-        description: 'City traffic and street ambience',
-        waypoints: 8,
-        areas: 0,
-        modified: '2026-03-20',
-        areasList: [],
-        waypointsList: [
-            { id: 1, name: 'Traffic', type: 'waypoint', icon: '🎵', meta: '15m', color: '#00d9ff' },
-            { id: 2, name: 'Street Musician', type: 'waypoint', icon: '🎵', meta: '30m', color: '#00d9ff' },
-            { id: 3, name: 'Cafe Ambience', type: 'waypoint', icon: '🎵', meta: '45m', color: '#00d9ff' }
-        ]
-    },
-    '3': {
-        name: 'Ocean Waves',
-        description: 'Beach waves and seagulls',
-        waypoints: 5,
-        areas: 2,
-        modified: '2026-03-19',
-        areasList: [
-            { id: 1, name: 'Beach Zone', type: 'area', icon: '◈', meta: '6 vertices', color: '#ff6b6b' },
-            { id: 2, name: 'Pier Area', type: 'area', icon: '◈', meta: '4 vertices', color: '#ff6b6b' }
-        ],
-        waypointsList: [
-            { id: 1, name: 'Waves', type: 'waypoint', icon: '🎵', meta: '10m', color: '#00d9ff' },
-            { id: 2, name: 'Seagulls', type: 'waypoint', icon: '🎵', meta: '25m', color: '#00d9ff' },
-            { id: 3, name: 'Wind', type: 'waypoint', icon: '🎵', meta: '40m', color: '#00d9ff' }
-        ]
-    }
-};
+console.log('[map_editor_v2.js] Script started');
 
 // DOM Elements
 const editName = document.getElementById('editName');
@@ -195,25 +143,6 @@ const TYPE_CONFIGS = {
 };
 
 let debugLogs = ['Ready - tap Start to begin...'];
-
-// Sync status management
-function updateSyncStatus(status) {
-    if (!infoSyncStatus) return;
-    
-    const statuses = {
-        'synced': { icon: '🟢', title: 'Synced to server' },
-        'unsaved': { icon: '🟡', title: 'Unsaved changes' },
-        'error': { icon: '🔴', title: 'Sync error' },
-        'offline': { icon: '⚪', title: 'Offline mode' }
-    };
-    
-    const config = statuses[status] || statuses['synced'];
-    infoSyncStatus.textContent = config.icon;
-    infoSyncStatus.title = config.title;
-    infoSyncStatus.className = `sync-status ${status}`;
-    
-    addDebugLog(`Sync status: ${config.title}`);
-}
 
 // Toggle advanced section
 function toggleAdvancedSection() {
@@ -467,55 +396,6 @@ function renderList(container, items, section) {
     `).join('');
 }
 
-// Auto-save on field change (mock)
-let saveTimeout = null;
-let hasUnsavedChanges = false;
-
-// Initialize display with first soundscape
-function initializeDisplay() {
-    const data = soundscapes['1'];
-    if (data) {
-        infoWaypoints.textContent = `📍 ${data.waypoints} waypoints`;
-        infoAreas.textContent = `🗺️ ${data.areas} areas`;
-        infoModified.textContent = `Modified: ${data.modified}`;
-        editName.value = data.name;
-        editDescription.value = data.description;
-        editPublic.checked = true;
-        renderList(areasList, data.areasList, areasSection);
-        renderList(waypointsList, data.waypointsList, null);
-        updateSyncStatus('synced');
-    }
-}
-
-function triggerAutoSave(field, value) {
-    // Show saving state
-    infoModified.textContent = 'Saving...';
-    infoModified.style.color = '#f39c12';
-    updateSyncStatus('unsaved');
-    addDebugLog(`Auto-save triggered: ${field}`);
-
-    // Debounce save (wait 500ms after last change)
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-        console.log('Auto-save:', field, value);
-        addDebugLog(`Auto-saved: ${field} = ${value}`);
-        // Show saved state
-        infoModified.textContent = `Modified: ${new Date().toISOString().split('T')[0]}`;
-        infoModified.style.color = '#888';
-        updateSyncStatus('synced');
-        hasUnsavedChanges = false;
-    }, 500);
-    
-    hasUnsavedChanges = true;
-    updateSyncStatus('unsaved');
-}
-
-[editName, editDescription, editPublic].forEach(el => {
-    el.addEventListener('change', () => {
-        triggerAutoSave(el.id, el.value);
-    });
-});
-
 // Handle item clicks - open slideout
 function openSlideout(type, id, name, meta, color) {
     selectedItemType = type;
@@ -635,9 +515,6 @@ function saveSlideout() {
     if (selectedItem) {
         selectedItem.querySelector('.item-name').textContent = updated.name;
     }
-
-    // Auto-save trigger
-    triggerAutoSave(selectedItemType.toLowerCase() + '_edit', updated);
 
     closeSlideout();
 }
@@ -764,4 +641,4 @@ document.getElementById('deleteSoundscapeBtn').addEventListener('click', () => {
     }
 });
 
-console.log('[map_editor_mockup.js] Loaded');
+console.log('[map_editor_v2.js] Loaded');

@@ -3,7 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Map Editor - Mockup</title>
+    <title>Map Editor v2</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet Draw CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    
+    <!-- Custom styles for Leaflet.Draw vertex handles -->
+    <style>
+        /* Vertex handles (the dots you drag) */
+        .leaflet-editing-icon {
+            background-color: #ff6b6b !important;
+            border: 3px solid #fff !important;
+            border-radius: 50% !important;
+            width: 12px !important;
+            height: 12px !important;
+            margin-left: -6px !important;
+            margin-top: -6px !important;
+            cursor: move !important;
+            pointer-events: auto !important;
+            z-index: 2000 !important;
+            opacity: 1 !important;
+        }
+
+        /* Midpoint handles (for adding vertices on edges) */
+        .leaflet-editing-icon-new {
+            background-color: #00ff88 !important;
+            border: 2px solid #fff !important;
+            width: 14px !important;
+            height: 14px !important;
+            margin-left: -7px !important;
+            margin-top: -7px !important;
+            cursor: pointer !important;
+            opacity: 1 !important;
+            z-index: 2001 !important;
+        }
+
+        /* Highlight polygon edges when in edit mode */
+        .leaflet-editing .leaflet-interactive {
+            stroke: #ff6b6b !important;
+            stroke-width: 4px !important;
+        }
+    </style>
+    
     <style>
         /* CSS Custom Properties for theming */
         :root {
@@ -1189,13 +1233,29 @@
             </div>
         </div>
 
-        <!-- Map Area (Placeholder) -->
-        <div class="map-area">
-            [ Leaflet Map Canvas Goes Here ]
-        </div>
+        <!-- Map Canvas -->
+        <div id="map"></div>
     </div>
 
-    <!-- JavaScript -->
-    <script src="map_editor_mockup.js?v=20260326b"></script>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Draw JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <!-- API Configuration -->
+    <script>
+        // Use relative URL - Cloudflare will handle HTTPS
+        window.API_BASE_URL = '/api';
+    </script>
+    
+    <!-- Internal Scripts -->
+    <script src="api-client.js"></script>
+    <script src="soundscape.js"></script>
+    <script src="spatial_audio.js"></script>
+    <script src="spatial_audio_app.js"></script>
+    <script src="wake_lock_helper.js"></script>
+    <script src="map_shared.js"></script>
+    <script src="map_editor_v2.js"></script>
 </body>
 </html>
