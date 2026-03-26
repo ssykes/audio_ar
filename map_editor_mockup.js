@@ -729,9 +729,6 @@ document.getElementById('btnSimulate').addEventListener('click', (e) => {
     }
 });
 
-// Initialize
-// initializeDisplay(); // Commented out - references non-existent elements in mockup
-
 // Back button - go back to soundscape picker
 document.getElementById('backBtn').addEventListener('click', () => {
     addDebugLog('Back button clicked');
@@ -751,27 +748,20 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
 });
 
 // Delete Soundscape button
-const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
-console.log('[Delete Btn] Element found:', deleteSoundscapeBtn);
-
-if (deleteSoundscapeBtn) {
-    deleteSoundscapeBtn.addEventListener('click', () => {
-        const soundscapeName = editName.value || 'this soundscape';
+document.getElementById('deleteSoundscapeBtn').addEventListener('click', () => {
+    const soundscapeName = editName.value || 'this soundscape';
+    
+    addDebugLog('Delete Soundscape button clicked');
+    console.log('Delete Soundscape button clicked');
+    
+    if (confirm(`⚠️ Delete Soundscape\n\nAre you sure you want to delete "${soundscapeName}"?\n\nThis action cannot be undone.`)) {
+        addDebugLog(`Deleting soundscape: ${soundscapeName}`);
+        console.log('Delete soundscape:', soundscapeName);
         
-        addDebugLog('Delete Soundscape button clicked');
-        console.log('Delete Soundscape button clicked');
-        
-        if (confirm(`⚠️ Delete Soundscape\n\nAre you sure you want to delete "${soundscapeName}"?\n\nThis action cannot be undone.`)) {
-            addDebugLog(`Deleting soundscape: ${soundscapeName}`);
-            console.log('Delete soundscape:', soundscapeName);
-            
-            // In production: delete from server/database first
-            // Then redirect to soundscape picker
-            window.location.href = 'soundscape_picker.html';
-        }
-    });
-} else {
-    console.error('[Delete Btn] Element NOT found!');
-}
+        // In production: delete from server/database first
+        // Then redirect to soundscape picker
+        window.location.href = 'soundscape_picker.html';
+    }
+});
 
 console.log('[map_editor_mockup.js] Loaded');

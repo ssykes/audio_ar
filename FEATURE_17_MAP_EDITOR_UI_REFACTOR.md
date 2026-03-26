@@ -1,15 +1,26 @@
 # Feature 17: Map Editor UI Refactor
 
-**Status:** 📋 Planned  
-**Priority:** High  
-**Estimated Effort:** ~20-25 hours (5 sessions × 4-5h each)  
-**Date Created:** 2026-03-25  
+**Status:** 📋 Planned
+**Priority:** High
+**Estimated Effort:** ~18-20 hours (5 sessions)
+**Date Created:** 2026-03-25
+**Last Updated:** 2026-03-26
 
 ---
 
 ## 📋 Overview
 
-Replace the existing `map_editor.html` UI with a modern, streamlined interface while preserving all existing functionality. The new UI improves usability, reduces clutter, and follows modern design patterns.
+Replace the existing `map_editor.html` UI with a modern, streamlined interface while preserving core functionality. The new UI improves usability, reduces clutter, and follows modern design patterns.
+
+**Key Changes:**
+- Modern sidebar with always-visible edit form
+- VSCode-style explorer for areas/waypoints
+- Slideout panel for item editing (no map popups)
+- Collapsible debug console
+- Simulation mode with hide/show stats panel
+- Streamlined toolbar (Sync, Import, Export, Clear, Delete in "More" section)
+
+**Features Omitted:** GPS/heading display, Start/Stop button, edit/delete popups, and other player-only features (see "Features NOT Being Refactored" section).
 
 ---
 
@@ -17,7 +28,7 @@ Replace the existing `map_editor.html` UI with a modern, streamlined interface w
 
 ### Primary
 1. **Modern UI/UX** - Clean, professional interface with consistent styling
-2. **Feature Parity** - All existing `map_editor.html` features must work
+2. **Core Feature Parity** - Preserve essential map editing functionality
 3. **Better Organization** - Logical grouping of related functions
 4. **Responsive Design** - Works on desktop and tablet
 5. **Maintainability** - Clean separation of concerns (HTML/CSS/JS)
@@ -27,6 +38,12 @@ Replace the existing `map_editor.html` UI with a modern, streamlined interface w
 2. **Visual Feedback** - Clear status indicators, loading states
 3. **Accessibility** - Keyboard navigation, screen reader support
 4. **Performance** - Optimized rendering for large soundscapes (100+ waypoints)
+
+### Out of Scope
+- GPS/Heading status display (player-only feature)
+- Start/Stop audio button (proximity-based playback)
+- Edit/Delete popup modals (replaced by slideout panel)
+- Soundscape creation (handled in soundscape_picker.html)
 
 ---
 
@@ -41,7 +58,7 @@ Replace the existing `map_editor.html` UI with a modern, streamlined interface w
 | Area drawing | ✅ | Leaflet.draw polygons |
 | Waypoint editing | ✅ | Drag markers, edit popup |
 | Area editing | ✅ | Drag vertices, edit popup |
-| Audio playback | ✅ | Via `spatial_audio_app.js` |
+| Audio playback during simulation | ✅ | Via `spatial_audio_app.js` |
 | Simulation mode | ✅ | Avatar dragging, stats panel |
 | GPS status | ✅ | Status bar indicator |
 | Compass heading | ✅ | Status bar indicator |
@@ -56,30 +73,64 @@ Replace the existing `map_editor.html` UI with a modern, streamlined interface w
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Modern sidebar layout | ✅ | 280px width, flexbox |
-| Soundscape selector | ✅ | Dropdown + new button |
-| Edit form | ✅ | Always visible |
+| Edit form (always visible) | ✅ | Name, Description, Public checkbox |
+| Simulate/Edit toggle | ✅ | Shows/hides simulation panel |
 | Area/Waypoint lists | ✅ | VSCode-style explorer |
-| Slideout edit panel | ✅ | Overlays map |
-| Debug modal | ✅ | Popup with copy/clear |
-| Toolbar icons | ✅ | Simulate, Sync, Import, Export |
-| Bottom action bar | ✅ | Sync, Debug, Clear, Logout |
+| Slideout edit panel | ✅ | Overlays map for item editing |
+| Debug modal | ✅ | Collapsible with Clear/Copy |
+| Import/Export | ✅ | Toolbar buttons in "More" section |
+| Sync from Server | ✅ | Toolbar button in "More" section |
+| Clear All | ✅ | Toolbar button in "More" section |
+| Delete Soundscape | ✅ | Toolbar button in "More" section |
+| Bottom action bar | ✅ | Debug console with Clear/Copy |
 | CSS custom properties | ✅ | Theming support |
 | External JS file | ✅ | `map_editor_mockup.js` |
+| Back/Logout buttons | ✅ | Top bar navigation |
 
-### Missing from Mockup
+### Features NOT Being Refactored
 
-| Feature | Priority | Effort |
-|---------|----------|--------|
-| Leaflet map integration | 🔴 Critical | 4h |
-| Start/Stop audio button | 🔴 Critical | 2h |
-| GPS/Heading status bar | 🟠 High | 2h |
-| Simulation stats panel | 🟠 High | 2h |
-| Drawing mode indicator | 🟠 High | 1h |
-| Waypoint/Area counts | 🟡 Medium | 1h |
-| Delete soundscape button | 🟡 Medium | 1h |
-| Edit soundscape button | 🟡 Medium | 1h |
-| User panel/logout | 🟡 Medium | 1h |
-| Keyboard shortcuts | 🟢 Low | 2h |
+The following features from the original `map_editor.html` will **NOT** be included in the refactored version. These are being intentionally omitted to simplify the UI and because they are either redundant, rarely used, or will be handled elsewhere in the application.
+
+| Feature | Reason for Exclusion | Alternative/Notes |
+|---------|---------------------|-------------------|
+| **Edit/Delete popup modals on map** | Cluttered UX, blocks map view | Use slideout panel for all editing; delete via list context menu or keyboard (Delete key) |
+| **Start/Stop Audio Button** | Audio engine auto-starts | Audio playback controlled by proximity; no manual start/stop needed |
+| **GPS Status Display** | Not needed for editor workflow | GPS is player-only feature; editor is desktop-focused |
+| **Heading Display** | Not needed for editor workflow | Compass heading is player-only feature |
+| **Sounds Count Display** | Redundant with explorer counts | Active sounds visible in Areas/Waypoints lists |
+| **Drawing Mode Indicator** | Visual feedback sufficient | Drawing mode indicated by Leaflet.draw toolbar state |
+| **New Soundscape Button** | Created via soundscape_picker | New soundscapes created in `soundscape_picker.html` |
+| **Edit Soundscape Button** | Edit form always visible | Soundscape metadata edited directly in sidebar form |
+| **User Panel** | Auth handled globally | User info shown in header; logout in top bar |
+| **Modified Timestamp** | Auto-saved, not user-facing | Last modified tracked in server metadata |
+| Offline mode | ✅ | Service Worker compatible |
+| Multi-user support | ✅ | Auth via `index.html` |
+---
+
+### Missing from Mockup (To Be Added)
+
+The following features need to be added to the mockup to achieve feature parity with the original `map_editor.html` (excluding features marked as "NOT Being Refactored" above).
+
+| Feature | Priority | Effort | Notes |
+|---------|----------|--------|-------|
+| Leaflet map integration | 🔴 Critical | 4h | Map container, initialization, drawing tools |
+| Simulation stats live updates | � High | 2h | Panel exists; needs real-time distance/bearing/volume |
+| Waypoint/Area counts in headers | � Medium | 1h | Add counts to explorer section headers |
+| Keyboard shortcuts | � Low | 2h | Ctrl+S, Delete, Escape |
+
+### Already Implemented in Mockup
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Simulation stats panel | ✅ | Hide/show panel toggled by "Simulate/Edit" button |
+| Waypoint/Area lists | ✅ | VSCode-style explorer (counts to be added to headers) |
+| Delete soundscape | ✅ | In "More" collapsible section |
+| User logout | ✅ | Top bar button (← Back, ↑ Logout) |
+| Edit form | ✅ | Always visible (Name, Description, Public checkbox) |
+| Debug modal | ✅ | Collapsible panel with Clear/Copy |
+| Import/Export | ✅ | Toolbar buttons in "More" section |
+| Sync from Server | ✅ | Toolbar button in "More" section |
+| Clear All | ✅ | Toolbar button in "More" section |
 
 ---
 
@@ -190,32 +241,30 @@ MapEditorApp (extends MapAppShared)
 
 ---
 
-### Session 3: UI Component Mapping (~5h)
+### Session 3: UI Enhancements (~3h)
 
-**Goal:** Add missing UI elements from old editor
+**Goal:** Add remaining UI enhancements to complete the mockup
 
 **Tasks:**
-- [ ] Add Start/Stop audio button
-- [ ] Add GPS/Heading status bar (bottom of sidebar)
-- [ ] Add Simulation stats panel (slideout tab?)
-- [ ] Add Drawing mode indicator
-- [ ] Add Delete soundscape button
-- [ ] Add Edit soundscape button (or integrate into form)
-- [ ] Add User panel (email, logout)
-- [ ] Add Waypoint/Area counts to explorer headers
-- [ ] Update Debug modal to match old console (color coding)
+- [ ] Add simulation stats live updates (distance, bearing, volume)
+- [ ] Add waypoint/area counts to explorer headers
+- [ ] Add keyboard shortcuts (Ctrl+S, Delete, Escape)
+- [ ] Update debug modal to support color-coded logs
+- [ ] Add loading states for async operations
+- [ ] Add toast notifications for user feedback
 
 **Acceptance Criteria:**
-- ✅ All old UI elements have new equivalents
-- ✅ Status bar updates with GPS/heading
-- ✅ Start button controls audio engine
-- ✅ Simulation stats visible when active
-- ✅ Drawing mode clearly indicated
+- ✅ Simulation stats update in real-time when avatar moves
+- ✅ Explorer headers show counts (e.g., "Areas [3]", "Waypoints [12]")
+- ✅ Keyboard shortcuts work for common actions
+- ✅ Debug logs are color-coded (error=red, warn=orange, info=green)
+- ✅ Loading spinners appear during save/sync operations
+- ✅ Toast notifications appear for success/error actions
 
 **Files Modified:**
-- `map_editor_mockup.html` (add UI elements)
-- `map_editor_mockup.css` (new styles)
-- `map_editor_ui_refactor.js` (UI logic)
+- `map_editor_mockup.html` (explorer headers, toast container)
+- `map_editor_mockup.js` (live updates, keyboard handlers)
+- `map_editor_ui_refactor.js` (toast notifications, shortcuts)
 
 ---
 
@@ -224,15 +273,13 @@ MapEditorApp (extends MapAppShared)
 **Goal:** Ensure all features work identically to old editor
 
 **Tasks:**
-- [ ] Soundscape CRUD operations
+- [ ] Soundscape CRUD operations (create via picker, edit/delete in editor)
 - [ ] Waypoint CRUD operations
 - [ ] Area CRUD operations
-- [ ] Audio playback (Start/Stop)
-- [ ] Simulation mode (avatar, stats)
+- [ ] Simulation mode (avatar dragging, live stats)
 - [ ] Import/Export JSON
 - [ ] Server sync
 - [ ] Debug logging (color-coded)
-- [ ] Offline mode compatibility
 - [ ] Multi-user auth integration
 
 **Acceptance Criteria:**
@@ -253,12 +300,9 @@ MapEditorApp (extends MapAppShared)
 
 **Tasks:**
 - [ ] Cross-browser testing (Chrome, Firefox, Safari, Edge)
-- [ ] Mobile/tablet testing (responsive design)
+- [ ] Tablet testing (responsive design)
 - [ ] Performance testing (100+ waypoints)
 - [ ] Accessibility audit (keyboard nav, screen readers)
-- [ ] Add keyboard shortcuts (Ctrl+S, Delete, Escape)
-- [ ] Add loading states/spinners
-- [ ] Add toast notifications
 - [ ] Deploy as `map_editor_v2.html` alongside existing
 - [ ] User acceptance testing period (1 week)
 - [ ] Full replacement (rename files)
@@ -268,6 +312,7 @@ MapEditorApp (extends MapAppShared)
 - ✅ Works on tablets (iPad, Surface)
 - ✅ Handles 100+ waypoints without lag
 - ✅ Keyboard navigation works
+- ✅ Loading states appear during async operations
 - ✅ Deployed to test server
 - ✅ Users approve new UI
 - ✅ Old `map_editor.html` archived
@@ -287,27 +332,36 @@ MapEditorApp (extends MapAppShared)
 ┌─────────────────────────────────────────────────────────────┐
 │ Sidebar (280px)          │  Map Canvas (flex)              │
 ├──────────────────────────┤                                  │
-│ 🚪 Logout  ← Back        │                                  │
-│ Soundscape               │                                  │
-│ [Dropdown▼][➕]           │                                  │
+│ ← Back     ↑ Logout      │                                  │
 ├──────────────────────────┤                                  │
-│ Forest Ambience          │                                  │
-│ 📍 12 wp  🗺️ 3 areas     │                                  │
+│ Name: [____________]     │                                  │
+│ Desc: [____________]     │                                  │
+│ ☑ Public    🎮 Simulate  │                                  │
 ├──────────────────────────┤                                  │
-│ Name: [__________]       │                                  │
-│ Desc: [__________]       │                                  │
-│ ☑ Public [🎮][📥][📤]    │                                  │
+│ ▼ More                   │                                  │
+│  🔄 Sync from Server     │                                  │
+│  📥 Import Soundscape    │                                  │
+│  📤 Export Soundscape    │                                  │
+│  �️ Clear All            │                                  │
+│  �️ Delete Soundscape    │                                  │
 ├──────────────────────────┤                                  │
-│ Areas               [3]  │                                  │
+│ [Simulation Panel]       │                                  │
+│  Distance: [--]          │                                  │
+│  Bearing: [--]           │                                  │
+│  Volume: [--]            │                                  │
+├──────────────────────────┤                                  │
+│ Areas [3]                │                                  │
 │ ◈ Forest Zone            │                                  │
 │ ◈ Clearing               │                                  │
-│                          │                                  │
-│ Waypoints           [12] │                                  │
-│ 🎵 Bird Song 1           │                                  │
-│ 🎵 Bird Song 2           │                                  │
+│ ◈ Stream Area            │                                  │
+├──────────────────────────┤                                  │
+│ Waypoints [5]            │                                  │
+│ 🎵 Bird Song 1    20m    │                                  │
+│ 🎵 Bird Song 2    35m    │                                  │
 │ ... (scrolls)            │                                  │
 ├──────────────────────────┤                                  │
-│ 📋 Debug  🔄 Sync  🗑️   │                                  │
+│ ▲ Debug Log  Clear Copy  │                                  │
+│ [Debug logs expand]      │                                  │
 └──────────────────────────┘                                  │
                                                               │
                                                               │
@@ -353,11 +407,10 @@ MapEditorApp (extends MapAppShared)
 ## ✅ Acceptance Criteria (Overall)
 
 ### Functional
-- [ ] All existing features work identically
+- [ ] All existing features work identically (excluding omitted features)
 - [ ] No data loss during migration
 - [ ] Backward compatible with existing soundscapes
-- [ ] Offline mode works
-- [ ] Multi-user support works
+- [ ] Multi-user support works (auth via index.html)
 
 ### Visual
 - [ ] Consistent styling throughout
@@ -372,30 +425,44 @@ MapEditorApp (extends MapAppShared)
 - [ ] No memory leaks
 
 ### Accessibility
-- [ ] Keyboard navigation works
+- [ ] Keyboard navigation works (Ctrl+S, Delete, Escape)
 - [ ] Screen reader compatible
 - [ ] Color contrast meets WCAG AA
 - [ ] Focus indicators visible
+
+### Omitted Features (By Design)
+- [ ] No GPS/Heading status display (player-only feature)
+- [ ] No Start/Stop audio button (auto-starts by proximity)
+- [ ] No sounds count display (redundant with explorer counts)
+- [ ] No drawing mode indicator (Leaflet.draw toolbar suffices)
+- [ ] No edit/delete popup modals (use slideout panel)
+- [ ] No New/Edit soundscape buttons (handled in soundscape_picker)
+- [ ] No user panel (auth handled globally)
+- [ ] No modified timestamp display (auto-saved, server-tracked)
 
 ---
 
 ## 📝 Testing Checklist
 
 ### Manual Testing
-- [ ] Create new soundscape
+- [ ] Create new soundscape (via soundscape_picker)
 - [ ] Edit soundscape name/description
 - [ ] Delete soundscape
 - [ ] Draw 10+ waypoints
 - [ ] Draw 3+ areas
-- [ ] Edit waypoint positions
-- [ ] Edit area vertices
-- [ ] Start audio playback
-- [ ] Enter simulation mode
+- [ ] Edit waypoint positions (drag markers)
+- [ ] Edit area vertices (drag polygon points)
+- [ ] Delete waypoints/areas
+- [ ] Enter simulation mode (toggle Simulate/Edit)
+- [ ] Drag avatar in simulation mode
+- [ ] Verify simulation stats update (distance, bearing, volume)
 - [ ] Import JSON file
 - [ ] Export JSON file
 - [ ] Sync from server
 - [ ] Clear all data
 - [ ] Logout
+- [ ] Test keyboard shortcuts (Ctrl+S, Delete, Escape)
+- [ ] Verify loading states appear during async operations
 
 ### Automated Testing
 - [ ] Unit tests for UI components
@@ -407,8 +474,8 @@ MapEditorApp (extends MapAppShared)
 - [ ] Firefox (latest)
 - [ ] Safari (latest)
 - [ ] Edge (latest)
-- [ ] Mobile Safari (iOS)
-- [ ] Chrome Mobile (Android)
+- [ ] Tablet Safari (iOS)
+- [ ] Chrome Tablet (Android)
 
 ---
 
