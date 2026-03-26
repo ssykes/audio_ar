@@ -7,7 +7,227 @@
 
 console.log('[map_editor_v2.js] Script started');
 
-// DOM Elements
+// =====================================================================
+// MapEditorApp Class
+// =====================================================================
+
+class MapEditorApp extends MapAppShared {
+    constructor() {
+        super({ mode: 'editor' });
+        
+        // Area drawing using Leaflet.Draw
+        this.drawnItems = null;  // FeatureGroup for drawn areas
+        this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
+        this.nextAreaId = 1;
+        this.isDrawingArea = false;
+    }
+
+    /**
+     * Initialize the editor app
+     * @override
+     */
+    async init() {
+        console.log('Map Editor v2 initializing...');
+        
+        // Wait for DOM ready
+        if (document.readyState === 'loading') {
+            await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+        }
+
+        // Initialize map (from MapAppShared._initMap())
+        this._initMap();
+        
+        // Initialize Leaflet.Draw for areas
+        this._initAreaDrawer();
+        
+        // Setup event listeners
+        this._setupEventListeners();
+        
+        console.log('Map Editor v2 ready');
+    }
+
+    /**
+     * Initialize Leaflet.Draw for Area editing
+     * @private
+     */
+    _initAreaDrawer() {
+        // Create feature group to store drawn items
+        this.drawnItems = new L.FeatureGroup();
+        this.map.addLayer(this.drawnItems);
+
+        // Create draw control
+        this.drawControl = new L.Control.Draw({
+            edit: {
+                featureGroup: this.drawnItems,
+                edit: {
+                    selectedPathOptions: {
+                        maintainColor: true,
+                        opacity: 0.6,
+                        fillOpacity: 0.3
+                    }
+                },
+                remove: false,  // We handle deletion ourselves
+                poly: {
+                    allowIntersection: true
+                }
+            },
+            draw: {
+                polygon: {
+                    allowIntersection: true,
+                    showArea: true,
+                    shapeOptions: {
+                        color: '#ff6b6b',
+                        fillColor: '#ff6b6b',
+                        fillOpacity: 0.3,
+                        weight: 3
+                    },
+                    metric: true
+                },
+                polyline: false,
+                rectangle: false,
+                circle: false,
+                marker: false,
+                circlemarker: false
+            }
+        });
+
+        this.map.addControl(this.drawControl);
+
+        // Event: Drawing started (prevent waypoint creation while drawing)
+        this.map.on(L.Draw.Event.DRAWSTART, () => {
+            this.isDrawingArea = true;
+        });
+
+        // Event: Drawing stopped
+        this.map.on(L.Draw.Event.DRAWSTOP, () => {
+            this.isDrawingArea = false;
+        });
+
+        // Event: Polygon created
+        this.map.on(L.Draw.Event.CREATED, (e) => {
+            if (e.layerType !== 'polygon') return;
+
+            const layer = e.layer;
+            const latlngs = layer.getLatLngs()[0];
+
+            this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
+
+            // Auto-name area
+            const areaName = 'Sound ' + (this.areaMarkers.size + 1);
+
+            // Create Area object
+            const area = {
+                id: 'area' + this.nextAreaId++,
+                name: areaName,
+                polygon: latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng })),
+                soundUrl: '',
+                volume: 0.8,
+                loop: true,
+                fadeZoneWidth: 5.0,
+                overlapMode: 'mix',
+                icon: '◈',
+                color: '#ff6b6b',
+                sortOrder: 0,
+                _leafletLayer: layer  // Store reference
+            };
+
+            // Store in area markers
+            this.areaMarkers.set(area.id, layer);
+
+            // Add to sidebar list
+            this._addAreaToList(area);
+
+            this.debugLog(`✅ Area created: ${area.name} (${area.polygon.length} vertices)`);
+        });
+
+        // Event: Polygon edit started
+        this.map.on(L.Draw.Event.EDITSTART, () => {
+            this.isDrawingArea = true;
+        });
+
+        // Event: Polygon edit stopped
+        this.map.on(L.Draw.Event.EDITSTOP, () => {
+            this.isDrawingArea = false;
+        });
+
+        // Event: Polygon edited
+        this.map.on(L.Draw.Event.EDITED, (e) => {
+            e.layers.eachLayer((layer) => {
+                // Find area by layer reference
+                for (const [id, storedLayer] of this.areaMarkers.entries()) {
+                    if (storedLayer === layer) {
+                        // Update polygon coordinates
+                        const latlngs = layer.getLatLngs()[0];
+                        const area = this._getAreaById(id);
+                        if (area) {
+                            area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+                            this.debugLog(`✏️ Area edited: ${area.name}`);
+                        }
+                        break;
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * Setup event listeners
+     * @private
+     */
+    _setupEventListeners() {
+        // Map click - add waypoint (Session 2: No popup, direct add)
+        this.map.on('click', (e) => {
+            if (this.state !== 'editor') return;
+            if (this.isDragging) return;
+            if (!this.allowEditing) return;
+            
+            // Don't add waypoint if drawing an area
+            if (this.isDrawingArea) return;
+
+            this._addWaypoint(e.latlng.lat, e.latlng.lng);
+        });
+
+        // Drag start - prevent accidental clicks
+        this.map.on('dragstart', () => {
+            this.isDragging = true;
+        });
+
+        // Drag end - re-enable clicks
+        this.map.on('dragend', () => {
+            this.isDragging = false;
+        });
+    }
+
+    /**
+     * Get area by ID
+     * @private
+     */
+    _getAreaById(id) {
+        // Placeholder - will be implemented in Session 3 with data layer
+        return null;
+    }
+
+    /**
+     * Add area to sidebar list
+     * @private
+     */
+    _addAreaToList(area) {
+        const meta = `${area.polygon.length} vertices`;
+        const html = `
+            <div class="item-list-item" data-id="${area.id}" data-type="area" data-color="${area.color}">
+                <span class="item-icon">◈</span>
+                <span class="item-name">${area.name}</span>
+                <span class="item-meta">${meta}</span>
+            </div>
+        `;
+        areasList.insertAdjacentHTML('beforeend', html);
+    }
+}
+
+// =====================================================================
+// DOM Elements (UI-only, not map-related)
+// =====================================================================
+
 const editName = document.getElementById('editName');
 const editDescription = document.getElementById('editDescription');
 const editPublic = document.getElementById('editPublic');
@@ -642,3 +862,10 @@ document.getElementById('deleteSoundscapeBtn').addEventListener('click', () => {
 });
 
 console.log('[map_editor_v2.js] Loaded');
+
+// =====================================================================
+// Initialize Application
+// =====================================================================
+
+const app = new MapEditorApp();
+app.init();
