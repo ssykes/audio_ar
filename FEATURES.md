@@ -90,56 +90,8 @@ Config: `{ enterAttack, sustainVolume, exitDecay, curve }`
 Spec: `FEATURE_17_DISTANCE_ENVELOPE.md`
 
 **17B: Map Editor UI Refactor** 🟠 High
-Modern UI replacement for map_editor.html. VSCode-style explorer, slideout editing, debug modal.
-
-**Session Breakdown (1-2 hour sessions):**
-
-**Session 1: Infrastructure Setup** (1.5h)
-- 1a (30m): Add Leaflet CSS/JS to map_editor_v2.html
-- 1b (30m): Add internal script references (api-client.js, soundscape.js, etc.)
-- 1c (30m): Remove mock data from map_editor_v2.js, initialize real MapEditorApp
-
-**Session 2: Map Integration** (2h)
-- 2a (30m): Replace map placeholder with <div id="map">
-- 2b (30m): Initialize Leaflet map with tiles, center, zoom
-- 2c (30m): Integrate Leaflet.draw toolbar
-- 2d (30m): Wire up waypoint/area drawing to sidebar lists
-
-**Session 3: CRUD Operations** (2h)
-- 3a (30m): Waypoint create/delete (marker + list sync)
-- 3b (30m): Area create/delete (polygon + list sync)
-- 3c (30m): Waypoint edit (drag marker → update list)
-- 3d (30m): Area edit (drag vertices → update list)
-
-**Session 4: Slideout Panel Integration** (2h)
-- 4a (30m): Wire slideout to list item clicks
-- 4b (30m): Populate slideout form with waypoint/area data
-- 4c (30m): Save slideout changes → update map + list
-- 4d (30m): Delete from slideout → remove map + list
-
-**Session 5: Simulation Mode** (1.5h)
-- 5a (30m): Add avatar marker for simulation
-- 5b (30m): Wire Simulate/Edit toggle to show/hide panel
-- 5c (30m): Live stats updates (distance, bearing, volume)
-
-**Session 6: Data Persistence** (2h)
-- 6a (30m): Auto-save on waypoint/area changes
-- 6b (30m): Import/Export JSON functionality
-- 6c (30m): Sync from Server integration
-- 6d (30m): Clear All with confirmation
-
-**Session 7: Debug & Polish** (1.5h)
-- 7a (30m): Color-coded debug logging
-- 7b (30m): Keyboard shortcuts (Ctrl+S, Delete, Escape)
-- 7c (30m): Loading states, toast notifications
-
-**Session 8: Testing & Deployment** (2h)
-- 8a (30m): Cross-browser testing
-- 8b (30m): Deploy as map_editor_v2.html
-- 8c (30m): User acceptance testing
-- 8d (30m): Final rename to map_editor.html
-
-Est: ~14h (8 sessions) | Spec: `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md`
+Modern UI replacement for map_editor.html. VSCode-style explorer, slideout editing, debug modal. 8 sessions (~14h).
+Spec: `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md`
 
 **18: Behavior Editing UI** 🟡 Medium
 Visual timeline: drag-drop sounds, edit offsets, configure parameters.
@@ -184,12 +136,11 @@ Est: ~500 lines, ~4h | Spec: `SOUND_WALK_COMPOSER.md`
 2. **F17B Session 2: Map Integration** - Map container + drawing (~2h)
 3. **F17B Session 3: CRUD Operations** - Waypoint/area create/edit/delete (~2h)
 4. **F16B: Service Worker Refactor** - Code quality (~6h)
-5. **F17B Session 4: Slideout Panel** - Wire slideout to lists (~2h)
-6. **F17: Distance Envelope** - Three-zone volume (~4h)
-7. **F20: Cached Streaming** - Session cache (~7h)
-8. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
-9. **Test mobile** - GPS/compass with lazy loading + air absorption
-10. **F18: Behavior UI** - Visual timeline
+5. **F17: Distance Envelope** - Three-zone volume (~4h)
+6. **F20: Cached Streaming** - Session cache (~7h)
+7. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
+8. **Test mobile** - GPS/compass with lazy loading + air absorption
+9. **F18: Behavior UI** - Visual timeline
 
 ---
 
