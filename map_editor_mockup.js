@@ -714,14 +714,17 @@ let isSimulating = false;
 document.getElementById('btnSimulate').addEventListener('click', (e) => {
     e.stopPropagation();
     isSimulating = !isSimulating;
-    
+
     const btn = document.getElementById('btnSimulate');
-    
+    const simPanel = document.getElementById('simPanel');
+
     if (isSimulating) {
         btn.textContent = 'Edit';
+        simPanel.classList.add('active');
         addDebugLog('Simulation started');
     } else {
         btn.textContent = 'Simulate';
+        simPanel.classList.remove('active');
         addDebugLog('Simulation stopped');
     }
 });

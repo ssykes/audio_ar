@@ -825,6 +825,67 @@
             border-top: 1px solid var(--border-sidebar);
         }
 
+        /* Simulation Panel */
+        .sim-panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-top: var(--spacing-md);
+            font-size: 0.85em;
+            flex-shrink: 0;
+            z-index: 50;
+            position: relative;
+            display: none;
+        }
+
+        .sim-panel.active {
+            display: block;
+        }
+
+        .sim-panel h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-primary);
+            margin-bottom: var(--spacing-md);
+            font-weight: 600;
+        }
+
+        .sim-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+            padding-bottom: var(--spacing-xs);
+            border-bottom: 1px solid var(--border-sidebar);
+        }
+
+        .sim-stat:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .sim-stat span:first-child {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .sim-value {
+            color: var(--text-primary);
+            font-weight: 500;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .sim-help {
+            margin-top: var(--spacing-md);
+            font-size: 10px;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
         .advanced-settings-header {
             padding: var(--spacing-sm) 0;
             cursor: pointer;
@@ -938,6 +999,26 @@
                             <button class="btn-text-list" id="clearAllBtn">Clear All</button>
                             <button class="btn-text-list btn-text-list-danger" id="deleteSoundscapeBtn">Delete Soundscape</button>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Simulation Panel -->
+                <div class="sim-panel" id="simPanel">
+                    <h3>Simulation Mode</h3>
+                    <div class="sim-stat">
+                        <span>Distance:</span>
+                        <span class="sim-value" id="simDistance">--</span>
+                    </div>
+                    <div class="sim-stat">
+                        <span>Bearing:</span>
+                        <span class="sim-value" id="simBearing">--</span>
+                    </div>
+                    <div class="sim-stat">
+                        <span>Volume:</span>
+                        <span class="sim-value" id="simVolume">--</span>
+                    </div>
+                    <div class="sim-help">
+                        Drag the avatar to preview
                     </div>
                 </div>
             </div>
@@ -1115,6 +1196,6 @@
     </div>
 
     <!-- JavaScript -->
-    <script src="map_editor_mockup.js"></script>
+    <script src="map_editor_mockup.js?v=20260326b"></script>
 </body>
 </html>
