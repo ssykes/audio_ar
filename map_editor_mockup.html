@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Editor - Mockup</title>
+    <style>
+        /* CSS Custom Properties for theming */
+        :root {
+            /* Background colors */
+            --bg-body: #1a1a2e;
+            --bg-sidebar: #16213e;
+            --bg-panel: #0f3460;
+            --bg-input: #16213e;
+            --bg-header: #0f3460;
+
+            /* Border colors */
+            --border-sidebar: #0f3460;
+            --border-input: #1a5f7a;
+            --border-panel: #1a5f7a;
+
+            /* Accent colors */
+            --accent-primary: #00d9ff;
+            --accent-success: #00ff88;
+            --accent-warning: #f39c12;
+            --accent-danger: #e94560;
+
+            /* Text colors */
+            --text-primary: #eee;
+            --text-secondary: #ccc;
+            --text-muted: #888;
+            --text-dark: #666;
+            --text-white: #fff;
+            --text-light: #aaa;
+
+            /* Accent hover colors */
+            --accent-primary-hover: #00b8d9;
+            --accent-danger-hover: #d63447;
+
+            /* Spacing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 20px;
+
+            /* Slideout positioning */
+            --slideout-top-offset: 392px;  /* Aligned with top of #areasSection */
+
+            /* Border radius */
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 8px;
+
+            /* Transitions */
+            --transition-fast: 0.15s;
+            --transition-normal: 0.2s;
+            --transition-slow: 0.3s;
+
+            /* Z-index layers */
+            --z-sidebar: 10;
+            --z-slideout: 100;
+            --z-debug-console: 100;
+            --z-toast: 10000;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-body);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Left Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-sidebar);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .btn-icon-sm {
+            width: 28px;
+            height: 28px;
+            font-size: 14px;
+        }
+
+        .sidebar-header label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: 18px;
+            transition: all var(--transition-normal);
+            flex-shrink: 0;
+        }
+
+        .btn-icon:hover {
+            background: var(--border-input);
+            border-color: var(--accent-primary);
+        }
+
+        .btn-icon:active {
+            transform: scale(0.95);
+        }
+
+        /* Sidebar Header */
+        .sidebar-header-top {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-bottom: 1px solid var(--border-sidebar);
+        }
+
+        .btn-text {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            padding: var(--spacing-xs) var(--spacing-md);
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-fast);
+        }
+
+        .btn-text:hover {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+        }
+
+        .btn-text-danger {
+            color: var(--accent-danger);
+        }
+
+        .btn-text-danger:hover {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        /* Edit Form */
+        .edit-form {
+            padding: var(--spacing-lg);
+            border-bottom: 1px solid var(--border-sidebar);
+            flex-shrink: 0;
+        }
+
+        /* Lists Container - takes remaining space */
+        .lists-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+            height: 100%;
+            position: relative;
+        }
+
+        /* VSCode-style Explorer */
+        .explorer {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+            height: 100%;
+            padding: 0;
+        }
+
+        .explorer-section {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border-sidebar);
+        }
+
+        .explorer-section:last-child {
+            flex: 1;
+            border-bottom: none;
+        }
+
+        .explorer-header {
+            padding: var(--spacing-sm) var(--spacing-lg);
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-dark);
+            background: var(--bg-header);
+            flex-shrink: 0;
+        }
+
+        .explorer-section .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow-y: auto;
+            min-height: 0;
+            flex: 1;
+        }
+
+        .item-list-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs) var(--spacing-lg) var(--spacing-xs) 24px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: none;
+            background: transparent;
+        }
+
+        .item-list-item:hover {
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .item-list-item.selected {
+            background: rgba(0, 217, 255, 0.15);
+            border-left: 3px solid var(--accent-primary);
+            padding-left: 21px;
+        }
+
+        .item-list-item.selected .item-icon {
+            color: var(--accent-primary);
+        }
+
+        .item-list-item.selected .item-name {
+            color: var(--text-white);
+            font-weight: 500;
+        }
+
+        .item-list-item.selected .item-meta {
+            color: var(--accent-primary);
+        }
+
+        .item-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            transition: color var(--transition-fast);
+        }
+
+        .item-list-item:hover .item-icon {
+            color: var(--text-light);
+        }
+
+        .item-list-item.selected .item-icon {
+            color: var(--accent-primary);
+        }
+
+        .item-name {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: color var(--transition-fast);
+        }
+
+        .item-list-item:hover .item-name {
+            color: var(--text-primary);
+        }
+
+        .item-list-item.selected .item-name {
+            color: var(--text-white);
+            font-weight: 500;
+        }
+
+        .item-meta {
+            font-size: 11px;
+            color: var(--text-dark);
+            flex-shrink: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .item-list-item:hover .item-meta {
+            color: var(--text-muted);
+        }
+
+        .item-list-item.selected .item-meta {
+            color: var(--accent-primary);
+        }
+
+        .form-group {
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-panel);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .form-group textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .form-group-checkbox {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--spacing-sm);
+        }
+
+        .form-group-checkbox-left {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .form-group-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .form-group-checkbox label {
+            margin: 0;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 14px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-xl);
+        }
+
+        .form-actions-right {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-lg);
+            justify-content: flex-end;
+        }
+
+        .form-actions-right.compact {
+            margin-top: 0;
+        }
+
+        .btn {
+            flex: 1;
+            padding: var(--spacing-md) var(--spacing-lg);
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: var(--bg-body);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-primary-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+            border: 1px solid var(--border-input);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-input);
+        }
+
+        .btn-danger {
+            background: var(--accent-danger);
+            color: var(--text-white);
+        }
+
+        .btn-danger:hover {
+            background: var(--accent-danger-hover);
+        }
+
+        /* Item Lists */
+        .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Slideout Edit Panel (overlays map) */
+        .slideout-panel {
+            position: absolute;
+            left: 280px;
+            top: var(--slideout-top-offset);
+            bottom: 0;
+            width: 0;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border-panel);
+            border-right: 1px solid var(--border-panel);
+            overflow: hidden;
+            transition: width var(--transition-slow) ease, opacity var(--transition-slow) ease;
+            padding: 0;
+            opacity: 0;
+            z-index: var(--z-slideout);
+            box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3), 2px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .slideout-panel.active {
+            width: 220px;
+            padding: var(--spacing-md);
+            opacity: 1;
+        }
+
+        .slideout-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-md);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        .slideout-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+
+        .slideout-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+        }
+
+        .slideout-close:hover {
+            color: var(--text-primary);
+        }
+
+        .slideout-content {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+
+        .slideout-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        .slideout-section:last-child {
+            border-bottom: none;
+        }
+
+        .slideout-section-header h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-primary);
+            margin: 0;
+        }
+
+        /* Collapsible Sections */
+        .slideout-collapsible {
+            border-bottom: none;
+        }
+
+        .slideout-collapsible-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .slideout-collapsible-header h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .slideout-collapsible-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .slideout-collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height var(--transition-slow) ease;
+        }
+
+        .slideout-collapsible.active .slideout-collapsible-content {
+            max-height: 500px;
+        }
+
+        .slideout-collapsible.active .slideout-collapsible-header h4 {
+            color: var(--text-primary);
+        }
+
+        /* Slideout Footer */
+        .slideout-footer {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding-top: var(--spacing-md);
+            border-top: 1px solid var(--border-panel);
+        }
+
+        .btn-icon.btn-icon-success {
+            background: var(--accent-success);
+            color: #000;
+        }
+
+        .btn-icon.btn-icon-success:hover {
+            background: #00cc6a;
+        }
+
+        .btn-icon.btn-icon-danger {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        .btn-icon.btn-icon-danger:hover {
+            background: #d63447;
+        }
+
+        .slideout-field {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .slideout-field-row {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+
+        .slideout-field-row .slideout-field {
+            flex: 1;
+        }
+
+        .slideout-field input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: var(--border-input);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .slideout-field input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slideout-field-value {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: right;
+        }
+
+        .slideout-checkbox {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .slideout-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .slideout-coords {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background: var(--bg-panel);
+            border-radius: var(--radius-sm);
+        }
+
+        .slideout-help {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .slideout-field input,
+        .slideout-field select {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background: var(--bg-input);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .slideout-field label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+
+        .slideout-field input:focus,
+        .slideout-field select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .slideout-actions {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        .slideout-actions .btn {
+            padding: var(--spacing-sm) var(--spacing-md);
+            font-size: 12px;
+        }
+
+        .slideout-actions .btn-full {
+            width: 100%;
+        }
+
+        .slideout-field input[type="color"] {
+            height: 36px;
+            padding: 2px;
+        }
+
+        .slideout-delete {
+            margin-top: var(--spacing-sm);
+            padding-top: var(--spacing-md);
+            border-top: 1px solid var(--border-input);
+        }
+
+        /* Scrollbar Styling */
+        .item-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .item-list::-webkit-scrollbar-track {
+            background: var(--bg-panel);
+            border-radius: var(--radius-sm);
+        }
+
+        .item-list::-webkit-scrollbar-thumb {
+            background: var(--border-input);
+            border-radius: var(--radius-sm);
+        }
+
+        .item-list::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-primary);
+        }
+
+        /* Map Area Placeholder */
+        .map-area {
+            flex: 1;
+            background: var(--bg-panel);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* New Soundscape Mode */
+        .new-soundscape .soundscape-name {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Debug Panel */
+        .debug-panel {
+            display: flex;
+            flex-direction: column;
+            border-top: 1px solid var(--border-sidebar);
+            background: var(--bg-sidebar);
+            flex-shrink: 0;
+            transition: max-height var(--transition-slow) ease;
+            max-height: 40px;  /* Collapsed height (header only) */
+        }
+
+        .debug-panel.active {
+            max-height: 33vh;  /* Expanded height (1/3 of viewport) */
+        }
+
+        .debug-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-lg);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .debug-panel-header h4 {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .debug-panel-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .debug-panel-actions {
+            display: flex;
+            gap: var(--spacing-md);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--transition-fast) ease;
+        }
+
+        .debug-panel.active .debug-panel-actions {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .debug-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 var(--spacing-lg);
+            background: #0d0d1a;
+            max-height: 0;
+            opacity: 0;
+            transition: all var(--transition-slow) ease;
+        }
+
+        .debug-panel.active .debug-panel-body {
+            max-height: 200px;
+            opacity: 1;
+            padding: var(--spacing-sm) var(--spacing-lg);
+        }
+
+        .debug-line {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--accent-success);
+            margin: 4px 0;
+        }
+
+        /* Advanced Settings (Collapsible) */
+        .advanced-settings {
+            margin-top: var(--spacing-md);
+            border-top: 1px solid var(--border-sidebar);
+        }
+
+        .advanced-settings-header {
+            padding: var(--spacing-sm) 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .advanced-settings-header h4 {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .advanced-settings-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .advanced-settings-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height var(--transition-slow) ease;
+        }
+
+        .advanced-settings.active .advanced-settings-content {
+            max-height: 100px;
+            padding: var(--spacing-sm) 0;
+        }
+
+        .advanced-settings-toolbar {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+    </style>
+</head>
+<body>
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Left Sidebar: Edit Panel -->
+        <div class="sidebar">
+            <div class="sidebar-header-top">
+                <button class="btn-text" id="backBtn">← Back</button>
+                <button class="btn-text btn-text-danger" id="logoutBtn">↑ Logout</button>
+            </div>
+
+            <!-- Edit Form -->
+            <div class="edit-form">
+                <div class="form-group">
+                    <label for="editName">Name</label>
+                    <input type="text" id="editName" value="Forest Ambience">
+                </div>
+
+                <div class="form-group">
+                    <label for="editDescription">Description</label>
+                    <textarea id="editDescription">Peaceful forest sounds with birds and wind</textarea>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-group-checkbox">
+                        <div class="form-group-checkbox-left">
+                            <input type="checkbox" id="editPublic" checked>
+                            <label for="editPublic">Public</label>
+                        </div>
+                        <label class="slideout-checkbox" id="btnSimulate" style="cursor: pointer; color: var(--accent-primary);">Simulate</label>
+                    </div>
+                </div>
+
+                <!-- Advanced Settings (Collapsible) -->
+                <div class="advanced-settings" id="advancedSettings">
+                    <div class="advanced-settings-header" onclick="toggleAdvancedSettings()">
+                        <h4 id="advancedSettingsToggle">▼ Advanced Settings</h4>
+                    </div>
+                    <div class="advanced-settings-content" id="advancedSettingsContent">
+                        <div class="advanced-settings-toolbar">
+                            <button class="btn-icon btn-icon-sm" id="syncFromServerBtn" title="Sync from Server">🔄</button>
+                            <button class="btn-icon btn-icon-sm" id="btnImport" title="Import Soundscape">📥</button>
+                            <button class="btn-icon btn-icon-sm" id="btnExport" title="Export Soundscape">📤</button>
+                            <button class="btn-icon btn-icon-sm" id="clearAllBtn" title="Clear All">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lists Container: VSCode-style Explorer -->
+            <div class="lists-container">
+                <div class="explorer">
+                    <!-- Areas Section -->
+                    <div class="explorer-section" id="areasSection">
+                        <div class="explorer-header">Areas</div>
+                        <div class="item-list" id="areasList">
+                            <div class="item-list-item" data-id="1" data-type="area" data-color="#ff6b6b">
+                                <span class="item-icon">◈</span>
+                                <span class="item-name">Forest Zone</span>
+                                <span class="item-meta">3 vertices</span>
+                            </div>
+                            <div class="item-list-item" data-id="2" data-type="area" data-color="#ff6b6b">
+                                <span class="item-icon">◈</span>
+                                <span class="item-name">Clearing</span>
+                                <span class="item-meta">5 vertices</span>
+                            </div>
+                            <div class="item-list-item" data-id="3" data-type="area" data-color="#ff6b6b">
+                                <span class="item-icon">◈</span>
+                                <span class="item-name">Stream Area</span>
+                                <span class="item-meta">4 vertices</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Waypoints Section -->
+                    <div class="explorer-section">
+                        <div class="explorer-header">Waypoints</div>
+                        <div class="item-list" id="waypointsList">
+                            <div class="item-list-item" data-id="1" data-type="waypoint" data-color="#00d9ff">
+                                <span class="item-icon">🎵</span>
+                                <span class="item-name">Bird Song 1</span>
+                                <span class="item-meta">20m</span>
+                            </div>
+                            <div class="item-list-item" data-id="2" data-type="waypoint" data-color="#00d9ff">
+                                <span class="item-icon">🎵</span>
+                                <span class="item-name">Bird Song 2</span>
+                                <span class="item-meta">35m</span>
+                            </div>
+                            <div class="item-list-item" data-id="3" data-type="waypoint" data-color="#00d9ff">
+                                <span class="item-icon">🎵</span>
+                                <span class="item-name">Wind Chimes</span>
+                                <span class="item-meta">50m</span>
+                            </div>
+                            <div class="item-list-item" data-id="4" data-type="waypoint" data-color="#00d9ff">
+                                <span class="item-icon">🎵</span>
+                                <span class="item-name">Fountain</span>
+                                <span class="item-meta">65m</span>
+                            </div>
+                            <div class="item-list-item" data-id="5" data-type="waypoint" data-color="#00d9ff">
+                                <span class="item-icon">🎵</span>
+                                <span class="item-name">Leaves Rustle</span>
+                                <span class="item-meta">80m</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Log Panel (Collapsible) -->
+            <div class="debug-panel" id="debugPanel">
+                <div class="debug-panel-header" onclick="toggleDebugPanel()">
+                    <h4 id="debugPanelToggle">▲ Debug Log</h4>
+                    <div class="debug-panel-actions" id="debugPanelActions">
+                        <label class="slideout-checkbox" id="debugClearBtn" style="cursor: pointer; color: var(--accent-danger);">Clear</label>
+                        <label class="slideout-checkbox" id="debugCopyBtn" style="cursor: pointer; color: var(--accent-primary);">Copy</label>
+                    </div>
+                </div>
+                <div class="debug-panel-body" id="debugPanelBody">
+                    <div class="debug-line">Ready - tap Start to begin...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slideout Edit Panel (overlays map) -->
+        <div class="slideout-panel" id="slideoutPanel">
+            <div class="slideout-header">
+                <span class="slideout-title" id="slideoutTitle">Edit Item</span>
+                <button class="slideout-close" id="slideoutClose">×</button>
+            </div>
+            <div class="slideout-content">
+                <!-- Dynamic content based on item type -->
+                <div id="slideoutBody">
+                    <!-- Type Selector -->
+                    <div class="slideout-field">
+                        <label for="slideoutType">Sound Type</label>
+                        <select id="slideoutType">
+                            <option value="file">Audio File</option>
+                            <option value="oscillator">Oscillator</option>
+                            <option value="streaming">Streaming</option>
+                        </select>
+                    </div>
+                    
+                    <!-- COMMON FIELDS (all types) -->
+                    <div class="slideout-section">
+                        <div class="slideout-field">
+                            <label for="slideoutName">Name</label>
+                            <input type="text" id="slideoutName" placeholder="Sound name">
+                        </div>
+                        
+                        <div class="slideout-field-row">
+                            <div class="slideout-field">
+                                <label for="slideoutVolume">Volume</label>
+                                <input type="range" id="slideoutVolume" min="0" max="1" step="0.1" value="0.8">
+                                <span class="slideout-field-value" id="slideoutVolumeValue">80%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="slideout-field-row">
+                            <div class="slideout-field">
+                                <label for="slideoutActivationRadius">Activation Radius</label>
+                                <input type="range" id="slideoutActivationRadius" min="5" max="100" step="1" value="20">
+                                <span class="slideout-field-value" id="slideoutActivationRadiusValue">20m</span>
+                            </div>
+                        </div>
+                        
+                        <div class="slideout-field">
+                            <label class="slideout-checkbox">
+                                <input type="checkbox" id="slideoutLoop" checked>
+                                <span>Loop Sound</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- TYPE-SPECIFIC FIELDS (dynamic) -->
+                    <div class="slideout-section" id="slideoutTypeSection">
+                        <div class="slideout-section-header">
+                            <h4 id="typeSectionTitle">File Settings</h4>
+                        </div>
+                        <div id="typeFieldsContainer">
+                            <!-- Injected via JavaScript based on type -->
+                        </div>
+                    </div>
+                    
+                    <!-- ADVANCED SETTINGS (collapsible) -->
+                    <div class="slideout-section slideout-collapsible" id="slideoutAdvanced">
+                        <div class="slideout-collapsible-header" onclick="toggleAdvancedSection()">
+                            <h4>▼ Advanced Settings</h4>
+                        </div>
+                        <div class="slideout-collapsible-content" id="slideoutAdvancedContent">
+                            <div class="slideout-field">
+                                <label for="slideoutSortOrder">Sort Order</label>
+                                <input type="number" id="slideoutSortOrder" min="0" value="0" placeholder="0 = first">
+                                <small class="slideout-help">Determines processing/display order (0 = first)</small>
+                            </div>
+                            
+                            <div class="slideout-field">
+                                <label>Coordinates (read-only)</label>
+                                <div class="slideout-coords">
+                                    <span id="slideoutLat">--</span>, <span id="slideoutLon">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="slideout-footer">
+                    <button class="btn-icon" id="slideoutCancel" title="Cancel (Esc)">✖</button>
+                    <button class="btn-icon btn-icon-success" id="slideoutSave" title="Save">💾</button>
+                    <button class="btn-icon btn-icon-danger" id="slideoutDelete" title="Delete">🗑️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Area (Placeholder) -->
+        <div class="map-area">
+            [ Leaflet Map Canvas Goes Here ]
+        </div>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="map_editor_mockup.js"></script>
+</body>
+</html>

@@ -43,6 +43,8 @@ Source code (implementation)
 |------|---------|--------------|
 | `map_player.html` | v7.2 | 2026-03-18 |
 | `map_editor.html` | v6.119+ | 2026-03-18 |
+| `map_editor_mockup.html` | v1.0 | 2026-03-25 (Feature 17B) |
+| `map_editor_mockup.js` | v1.0 | 2026-03-25 (Feature 17B) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `spatial_audio.js` | v5.1+ | 2026-03-20 (Feature 15) |
@@ -244,6 +246,7 @@ Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing |
 |---------|-------------|----------|
 | **16B** | Service Worker Refactor (constants, helpers, cache opt) | Medium |
 | **17** | Distance Envelope Behavior | High |
+| **17B** | Map Editor UI Refactor (modern replacement) | High |
 | **18** | Behavior editing UI | Medium |
 | **19** | Multi-user collaboration | Low |
 | **20** | Session-based cached streaming | High |

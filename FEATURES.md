@@ -89,6 +89,10 @@ Three-zone volume: enter attack, sustain, exit decay. Custom curves.
 Config: `{ enterAttack, sustainVolume, exitDecay, curve }`
 Spec: `FEATURE_17_DISTANCE_ENVELOPE.md`
 
+**17B: Map Editor UI Refactor** 🟠 High
+Modern UI replacement for map_editor.html. VSCode-style explorer, slideout editing, debug modal. 5 sessions (~25h).
+Spec: `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md`
+
 **18: Behavior Editing UI** 🟡 Medium
 Visual timeline: drag-drop sounds, edit offsets, configure parameters.
 Spec: `FEATURE_18_BEHAVIOR_UI.md`
@@ -124,12 +128,13 @@ Est: ~500 lines, ~4h | Spec: `SOUND_WALK_COMPOSER.md`
 
 ## 🎯 Next Priority
 
-1. **F16B: Service Worker Refactor** - Code quality (~6h)
-2. **F17: Distance Envelope** - Three-zone volume (~4h)
-3. **F20: Cached Streaming** - Session cache (~7h)
-4. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
-5. **Test mobile** - GPS/compass with lazy loading + air absorption
-6. **F18: Behavior UI** - Visual timeline
+1. **F17B: Map Editor UI Refactor** - Modern replacement (~25h, 5 sessions)
+2. **F16B: Service Worker Refactor** - Code quality (~6h)
+3. **F17: Distance Envelope** - Three-zone volume (~4h)
+4. **F20: Cached Streaming** - Session cache (~7h)
+5. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
+6. **Test mobile** - GPS/compass with lazy loading + air absorption
+7. **F18: Behavior UI** - Visual timeline
 
 ---
 
