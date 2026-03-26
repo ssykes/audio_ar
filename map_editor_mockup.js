@@ -1,9 +1,11 @@
 /**
  * Map Editor Mockup - JavaScript
- * 
+ *
  * Mock UI for map editor with soundscape management,
  * area/waypoint editing, and debug logging.
  */
+
+console.log('[map_editor_mockup.js] Script started');
 
 // Mock data
 const soundscapes = {
@@ -216,6 +218,13 @@ function updateSyncStatus(status) {
 // Toggle advanced section
 function toggleAdvancedSection() {
     slideoutAdvanced.classList.toggle('active');
+    const toggle = document.getElementById('slideoutAdvancedToggle');
+    if (slideoutAdvanced.classList.contains('active')) {
+        toggle.textContent = '▲ More';
+        addDebugLog('More opened');
+    } else {
+        toggle.textContent = '▼ More';
+    }
 }
 
 // Render type-specific fields
@@ -332,10 +341,10 @@ function toggleAdvancedSettings() {
     const toggle = document.getElementById('advancedSettingsToggle');
     advancedSettings.classList.toggle('active');
     if (advancedSettings.classList.contains('active')) {
-        toggle.textContent = '▲ Advanced Settings';
-        addDebugLog('Advanced settings opened');
+        toggle.textContent = '▲ More';
+        addDebugLog('More opened');
     } else {
-        toggle.textContent = '▼ Advanced Settings';
+        toggle.textContent = '▼ More';
     }
 }
 
@@ -718,7 +727,7 @@ document.getElementById('btnSimulate').addEventListener('click', (e) => {
 });
 
 // Initialize
-initializeDisplay();
+// initializeDisplay(); // Commented out - references non-existent elements in mockup
 
 // Back button - go back to soundscape picker
 document.getElementById('backBtn').addEventListener('click', () => {
@@ -737,5 +746,29 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
         alert('🚪 Logout (mock)');
     }
 });
+
+// Delete Soundscape button
+const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
+console.log('[Delete Btn] Element found:', deleteSoundscapeBtn);
+
+if (deleteSoundscapeBtn) {
+    deleteSoundscapeBtn.addEventListener('click', () => {
+        const soundscapeName = editName.value || 'this soundscape';
+        
+        addDebugLog('Delete Soundscape button clicked');
+        console.log('Delete Soundscape button clicked');
+        
+        if (confirm(`⚠️ Delete Soundscape\n\nAre you sure you want to delete "${soundscapeName}"?\n\nThis action cannot be undone.`)) {
+            addDebugLog(`Deleting soundscape: ${soundscapeName}`);
+            console.log('Delete soundscape:', soundscapeName);
+            
+            // In production: delete from server/database first
+            // Then redirect to soundscape picker
+            window.location.href = 'soundscape_picker.html';
+        }
+    });
+} else {
+    console.error('[Delete Btn] Element NOT found!');
+}
 
 console.log('[map_editor_mockup.js] Loaded');

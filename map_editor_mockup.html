@@ -468,7 +468,7 @@
         }
 
         .slideout-panel.active {
-            width: 220px;
+            width: 280px;
             padding: var(--spacing-md);
             opacity: 1;
         }
@@ -569,30 +569,30 @@
 
         /* Slideout Footer */
         .slideout-footer {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            gap: var(--spacing-sm);
             padding-top: var(--spacing-md);
             border-top: 1px solid var(--border-panel);
         }
 
-        .btn-icon.btn-icon-success {
-            background: var(--accent-success);
-            color: #000;
+        .slideout-button-group {
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--spacing-md);
         }
 
-        .btn-icon.btn-icon-success:hover {
-            background: #00cc6a;
+        .slideout-button {
+            cursor: pointer;
+            user-select: none;
+            font-size: 13px;
+            color: var(--text-primary);
+            transition: all var(--transition-fast);
         }
 
-        .btn-icon.btn-icon-danger {
-            background: var(--accent-danger);
-            color: #fff;
+        .slideout-button:hover {
+            opacity: 0.8;
         }
 
-        .btn-icon.btn-icon-danger:hover {
-            background: #d63447;
+        .slideout-button.btn-text-danger {
+            color: var(--accent-danger);
         }
 
         .slideout-field {
@@ -849,13 +849,47 @@
         }
 
         .advanced-settings.active .advanced-settings-content {
-            max-height: 100px;
+            max-height: 150px;
             padding: var(--spacing-sm) 0;
         }
 
         .advanced-settings-toolbar {
             display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .advanced-settings-toolbar .btn-text-list {
+            display: flex;
+            align-items: center;
             gap: var(--spacing-sm);
+            padding: var(--spacing-xs) var(--spacing-lg) var(--spacing-xs) 24px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            justify-content: flex-start;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .advanced-settings-toolbar .btn-text-list:hover {
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .advanced-settings-toolbar .btn-text-list:active {
+            transform: scale(0.99);
+        }
+
+        .advanced-settings-toolbar .btn-text-list-danger {
+            color: var(--accent-danger);
+        }
+
+        .advanced-settings-toolbar .btn-text-list-danger:hover {
+            background: rgba(233, 69, 96, 0.1);
+            color: var(--accent-danger);
         }
     </style>
 </head>
@@ -891,17 +925,18 @@
                     </div>
                 </div>
 
-                <!-- Advanced Settings (Collapsible) -->
+                <!-- More (Collapsible) -->
                 <div class="advanced-settings" id="advancedSettings">
                     <div class="advanced-settings-header" onclick="toggleAdvancedSettings()">
-                        <h4 id="advancedSettingsToggle">▼ Advanced Settings</h4>
+                        <h4 id="advancedSettingsToggle">▼ More</h4>
                     </div>
                     <div class="advanced-settings-content" id="advancedSettingsContent">
                         <div class="advanced-settings-toolbar">
-                            <button class="btn-icon btn-icon-sm" id="syncFromServerBtn" title="Sync from Server">🔄</button>
-                            <button class="btn-icon btn-icon-sm" id="btnImport" title="Import Soundscape">📥</button>
-                            <button class="btn-icon btn-icon-sm" id="btnExport" title="Export Soundscape">📤</button>
-                            <button class="btn-icon btn-icon-sm" id="clearAllBtn" title="Clear All">🗑️</button>
+                            <button class="btn-text-list" id="syncFromServerBtn">Sync from Server</button>
+                            <button class="btn-text-list" id="btnImport">Import Soundscape</button>
+                            <button class="btn-text-list" id="btnExport">Export Soundscape</button>
+                            <button class="btn-text-list" id="clearAllBtn">Clear All</button>
+                            <button class="btn-text-list btn-text-list-danger" id="deleteSoundscapeBtn">Delete Soundscape</button>
                         </div>
                     </div>
                 </div>
@@ -1040,11 +1075,11 @@
                             <!-- Injected via JavaScript based on type -->
                         </div>
                     </div>
-                    
-                    <!-- ADVANCED SETTINGS (collapsible) -->
+
+                    <!-- MORE (collapsible) -->
                     <div class="slideout-section slideout-collapsible" id="slideoutAdvanced">
                         <div class="slideout-collapsible-header" onclick="toggleAdvancedSection()">
-                            <h4>▼ Advanced Settings</h4>
+                            <h4 id="slideoutAdvancedToggle">▼ More</h4>
                         </div>
                         <div class="slideout-collapsible-content" id="slideoutAdvancedContent">
                             <div class="slideout-field">
@@ -1064,9 +1099,11 @@
                 </div>
                 
                 <div class="slideout-footer">
-                    <button class="btn-icon" id="slideoutCancel" title="Cancel (Esc)">✖</button>
-                    <button class="btn-icon btn-icon-success" id="slideoutSave" title="Save">💾</button>
-                    <button class="btn-icon btn-icon-danger" id="slideoutDelete" title="Delete">🗑️</button>
+                    <div class="slideout-button-group">
+                        <label class="slideout-button" id="slideoutSave">Save</label>
+                        <label class="slideout-button" id="slideoutCancel">Cancel</label>
+                        <label class="slideout-button btn-text-danger" id="slideoutDelete">Delete</label>
+                    </div>
                 </div>
             </div>
         </div>
