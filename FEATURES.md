@@ -91,6 +91,24 @@ Spec: `FEATURE_17_DISTANCE_ENVELOPE.md`
 
 **17B: Map Editor UI Refactor** 🟠 High
 Modern UI replacement for map_editor.html. VSCode-style explorer, slideout editing, debug modal. 8 sessions (~14h).
+
+**Session Status:**
+- ✅ **Session 1: Infrastructure Setup** (1.5h) - Complete 2026-03-26
+  - Added Leaflet CSS/JS, Leaflet.draw, internal scripts
+  - Replaced map placeholder with `<div id="map"></div>`
+  - Removed mock data and broken functions
+  - Files: map_editor_v2.html (+44 lines), map_editor_v2.js (-70 lines)
+- 📋 **Session 2: Map Integration** (2h) - Next
+  - Initialize Leaflet map with tiles
+  - Add Leaflet.draw toolbar
+  - Wire up waypoint/area drawing
+- 📋 **Session 3: CRUD Operations** (2h)
+- 📋 **Session 4: Slideout Panel** (2h)
+- 📋 **Session 5: Simulation Mode** (1.5h)
+- 📋 **Session 6: Data Persistence** (2h)
+- 📋 **Session 7: Debug & Polish** (1.5h)
+- 📋 **Session 8: Testing & Deployment** (2h)
+
 Spec: `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md`
 
 **18: Behavior Editing UI** 🟡 Medium
@@ -116,31 +134,29 @@ Est: ~500 lines, ~4h | Spec: `SOUND_WALK_COMPOSER.md`
 |------|---------|---------|
 | `map_player.html` | v7.2 | 2026-03-18 |
 | `map_editor.html` | v6.119+ | 2026-03-18 |
-| `map_editor_v2.html` | v1.0 | 2026-03-26 (new) |
-| `map_editor_v2.js` | v1.0 | 2026-03-26 (new) |
-| `map_editor_mockup.html` | - | 2026-03-26 |
-| `map_editor_mockup.js` | - | 2026-03-26 |
+| `map_editor_v2.html` | v1.1 | 2026-03-26 (Session 1 complete) |
+| `map_editor_v2.js` | v1.1 | 2026-03-26 (Session 1 complete) |
+| `map_editor_mockup.html` | - | 2026-03-26 (reference) |
+| `map_editor_mockup.js` | - | 2026-03-26 (reference) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 |
 | `spatial_audio.js` | v5.1+ | 2026-03-20 |
 | `spatial_audio_app.js` | v2.8 | 2026-03-18 |
 | `download_manager.js` | v1.1 | 2026-03-21 |
 | `sw.js` | v1.0 | 2026-03-21 |
-| `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 |
 
 ---
 
 ## 🎯 Next Priority
 
-1. **F17B Session 1: Infrastructure** - Add Leaflet + scripts to v2 (~1.5h)
-2. **F17B Session 2: Map Integration** - Map container + drawing (~2h)
-3. **F17B Session 3: CRUD Operations** - Waypoint/area create/edit/delete (~2h)
-4. **F16B: Service Worker Refactor** - Code quality (~6h)
-5. **F17: Distance Envelope** - Three-zone volume (~4h)
-6. **F20: Cached Streaming** - Session cache (~7h)
-7. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
-8. **Test mobile** - GPS/compass with lazy loading + air absorption
-9. **F18: Behavior UI** - Visual timeline
+1. **F17B Session 2: Map Integration** - Initialize Leaflet + drawing (~2h) 🔵 IN PROGRESS
+2. **F17B Session 3: CRUD Operations** - Waypoint/area create/edit/delete (~2h)
+3. **F16B: Service Worker Refactor** - Code quality (~6h)
+4. **F17: Distance Envelope** - Three-zone volume (~4h)
+5. **F20: Cached Streaming** - Session cache (~7h)
+6. **F21: Sound Walk Composer** - Routes+OSRM (~4h)
+7. **Test mobile** - GPS/compass with lazy loading + air absorption
+8. **F18: Behavior UI** - Visual timeline
 
 ---
 
