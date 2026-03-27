@@ -131,13 +131,18 @@ class MapEditorApp extends MapAppShared {
                 _leafletLayer: layer  // Store reference
             };
 
-            // Store in area markers
+            // Store in area markers (the layer is already on the map via drawnItems)
             this.areaMarkers.set(area.id, layer);
+            
+            // Store area data on the layer itself for easy retrieval
+            layer.areaData = area;
 
             // Add to sidebar list
             this._addAreaToList(area);
 
             this.debugLog(`✅ Area created: ${area.name} (${area.polygon.length} vertices)`);
+            this.debugLog(`   Layer on map: ${this.map.hasLayer(layer)}`);
+            this.debugLog(`   Layer in drawnItems: ${this.drawnItems.hasLayer(layer)}`);
         });
 
         // Event: Polygon edit started
@@ -153,18 +158,11 @@ class MapEditorApp extends MapAppShared {
         // Event: Polygon edited
         this.map.on(L.Draw.Event.EDITED, (e) => {
             e.layers.eachLayer((layer) => {
-                // Find area by layer reference
-                for (const [id, storedLayer] of this.areaMarkers.entries()) {
-                    if (storedLayer === layer) {
-                        // Update polygon coordinates
-                        const latlngs = layer.getLatLngs()[0];
-                        const area = this._getAreaById(id);
-                        if (area) {
-                            area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
-                            this.debugLog(`✏️ Area edited: ${area.name}`);
-                        }
-                        break;
-                    }
+                // Get area data stored on layer
+                if (layer.areaData) {
+                    const latlngs = layer.getLatLngs()[0];
+                    layer.areaData.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+                    this.debugLog(`✏️ Area edited: ${layer.areaData.name}`);
                 }
             });
         });
@@ -221,6 +219,71 @@ class MapEditorApp extends MapAppShared {
             </div>
         `;
         areasList.insertAdjacentHTML('beforeend', html);
+    }
+
+    /**
+     * Override _addWaypoint to remove popup modals (Session 2: No popups)
+     * @override
+     * @protected
+     */
+    _addWaypoint(lat, lon) {
+        if (this.state !== 'editor') return;
+
+        const waypoint = {
+            id: 'wp' + this.nextId++,
+            name: 'Sound ' + this.nextId,
+            lat: lat,
+            lon: lon,
+            soundUrl: '',
+            volume: 0.8,
+            loop: true,
+            activationRadius: 20,
+            icon: '🎵',
+            color: '#00d9ff',
+            sortOrder: 0
+        };
+
+        this.waypoints.push(waypoint);
+
+        // Create custom div icon
+        const icon = L.divIcon({
+            className: 'waypoint-marker',
+            html: '<div style="font-size: 24px; cursor: grab; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">' + waypoint.icon + '</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+
+        const marker = L.marker([waypoint.lat, waypoint.lon], {
+            icon: icon,
+            draggable: this.allowEditing
+        }).addTo(this.map);
+
+        // Session 2: NO POPUP - editing via slideout panel only
+        // marker.bindPopup() removed per spec
+
+        marker.on('dragstart', () => {
+            this.isDragging = true;
+        });
+
+        marker.on('dragend', (e) => {
+            this.isDragging = false;
+            const newLat = e.target.getLatLng().lat;
+            const newLon = e.target.getLatLng().lng;
+
+            this.debugLog(`🖐️ Dragged ${waypoint.name} to [${newLat.toFixed(4)}, ${newLon.toFixed(4)}]`);
+
+            // Update waypoint
+            waypoint.lat = newLat;
+            waypoint.lon = newLon;
+
+            this._updateRadiusCircle(waypoint);
+            this._markSoundscapeDirty();
+        });
+
+        this.markers.set(waypoint.id, marker);
+        this._updateRadiusCircle(waypoint);
+
+        this.debugLog(`✅ Waypoint created: ${waypoint.name} at [${lat.toFixed(5)}, ${lon.toFixed(5)}]`);
     }
 }
 

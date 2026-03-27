@@ -786,6 +786,15 @@
             font-size: 14px;
         }
 
+        /* Map Area */
+        #map {
+            flex: 1;
+            height: 100%;
+            min-height: 0;  /* Prevent flex overflow */
+            background: var(--bg-panel);
+            z-index: 1;  /* Ensure map is below slideout */
+        }
+
         /* New Soundscape Mode */
         .new-soundscape .soundscape-name {
             color: var(--text-muted);
