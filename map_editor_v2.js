@@ -76,10 +76,10 @@ class MapEditorApp extends MapAppShared {
                     allowIntersection: true,
                     showArea: true,
                     shapeOptions: {
-                        color: '#ff6b6b',
-                        fillColor: '#ff6b6b',
-                        fillOpacity: 0.3,
-                        weight: 3
+                        color: '#00d9ff',       // Same cyan as waypoints
+                        fillColor: '#00d9ff',   // Same cyan as waypoints
+                        fillOpacity: 0.15,      // Semi-transparent fill
+                        weight: 2               // Thinner border
                     },
                     metric: true
                 },
@@ -138,7 +138,7 @@ class MapEditorApp extends MapAppShared {
                 fadeZoneWidth: 5.0,
                 overlapMode: 'mix',
                 icon: '◈',
-                color: '#ff6b6b',
+                color: '#00d9ff',  // Same cyan as waypoints
                 sortOrder: 0,
                 _leafletLayer: layer  // Store reference
             };
