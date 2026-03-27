@@ -422,12 +422,20 @@ class MapEditorApp extends MapAppShared {
      */
     _initForms() {
         const soundscape = this.getActiveSoundscape();
-        if (!soundscape) return;
+        if (!soundscape) {
+            this.debugLog('⚠️ _initForms: No soundscape!');
+            return;
+        }
+
+        this.debugLog(`🎛️ _initForms: name="${soundscape.name}", desc="${soundscape.description}", public=${soundscape.isPublic}`);
 
         // Populate edit form
         if (editName) editName.value = soundscape.name || '';
         if (editDescription) editDescription.value = soundscape.description || '';
-        if (editPublic) editPublic.checked = soundscape.isPublic !== false;
+        if (editPublic) {
+            editPublic.checked = soundscape.isPublic !== false;
+            this.debugLog(`   Checkbox set to: ${editPublic.checked}`);
+        }
 
         // Populate lists
         this._refreshWaypointList();

@@ -72,7 +72,7 @@ class SoundScapeRepository extends BaseRepository {
   }
 
   /**
-   * Create soundscape with waypoints, behaviors, and areas (transactional)
+   * Create soundscape with waypoints, behaviors, and areas (transactional)     
    * @param {Object} soundscapeData - Soundscape data (camelCase)
    * @param {Object[]} [waypoints] - Optional waypoints to create
    * @param {Object[]} [behaviors] - Optional behaviors to create
@@ -88,8 +88,8 @@ class SoundScapeRepository extends BaseRepository {
       // Create soundscape
       const row = this._toRow(soundscapeData);
       const createResult = await client.query(
-        'INSERT INTO soundscapes (user_id, name, description) VALUES ($1, $2, $3) RETURNING *',
-        [row.user_id, row.name, row.description || '']
+        'INSERT INTO soundscapes (user_id, name, description, is_public) VALUES ($1, $2, $3, $4) RETURNING *',
+        [row.user_id, row.name, row.description || '', row.isPublic ?? true]
       );
 
       const soundscape = createResult.rows[0];

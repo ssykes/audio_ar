@@ -78,14 +78,18 @@ class SoundScape {
     /**
      * @param {string} id - Unique identifier
      * @param {string} name - Human-readable name
+     * @param {string} description - Soundscape description
+     * @param {boolean} isPublic - Whether soundscape is public
      * @param {string[]} soundIds - Array of waypoint IDs
      * @param {SoundBehavior[]} behaviors - Array of behavior specifications
      * @param {Object[]} waypointData - Optional: Full waypoint data for persistence
      * @param {Object[]} areas - Optional: Full area data for polygon zones
      */
-    constructor(id, name, soundIds = [], behaviors = [], waypointData = [], areas = []) {
+    constructor(id, name, description = '', isPublic = true, soundIds = [], behaviors = [], waypointData = [], areas = []) {
         this.id = id;
         this.name = name;
+        this.description = description;
+        this.isPublic = isPublic;
         this.soundIds = soundIds;
         this.behaviors = behaviors;
         this.waypointData = waypointData;  // Full waypoint data for persistence
@@ -205,6 +209,8 @@ class SoundScape {
         return {
             id: this.id,
             name: this.name,
+            description: this.description,
+            isPublic: this.isPublic,
             soundIds: this.soundIds,
             behaviors: this.behaviors.map(b => b.toJSON()),
             waypointData: this.waypointData,  // Include full waypoint data
@@ -219,14 +225,28 @@ class SoundScape {
      */
     static fromJSON(data) {
         const behaviors = (data.behaviors || []).map(b => SoundBehavior.fromJSON(b));
-        return new SoundScape(
+        console.log('[SoundScape.fromJSON] Input data:', {
+            id: data.id,
+            name: data.name,
+            description: data.description,
+            isPublic: data.isPublic
+        });
+        const result = new SoundScape(
             data.id,
             data.name,
+            data.description || '',
+            data.isPublic ?? true,
             data.soundIds,
             behaviors,
             data.waypointData || [],
             data.areas || []  // Load areas (Feature 17)
         );
+        console.log('[SoundScape.fromJSON] Created:', {
+            id: result.id,
+            name: result.name,
+            isPublic: result.isPublic
+        });
+        return result;
     }
 }
 

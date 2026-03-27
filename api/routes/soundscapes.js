@@ -41,10 +41,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create soundscape
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, description, isPublic } = req.body;
 
     const soundscape = await repo.createWithWaypoints(
-      { userId: req.user.id, name, description },
+      { userId: req.user.id, name, description, isPublic },
       [], // No waypoints initially
       []  // No behaviors initially
     );
@@ -63,9 +63,9 @@ router.post('/', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description, isPublic } = req.body;
 
-    const updated = await repo.update(id, { name, description });
+    const updated = await repo.update(id, { name, description, isPublic });
 
     if (!updated) {
       return res.status(404).json({ error: 'Soundscape not found' });

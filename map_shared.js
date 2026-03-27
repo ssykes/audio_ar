@@ -596,18 +596,31 @@ class MapAppShared {
 
         // Debug: log what we're sending
         this.debugLog(`📦 Saving: ${cleanWaypoints.length} waypoints, ${behaviors.length} behaviors, ${cleanAreas.length} areas`);
+        this.debugLog(`🏷️ Soundscape metadata: name="${soundscape.name}", desc="${soundscape.description}", public=${soundscape.isPublic}`);
+
+        // Save soundscape metadata first (name, description, isPublic)
+        this.debugLog('📝 Calling updateSoundscape for metadata...');
+        const metadataPromise = this.api.updateSoundscape(
+            serverId,
+            soundscape.name,
+            soundscape.description,
+            soundscape.isPublic
+        );
 
         // Save waypoints, behaviors, and areas in single call
-        this.api.saveSoundscape(
+        const dataPromise = this.api.saveSoundscape(
             serverId,
             cleanWaypoints,
             behaviors,
             cleanAreas,
             signal  // Pass abort signal
-        )
+        );
+
+        // Wait for both to complete
+        Promise.all([metadataPromise, dataPromise])
         .then(() => {
             soundscape.isDirty = false;
-            this.debugLog('✅ Auto-saved to server (waypoints + behaviors + areas)');
+            this.debugLog('✅ Auto-saved to server (metadata + waypoints + behaviors + areas)');
             this._updateSyncStatus(true);
         })
         .catch((error) => {

@@ -58,11 +58,20 @@ class ApiClient {
      */
     async request(endpoint, options = {}) {
         const url = `${this.baseUrl}${endpoint}`;
+        
+        // Add cache-control headers to prevent stale data (especially for GET requests)
+        const cacheHeaders = {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        };
+        
         const config = {
             ...options,
             headers: {
                 'Content-Type': 'application/json',
                 ...this.getAuthHeader(),
+                ...cacheHeaders,
                 ...options.headers
             }
         };
@@ -197,10 +206,10 @@ class ApiClient {
     /**
      * Update soundscape
      */
-    async updateSoundscape(id, name, description = '') {
+    async updateSoundscape(id, name, description = '', isPublic = true) {
         return await this.request(`/soundscapes/${id}`, {
             method: 'PUT',
-            body: JSON.stringify({ name, description })
+            body: JSON.stringify({ name, description, isPublic })
         });
     }
 
@@ -244,6 +253,7 @@ class ApiClient {
                 id: data.soundscape.id,
                 name: data.soundscape.name,
                 description: data.soundscape.description,
+                isPublic: data.soundscape.isPublic,
                 soundIds: data.waypoints.map(wp => wp.id),
                 waypointData: data.waypoints.map(wp => this._toEntity(wp)),
                 behaviors: data.behaviors.map(b => ({
