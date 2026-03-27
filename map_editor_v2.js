@@ -96,11 +96,17 @@ class MapEditorApp extends MapAppShared {
         // Event: Drawing started (prevent waypoint creation while drawing)
         this.map.on(L.Draw.Event.DRAWSTART, () => {
             this.isDrawingArea = true;
+            this.debugLog('🔷 Drawing started');
         });
 
-        // Event: Drawing stopped
+        // Event: Drawing stopped (with delay to allow CREATED to fire first)
         this.map.on(L.Draw.Event.DRAWSTOP, () => {
-            this.isDrawingArea = false;
+            this.debugLog('🔷 Drawing stopped');
+            // Delay resetting flag to allow CREATED event to process first
+            setTimeout(() => {
+                this.isDrawingArea = false;
+                this.debugLog('   Drawing flag reset');
+            }, 100);
         });
 
         // Event: Polygon created
@@ -110,8 +116,8 @@ class MapEditorApp extends MapAppShared {
             const layer = e.layer;
             const latlngs = layer.getLatLngs()[0];
 
-            this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
-            this.debugLog(`   Layer type: ${layerType}`);
+            this.debugLog(`🗺️ Polygon created: ${latlngs.length} vertices`);
+            this.debugLog(`   isDrawingArea flag: ${this.isDrawingArea}`);
 
             // IMPORTANT: Add layer to drawnItems to make it permanent
             // Without this, the polygon disappears after drawing
@@ -186,7 +192,10 @@ class MapEditorApp extends MapAppShared {
             if (!this.allowEditing) return;
             
             // Don't add waypoint if drawing an area
-            if (this.isDrawingArea) return;
+            if (this.isDrawingArea) {
+                this.debugLog('⚠️ Map click ignored - drawing in progress');
+                return;
+            }
 
             this._addWaypoint(e.latlng.lat, e.latlng.lng);
         });
