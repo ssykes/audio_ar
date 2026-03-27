@@ -1021,12 +1021,12 @@
             <div class="edit-form">
                 <div class="form-group">
                     <label for="editName">Name</label>
-                    <input type="text" id="editName" value="Forest Ambience">
+                    <input type="text" id="editName" placeholder="Soundscape name">
                 </div>
 
                 <div class="form-group">
                     <label for="editDescription">Description</label>
-                    <textarea id="editDescription">Peaceful forest sounds with birds and wind</textarea>
+                    <textarea id="editDescription" placeholder="Describe your soundscape"></textarea>
                 </div>
 
                 <div class="form-group">
@@ -1080,56 +1080,18 @@
             <div class="lists-container">
                 <div class="explorer">
                     <!-- Areas Section -->
-                    <div class="explorer-section" id="areasSection">
+                    <div class="explorer-section" id="areasSection" style="display: none;">
                         <div class="explorer-header">Areas</div>
                         <div class="item-list" id="areasList">
-                            <div class="item-list-item" data-id="1" data-type="area" data-color="#ff6b6b">
-                                <span class="item-icon">◈</span>
-                                <span class="item-name">Forest Zone</span>
-                                <span class="item-meta">3 vertices</span>
-                            </div>
-                            <div class="item-list-item" data-id="2" data-type="area" data-color="#ff6b6b">
-                                <span class="item-icon">◈</span>
-                                <span class="item-name">Clearing</span>
-                                <span class="item-meta">5 vertices</span>
-                            </div>
-                            <div class="item-list-item" data-id="3" data-type="area" data-color="#ff6b6b">
-                                <span class="item-icon">◈</span>
-                                <span class="item-name">Stream Area</span>
-                                <span class="item-meta">4 vertices</span>
-                            </div>
+                            <!-- Populated dynamically from soundscape data -->
                         </div>
                     </div>
 
                     <!-- Waypoints Section -->
-                    <div class="explorer-section">
+                    <div class="explorer-section" id="waypointsSection" style="display: none;">
                         <div class="explorer-header">Waypoints</div>
                         <div class="item-list" id="waypointsList">
-                            <div class="item-list-item" data-id="1" data-type="waypoint" data-color="#00d9ff">
-                                <span class="item-icon">🎵</span>
-                                <span class="item-name">Bird Song 1</span>
-                                <span class="item-meta">20m</span>
-                            </div>
-                            <div class="item-list-item" data-id="2" data-type="waypoint" data-color="#00d9ff">
-                                <span class="item-icon">🎵</span>
-                                <span class="item-name">Bird Song 2</span>
-                                <span class="item-meta">35m</span>
-                            </div>
-                            <div class="item-list-item" data-id="3" data-type="waypoint" data-color="#00d9ff">
-                                <span class="item-icon">🎵</span>
-                                <span class="item-name">Wind Chimes</span>
-                                <span class="item-meta">50m</span>
-                            </div>
-                            <div class="item-list-item" data-id="4" data-type="waypoint" data-color="#00d9ff">
-                                <span class="item-icon">🎵</span>
-                                <span class="item-name">Fountain</span>
-                                <span class="item-meta">65m</span>
-                            </div>
-                            <div class="item-list-item" data-id="5" data-type="waypoint" data-color="#00d9ff">
-                                <span class="item-icon">🎵</span>
-                                <span class="item-name">Leaves Rustle</span>
-                                <span class="item-meta">80m</span>
-                            </div>
+                            <!-- Populated dynamically from soundscape data -->
                         </div>
                     </div>
                 </div>

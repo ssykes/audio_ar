@@ -14,7 +14,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = '20260325110716';
+const CACHE_VERSION = 'v1';
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin)
