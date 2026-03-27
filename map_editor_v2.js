@@ -185,21 +185,9 @@ class MapEditorApp extends MapAppShared {
      * @private
      */
     _setupEventListeners() {
-        // Map click - add waypoint (Session 2: No popup, direct add)
-        this.map.on('click', (e) => {
-            if (this.state !== 'editor') return;
-            if (this.isDragging) return;
-            if (!this.allowEditing) return;
-            
-            // Don't add waypoint if drawing an area
-            if (this.isDrawingArea) {
-                this.debugLog('⚠️ Map click ignored - drawing in progress');
-                return;
-            }
-
-            this._addWaypoint(e.latlng.lat, e.latlng.lng);
-        });
-
+        // Map click handler already exists in MapAppShared._initMap()
+        // No need to add duplicate handler here
+        
         // Drag start - prevent accidental clicks
         this.map.on('dragstart', () => {
             this.isDragging = true;
@@ -260,12 +248,19 @@ class MapEditorApp extends MapAppShared {
 
         this.waypoints.push(waypoint);
 
-        // Create custom div icon
+        // Create custom div icon with colored dot (not emoji)
         const icon = L.divIcon({
             className: 'waypoint-marker',
-            html: '<div style="font-size: 24px; cursor: grab; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">' + waypoint.icon + '</div>',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16]
+            html: `<div style="
+                width: 12px;
+                height: 12px;
+                background-color: ${waypoint.color};
+                border-radius: 50%;
+                cursor: grab;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            "></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
         });
 
         const marker = L.marker([waypoint.lat, waypoint.lon], {
