@@ -111,6 +111,12 @@ class MapEditorApp extends MapAppShared {
             const latlngs = layer.getLatLngs()[0];
 
             this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
+            this.debugLog(`   Layer type: ${layerType}`);
+
+            // IMPORTANT: Add layer to drawnItems to make it permanent
+            // Without this, the polygon disappears after drawing
+            this.drawnItems.addLayer(layer);
+            this.debugLog(`   Layer added to drawnItems: ${this.drawnItems.hasLayer(layer)}`);
 
             // Auto-name area
             const areaName = 'Sound ' + (this.areaMarkers.size + 1);
@@ -131,7 +137,7 @@ class MapEditorApp extends MapAppShared {
                 _leafletLayer: layer  // Store reference
             };
 
-            // Store in area markers (the layer is already on the map via drawnItems)
+            // Store in area markers (the layer is now on the map via drawnItems)
             this.areaMarkers.set(area.id, layer);
             
             // Store area data on the layer itself for easy retrieval
