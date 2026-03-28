@@ -1400,15 +1400,41 @@ class MapEditorApp extends MapAppShared {
                 }
             }
 
-            // Set active to most recent
-            const latest = soundscapes[0];
-            const localId = Array.from(this.serverSoundscapeIds.entries())
-                .find(([_, serverId]) => serverId === latest.id)?.[0];
+            // Set active to selected soundscape (from localStorage) or most recent
+            const selectedId = localStorage.getItem('selected_soundscape_id');
+            this.debugLog(`🔍 Selected soundscape ID from localStorage: ${selectedId || 'none'}`);
 
-            if (localId) {
+            let activeLocalId = null;
+
+            if (selectedId) {
+                // Try to use selected soundscape
+                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
+                    .find(([_, serverId]) => serverId === selectedId)?.[0];
+
+                if (activeLocalId) {
+                    this.debugLog(`✅ Using selected soundscape: ${selectedId}`);
+                } else {
+                    this.debugLog(`⚠️ Selected soundscape not found in cache, using most recent`);
+                }
+            }
+
+            // If no selected ID or not found, use most recent
+            if (!activeLocalId && soundscapes.length > 0) {
+                const latest = soundscapes[0];
+                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
+                    .find(([_, serverId]) => serverId === latest.id)?.[0];
+                this.debugLog(`📅 Using most recent soundscape: ${latest.id}`);
+            }
+
+            if (activeLocalId) {
                 // Switch soundscape (this will load waypoints and areas)
-                this.switchSoundscape(localId);
+                this.switchSoundscape(activeLocalId);
                 this._initForms();
+            }
+
+            // Clear selected ID (one-time use)
+            if (selectedId) {
+                localStorage.removeItem('selected_soundscape_id');
             }
 
             this.debugLog(`✅ Loaded ${soundscapes.length} soundscape(s) from server`);
