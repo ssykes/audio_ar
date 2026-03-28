@@ -450,11 +450,13 @@
                 console.log(`[Landing] User selected: ${deviceType}`);
 
                 if (deviceType === 'player') {
-                    console.log('[Landing] Player → soundscape_picker.html');
-                    window.location.href = 'soundscape_picker.html';
+                    console.log('[Landing] Tablet Player → soundscape_picker.html?mode=player');
+                    // Tablet in player mode - same as phone
+                    window.location.href = 'soundscape_picker.html?mode=player';
                 } else {
-                    console.log('[Landing] Editor → map_editor.html');
-                    window.location.href = 'map_editor.html';
+                    console.log('[Landing] Tablet Editor → soundscape_picker.html?mode=editor');
+                    // Tablet in editor mode - same as desktop
+                    window.location.href = 'soundscape_picker.html?mode=editor';
                 }
             }
 

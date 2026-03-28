@@ -743,13 +743,34 @@
             /**
              * Check device type and hide "New Soundscape" button on phones
              * Also hide download buttons on desktop
+             * Checks for mode=editor or mode=player query parameter (tablet choice)
              * @private
              */
             _checkDeviceType() {
                 const ua = navigator.userAgent;
                 const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
-                const isDesktop = !isPhone && !/iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+                const isTablet = /iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+                const isDesktop = !isPhone && !isTablet;
 
+                // Check for explicit mode from tablet (via query parameter)
+                const params = new URLSearchParams(window.location.search);
+                const modeParam = params.get('mode'); // 'editor' or 'player'
+
+                this._debugLog(`[picker] 🔍 Mode parameter: ${modeParam || 'auto-detect'}`, 'info');
+
+                // Determine mode: explicit parameter takes precedence, then auto-detect
+                let forceEditorMode = false;
+                let forcePlayerMode = false;
+
+                if (modeParam === 'editor') {
+                    forceEditorMode = true;
+                    this._debugLog('[picker] 🖥️ Tablet Editor mode (explicit)', 'info');
+                } else if (modeParam === 'player') {
+                    forcePlayerMode = true;
+                    this._debugLog('[picker] 📱 Tablet Player mode (explicit)', 'info');
+                }
+
+                // Phone: always player mode
                 if (isPhone) {
                     this._debugLog('[picker] 📱 Phone detected - hiding "New Soundscape" button', 'info');
                     const link = document.getElementById('newSoundscapeLink');
@@ -758,11 +779,12 @@
                         link.style.pointerEvents = 'none';
                         link.title = 'Create soundscapes on PC or tablet';
                     }
+                    // Phone: show download buttons (player mode)
                 }
-
-                if (isDesktop) {
-                    this._debugLog('[picker] 🖥️ Desktop detected - hiding download buttons', 'info');
-                    // Add CSS class to hide download buttons
+                // Desktop or Tablet Editor: editor mode
+                else if (isDesktop || forceEditorMode) {
+                    this._debugLog('[picker] 🖥️ Editor mode - hiding download buttons', 'info');
+                    // Hide download buttons
                     const style = document.createElement('style');
                     style.textContent = `
                         .download-btn, .download-progress, .offline-status {
@@ -770,6 +792,17 @@
                         }
                     `;
                     document.head.appendChild(style);
+                }
+                // Tablet Player: player mode (show download buttons, hide New Soundscape)
+                else if (isTablet && forcePlayerMode) {
+                    this._debugLog('[picker] 📱 Tablet Player mode - showing download buttons', 'info');
+                    // Tablet player mode: show download buttons, hide "New Soundscape"
+                    const link = document.getElementById('newSoundscapeLink');
+                    if (link) {
+                        link.classList.add('hidden');
+                        link.style.pointerEvents = 'none';
+                        link.title = 'Create soundscapes on PC or tablet';
+                    }
                 }
             }
             
@@ -1430,19 +1463,25 @@
                 localStorage.setItem('selected_soundscape_id', id);
                 this._debugLog(`[picker] 📍 Stored selected_soundscape_id: ${id}`, 'info');
 
-                // Check device type and route accordingly
+                // Check device type and mode parameter
                 const ua = navigator.userAgent;
                 const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
-                const isDesktop = !isPhone && !/iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+                const isTablet = /iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+                const isDesktop = !isPhone && !isTablet;
 
-                if (isDesktop) {
-                    // Desktop: Go to map_editor_v2.html
-                    console.log('[SoundscapePicker] Desktop → map_editor_v2.html');
+                // Check for explicit mode from tablet (via query parameter)
+                const params = new URLSearchParams(window.location.search);
+                const modeParam = params.get('mode'); // 'editor' or 'player'
+
+                // Route based on device and mode
+                if (isDesktop || modeParam === 'editor') {
+                    // Desktop or Tablet Editor: Go to map_editor_v2.html
+                    console.log('[SoundscapePicker] Editor mode → map_editor_v2.html');
                     this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
                     window.location.href = 'map_editor_v2.html';
                 } else {
-                    // Phone/Tablet: Go to map_player.html
-                    console.log('[SoundscapePicker] Mobile/Tablet → map_player.html');
+                    // Phone or Tablet Player: Go to map_player.html
+                    console.log('[SoundscapePicker] Player mode → map_player.html');
                     this._debugLog(`[picker] ➡️ Redirecting to map_player.html...`, 'info');
                     window.location.href = 'map_player.html';
                 }
