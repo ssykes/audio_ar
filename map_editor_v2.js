@@ -100,7 +100,7 @@ class MapEditorApp extends MapAppShared {
 
         if (result && result.name && result.name.trim()) {
             // User confirmed with a name - create the soundscape
-            this._createNewSoundscape(result.name.trim(), result.description || '');
+            this._createNewSoundscapeFromDialog(result.name.trim(), result.description || '');
             this.debugLog(`✅ Created new soundscape: ${result.name}`);
         } else {
             // User canceled - redirect back to soundscape picker
@@ -256,12 +256,12 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Create a new soundscape with the given name
+     * Create a new soundscape from the dialog (new soundscape mode)
      * @private
      * @param {string} name - Soundscape name
      * @param {string} description - Soundscape description
      */
-    _createNewSoundscape(name, description = '') {
+    async _createNewSoundscapeFromDialog(name, description = '') {
         const id = 'soundscape_' + Date.now();
         const soundscape = new SoundScape(id, name, description, true, [], [], [], []);
         this.soundscapes.set(id, soundscape);
@@ -275,16 +275,36 @@ class MapEditorApp extends MapAppShared {
         if (descInput) descInput.value = description;
         if (publicCheckbox) publicCheckbox.checked = true;
 
-        // Mark as dirty to trigger auto-save
-        this._markSoundscapeDirty();
-        this._scheduleAutoSave();
-
         this.debugLog(`🎼 Created soundscape: ${name} (${id})`);
         this._showToast(`Created "${name}"`, 'success');
 
         // Remove query parameter from URL (clean URL)
         const newUrl = window.location.pathname;
         window.history.replaceState({}, '', newUrl);
+
+        // Create on server FIRST (if logged in) to get server ID mapping
+        if (this.isLoggedIn) {
+            try {
+                this.debugLog('☁️ Creating soundscape on server...');
+                const result = await this.api.createSoundscape(name, description, publicCheckbox.checked);
+                const serverId = result.soundscape.id;
+
+                // Map local ID to server ID BEFORE auto-save
+                this.serverSoundscapeIds.set(id, serverId);
+                this.debugLog(`✅ Created on server: ${name} (server ID: ${serverId})`);
+
+                // Now save waypoints/areas (empty for now) with the mapping in place
+                this._markSoundscapeDirty();
+                this._scheduleAutoSave();
+            } catch (error) {
+                this.debugLog('❌ Failed to create on server: ' + error.message);
+                this._showToast('⚠️ Created locally only (server failed)', 'warning');
+            }
+        } else {
+            // Not logged in - save locally only
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
+        }
     }
 
     /**
