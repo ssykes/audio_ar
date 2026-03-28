@@ -1412,6 +1412,12 @@ class MapEditorApp extends MapAppShared {
                     // Add waypointData to soundscape
                     soundscape.waypointData = data.waypoints;
 
+                    // Debug: log waypoint soundUrls
+                    this.debugLog(`  🔍 Waypoints loaded for ${soundscape.name}:`);
+                    data.waypoints.forEach((wp, idx) => {
+                        this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+                    });
+
                     // Add to soundscapes map
                     this.soundscapes.set(soundscape.id, soundscape);
                     this.serverSoundscapeIds.set(soundscape.id, ss.id);
@@ -1939,12 +1945,19 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.value = waypoint.type || 'file';
         renderTypeFields(waypoint.type || 'file');
 
+        // Debug: log waypoint data
+        addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundUrl=${waypoint.soundUrl || '(empty)'}`);
+
         // Populate type-specific fields
         if (waypoint.type === 'file') {
             if (slideoutSoundUrl) {
                 slideoutSoundUrl.value = waypoint.soundUrl || '';
                 addDebugLog(`🎵 Waypoint soundUrl loaded: ${waypoint.soundUrl || '(empty)'}`);
+            } else {
+                addDebugLog(`❌ slideoutSoundUrl element not found`);
             }
+        } else {
+            addDebugLog(`⚠️ Waypoint type is not 'file': ${waypoint.type}`);
         }
 
     } else if (type === 'Area') {
@@ -1977,12 +1990,19 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.value = area.type || 'file';
         renderTypeFields(area.type || 'file');
 
+        // Debug: log area data
+        addDebugLog(`🔍 Area data: type=${area.type}, soundUrl=${area.soundUrl || '(empty)'}`);
+
         // Populate type-specific fields
         if (area.type === 'file') {
             if (slideoutSoundUrl) {
                 slideoutSoundUrl.value = area.soundUrl || '';
                 addDebugLog(`🎵 Area soundUrl loaded: ${area.soundUrl || '(empty)'}`);
+            } else {
+                addDebugLog(`❌ slideoutSoundUrl element not found`);
             }
+        } else {
+            addDebugLog(`⚠️ Area type is not 'file': ${area.type}`);
         }
     }
 
