@@ -40,6 +40,9 @@ class MapEditorApp extends MapAppShared {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
         }
 
+        // Check for "new soundscape" mode from query parameter
+        this.isNewSoundscapeMode = this._checkNewSoundscapeMode();
+
         // Initialize map (from MapAppShared._initMap())
         this._initMap();
 
@@ -55,8 +58,11 @@ class MapEditorApp extends MapAppShared {
         // Setup event listeners
         this._setupEventListeners();
 
-        // Load or create soundscape
-        if (this.isLoggedIn) {
+        // Handle new soundscape mode or load existing
+        if (this.isNewSoundscapeMode) {
+            // Prompt user to create new soundscape or cancel
+            await this._promptNewSoundscape();
+        } else if (this.isLoggedIn) {
             // Load from server if logged in
             await this._loadSoundscapeFromServer();
         } else {
@@ -68,6 +74,217 @@ class MapEditorApp extends MapAppShared {
         this._initForms();
 
         console.log('Map Editor v2 ready');
+    }
+
+    /**
+     * Check if URL has ?new=true query parameter
+     * @private
+     * @returns {boolean} True if in new soundscape mode
+     */
+    _checkNewSoundscapeMode() {
+        const params = new URLSearchParams(window.location.search);
+        const isNew = params.get('new') === 'true';
+        this.debugLog(`🔍 New soundscape mode: ${isNew}`);
+        return isNew;
+    }
+
+    /**
+     * Prompt user to create a new soundscape or cancel
+     * @private
+     */
+    async _promptNewSoundscape() {
+        this.debugLog('🆕 New soundscape mode activated');
+
+        // Show prompt dialog
+        const result = await this._showCreateSoundscapeDialog();
+
+        if (result && result.name && result.name.trim()) {
+            // User confirmed with a name - create the soundscape
+            this._createNewSoundscape(result.name.trim(), result.description || '');
+            this.debugLog(`✅ Created new soundscape: ${result.name}`);
+        } else {
+            // User canceled - redirect back to soundscape picker
+            this.debugLog('❌ New soundscape canceled by user');
+            this._showToast('New soundscape canceled', 'info');
+            setTimeout(() => {
+                window.location.href = 'soundscape_picker.html';
+            }, 1000);
+        }
+    }
+
+    /**
+     * Show dialog to create a new soundscape
+     * @private
+     * @returns {Promise<{name: string, description: string}|null>}
+     */
+    _showCreateSoundscapeDialog() {
+        return new Promise((resolve) => {
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'newSoundscapeOverlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
+
+            // Create dialog
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: var(--bg-panel);
+                border: 1px solid var(--border-panel);
+                border-radius: 8px;
+                padding: 24px;
+                max-width: 400px;
+                width: 90%;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            `;
+
+            dialog.innerHTML = `
+                <h2 style="margin: 0 0 16px 0; color: var(--accent-primary); font-size: 18px;">
+                    🎧 Create New Soundscape
+                </h2>
+                <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 13px;">
+                    Enter a name for your new soundscape. You can add waypoints and areas after creation.
+                </p>
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; color: var(--text-muted); font-size: 11px; text-transform: uppercase; margin-bottom: 6px;">
+                        Name *
+                    </label>
+                    <input type="text" id="newSoundscapeName" placeholder="My Awesome Soundscape"
+                        style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 4px; color: var(--text-primary); font-size: 14px;"
+                        autofocus
+                    />
+                    <div id="newSoundscapeError" style="color: var(--accent-danger); font-size: 11px; margin-top: 6px; display: none;">
+                        ⚠️ Please enter a name for your soundscape
+                    </div>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; color: var(--text-muted); font-size: 11px; text-transform: uppercase; margin-bottom: 6px;">
+                        Description (optional)
+                    </label>
+                    <textarea id="newSoundscapeDescription" placeholder="Describe your soundscape..."
+                        style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 4px; color: var(--text-primary); font-size: 13px; min-height: 60px; resize: vertical;"
+                    ></textarea>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button id="newSoundscapeCancel" style="
+                        padding: 8px 16px;
+                        background: var(--bg-panel);
+                        border: 1px solid var(--border-input);
+                        border-radius: 4px;
+                        color: var(--text-primary);
+                        cursor: pointer;
+                        font-size: 13px;
+                    ">Cancel</button>
+                    <button id="newSoundscapeCreate" style="
+                        padding: 8px 16px;
+                        background: var(--accent-primary);
+                        border: none;
+                        border-radius: 4px;
+                        color: var(--bg-body);
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: 500;
+                    ">Create Soundscape</button>
+                </div>
+            `;
+
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            // Focus the name input
+            const nameInput = document.getElementById('newSoundscapeName');
+            if (nameInput) nameInput.focus();
+
+            // Hide error when user starts typing
+            nameInput.addEventListener('input', () => {
+                const errorEl = document.getElementById('newSoundscapeError');
+                if (errorEl) errorEl.style.display = 'none';
+            });
+
+            // Handle cancel
+            document.getElementById('newSoundscapeCancel').addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(null);
+            });
+
+            // Handle create
+            document.getElementById('newSoundscapeCreate').addEventListener('click', () => {
+                const name = document.getElementById('newSoundscapeName').value.trim();
+                const description = document.getElementById('newSoundscapeDescription').value.trim();
+                const errorEl = document.getElementById('newSoundscapeError');
+                const nameInput = document.getElementById('newSoundscapeName');
+
+                if (!name) {
+                    // Show inline error
+                    if (errorEl) errorEl.style.display = 'block';
+                    if (nameInput) nameInput.focus();
+                    return;
+                }
+
+                // Hide error if visible
+                if (errorEl) errorEl.style.display = 'none';
+
+                document.body.removeChild(overlay);
+                resolve({ name, description });
+            });
+
+            // Handle Enter key
+            nameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('newSoundscapeCreate').click();
+                }
+            });
+
+            // Handle Escape key
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', handleEscape);
+                    document.getElementById('newSoundscapeCancel').click();
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
+        });
+    }
+
+    /**
+     * Create a new soundscape with the given name
+     * @private
+     * @param {string} name - Soundscape name
+     * @param {string} description - Soundscape description
+     */
+    _createNewSoundscape(name, description = '') {
+        const id = 'soundscape_' + Date.now();
+        const soundscape = new SoundScape(id, name, description, true, [], [], [], []);
+        this.soundscapes.set(id, soundscape);
+        this.activeSoundscapeId = id;
+
+        // Update edit form with new soundscape data
+        const nameInput = document.getElementById('editName');
+        const descInput = document.getElementById('editDescription');
+        const publicCheckbox = document.getElementById('editPublic');
+        if (nameInput) nameInput.value = name;
+        if (descInput) descInput.value = description;
+        if (publicCheckbox) publicCheckbox.checked = true;
+
+        // Mark as dirty to trigger auto-save
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        this.debugLog(`🎼 Created soundscape: ${name} (${id})`);
+        this._showToast(`Created "${name}"`, 'success');
+
+        // Remove query parameter from URL (clean URL)
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
     }
 
     /**

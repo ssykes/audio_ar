@@ -17,11 +17,31 @@
             max-width: 600px;
             margin: 0 auto;
         }
-        h1 { 
+        h1 {
             margin-bottom: 10px;
             color: #00d9ff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .subtitle { 
+        .new-soundscape-link {
+            font-size: 0.7em;
+            color: #00ff88;
+            text-decoration: none;
+            cursor: pointer;
+            padding: 4px 10px;
+            border: 1px solid rgba(0, 255, 136, 0.5);
+            border-radius: 4px;
+            background: rgba(0, 255, 136, 0.1);
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+        .new-soundscape-link:hover {
+            background: rgba(0, 255, 136, 0.2);
+            border-color: #00ff88;
+            transform: translateY(-1px);
+        }
+        .subtitle {
             color: #888; 
             margin-bottom: 20px;
             font-size: 0.9em;
@@ -483,8 +503,11 @@
 
     <div class="container">
         <button class="back-btn" id="backBtn">← Back</button>
-        
-        <h1><span class="icon">🎧</span> Choose Soundscape</h1>
+
+        <h1>
+            <span><span class="icon">🎧</span> Choose Soundscape</span>
+            <a class="new-soundscape-link" id="newSoundscapeLink">+ New Soundscape</a>
+        </h1>
         <p class="subtitle">Select an experience to play</p>
         
         <ul id="soundscapeList">
@@ -1420,6 +1443,13 @@
                 // Back button handler
                 document.getElementById('backBtn')?.addEventListener('click', () => {
                     window.location.href = 'index.html';
+                });
+
+                // New Soundscape link handler
+                document.getElementById('newSoundscapeLink')?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    // Navigate to map editor with flag to prime for new soundscape
+                    window.location.href = 'map_editor_v2.html?new=true';
                 });
 
                 // Debug toggle handler
