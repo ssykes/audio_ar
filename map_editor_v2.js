@@ -1595,7 +1595,7 @@ const slideoutType = document.getElementById('slideoutType');
 const slideoutTypeSection = document.getElementById('slideoutTypeSection');
 const typeSectionTitle = document.getElementById('typeSectionTitle');
 const typeFieldsContainer = document.getElementById('typeFieldsContainer');
-const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
+// Note: Type-specific fields (slideoutSoundUrl, etc.) are queried after renderTypeFields()
 const slideoutVolume = document.getElementById('slideoutVolume');
 const slideoutVolumeValue = document.getElementById('slideoutVolumeValue');
 const slideoutActivationRadius = document.getElementById('slideoutActivationRadius');
@@ -1945,6 +1945,9 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.value = waypoint.type || 'file';
         renderTypeFields(waypoint.type || 'file');
 
+        // Query type-specific fields AFTER rendering (they are created dynamically)
+        const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
+
         // Debug: log waypoint data
         addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundUrl=${waypoint.soundUrl || '(empty)'}`);
 
@@ -1989,6 +1992,9 @@ function openSlideout(type, id, name, meta, color) {
         // Set type selector and render type-specific fields
         slideoutType.value = area.type || 'file';
         renderTypeFields(area.type || 'file');
+
+        // Query type-specific fields AFTER rendering (they are created dynamically)
+        const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
 
         // Debug: log area data
         addDebugLog(`🔍 Area data: type=${area.type}, soundUrl=${area.soundUrl || '(empty)'}`);
