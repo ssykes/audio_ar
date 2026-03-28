@@ -629,12 +629,14 @@
     <script>
         /**
          * SoundscapePickerApp - List soundscapes and allow user to select one
-         * 
+         *
          * Flow:
          * 1. Check login status (redirect to index.html if not logged in)
          * 2. Fetch all soundscapes from server
          * 3. Display as clickable list
-         * 4. On click: store selection in localStorage → redirect to map_player.html
+         * 4. On click: store selection in localStorage
+         *    - Desktop → redirect to map_editor_v2.html
+         *    - Phone/Tablet → redirect to map_player.html
          */
         class SoundscapePickerApp {
             constructor() {
@@ -740,11 +742,13 @@
 
             /**
              * Check device type and hide "New Soundscape" button on phones
+             * Also hide download buttons on desktop
              * @private
              */
             _checkDeviceType() {
                 const ua = navigator.userAgent;
                 const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
+                const isDesktop = !isPhone && !/iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
 
                 if (isPhone) {
                     this._debugLog('[picker] 📱 Phone detected - hiding "New Soundscape" button', 'info');
@@ -754,6 +758,18 @@
                         link.style.pointerEvents = 'none';
                         link.title = 'Create soundscapes on PC or tablet';
                     }
+                }
+
+                if (isDesktop) {
+                    this._debugLog('[picker] 🖥️ Desktop detected - hiding download buttons', 'info');
+                    // Add CSS class to hide download buttons
+                    const style = document.createElement('style');
+                    style.textContent = `
+                        .download-btn, .download-progress, .offline-status {
+                            display: none !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
                 }
             }
             
@@ -1410,14 +1426,26 @@
                 console.log(`[SoundscapePicker] Selected: ${id}`);
                 this._debugLog(`[picker] 🎵 Selecting soundscape: ${id}`, 'info');
 
-                // Store selection for map_player.html
+                // Store selection for map_player.html or map_editor_v2.html
                 localStorage.setItem('selected_soundscape_id', id);
                 this._debugLog(`[picker] 📍 Stored selected_soundscape_id: ${id}`, 'info');
 
-                // Redirect to player
-                console.log('[SoundscapePicker] Redirecting to map_player.html...');
-                this._debugLog(`[picker] ➡️ Redirecting to map_player.html...`, 'info');
-                window.location.href = 'map_player.html';
+                // Check device type and route accordingly
+                const ua = navigator.userAgent;
+                const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
+                const isDesktop = !isPhone && !/iPad|Android(?!.*Mobile)|Tablet|Silk/i.test(ua);
+
+                if (isDesktop) {
+                    // Desktop: Go to map_editor_v2.html
+                    console.log('[SoundscapePicker] Desktop → map_editor_v2.html');
+                    this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
+                    window.location.href = 'map_editor_v2.html';
+                } else {
+                    // Phone/Tablet: Go to map_player.html
+                    console.log('[SoundscapePicker] Mobile/Tablet → map_player.html');
+                    this._debugLog(`[picker] ➡️ Redirecting to map_player.html...`, 'info');
+                    window.location.href = 'map_player.html';
+                }
             }
             
             /**
