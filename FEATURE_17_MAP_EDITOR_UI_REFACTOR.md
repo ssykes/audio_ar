@@ -696,6 +696,263 @@ if (selectedId) {
 
 ---
 
+## 🐛 Bug Tracking List
+
+**Last Updated:** 2026-03-28  
+**Status:** 🟢 No critical bugs (all reported issues resolved)
+
+---
+
+### Bug Summary
+
+| ID | Status | Priority | Component | Issue | Fixed |
+|----|--------|----------|-----------|-------|-------|
+| #1 | ✅ Fixed | 🔴 Critical | Routing | Desktop login → map_editor.html (should be soundscape_picker) | 961dc3e |
+| #2 | ✅ Fixed | 🔴 Critical | Selection | Clicking soundscape always loads first one (ignores selection) | 996cc6d |
+| #3 | ✅ Fixed | 🟡 Medium | UI | "New Soundscape" alert popup on creation | Inline validation |
+| #4 | ✅ Fixed | 🟡 Medium | Caching | Browser cache shows old code after deploy | Cache-busting v20260328006 |
+| #5 | ✅ Fixed | 🟢 Low | UX | No feedback when creating soundscape | Toast notifications |
+
+---
+
+### Resolved Bugs
+
+#### #1 - Desktop Login Routing Bug ✅
+
+**Status:** Fixed in commit `961dc3e`  
+**Priority:** 🔴 Critical  
+**Component:** `index.html` → `handleDeviceRouting()`
+
+**Issue:**
+```
+Desktop login → map_editor.html ❌
+Expected: soundscape_picker.html ✅
+```
+
+**Root Cause:**
+- `handleDeviceRouting()` had old routing logic
+- Desktop was routed directly to `map_editor.html`
+- Should route to `soundscape_picker.html` (which then routes to `map_editor_v2.html`)
+
+**Fix:**
+```javascript
+// Before
+if (deviceCategory === 'desktop') {
+    window.location.href = 'map_editor.html';  // ❌
+}
+
+// After
+if (deviceCategory === 'desktop') {
+    window.location.href = 'soundscape_picker.html';  // ✅
+}
+```
+
+**Testing:**
+1. Login on desktop
+2. Verify redirect to `soundscape_picker.html`
+3. Verify download buttons hidden
+4. Verify "New Soundscape" button visible
+5. Click soundscape → `map_editor_v2.html`
+
+---
+
+#### #2 - Soundscape Selection Ignored ✅
+
+**Status:** Fixed in commit `996cc6d`  
+**Priority:** 🔴 Critical  
+**Component:** `map_editor_v2.js` → `_loadSoundscapeFromServer()`
+
+**Issue:**
+```
+Click any soundscape → First soundscape loads ❌
+Expected: Clicked soundscape loads ✅
+```
+
+**Root Cause:**
+- `_loadSoundscapeFromServer()` always set active to `soundscapes[0]` (most recent)
+- Ignored `localStorage.selected_soundscape_id` set by `soundscape_picker`
+- No logic to read or use the selected soundscape ID
+
+**Fix:**
+```javascript
+// Read selected ID from localStorage
+const selectedId = localStorage.getItem('selected_soundscape_id');
+
+// Find matching local ID in serverSoundscapeIds map
+activeLocalId = Array.from(this.serverSoundscapeIds.entries())
+    .find(([_, serverId]) => serverId === selectedId)?.[0];
+
+// Use selected or fall back to most recent
+if (activeLocalId) {
+    this.switchSoundscape(activeLocalId);  // ✅ Load correct soundscape
+}
+
+// Clear for next use (one-time use)
+localStorage.removeItem('selected_soundscape_id');
+```
+
+**Testing:**
+1. Desktop: Login → soundscape_picker
+2. Click 2nd or 3rd soundscape in list
+3. Verify map_editor_v2 loads the **clicked soundscape** (not the first)
+4. Verify edit form shows correct name/description
+
+---
+
+#### #3 - Alert Popup on Soundscape Creation ✅
+
+**Status:** Fixed  
+**Priority:** 🟡 Medium  
+**Component:** `map_editor_v2.js` → `_showCreateSoundscapeDialog()`
+
+**Issue:**
+```
+Enter name/description → Click "Create Soundscape" → Browser alert popup ❌
+Expected: Inline validation error message ✅
+```
+
+**Root Cause:**
+- Validation used `alert('Please enter a name for your soundscape')`
+- Intrusive browser modal instead of inline UI feedback
+
+**Fix:**
+```javascript
+// Added inline error div (hidden by default)
+<div id="newSoundscapeError" style="display: none;">
+    ⚠️ Please enter a name for your soundscape
+</div>
+
+// Show/hide error instead of alert
+if (!name) {
+    if (errorEl) errorEl.style.display = 'block';  // ✅ Show inline
+    if (nameInput) nameInput.focus();
+    return;
+}
+
+// Hide error when user types
+nameInput.addEventListener('input', () => {
+    if (errorEl) errorEl.style.display = 'none';
+});
+```
+
+**Testing:**
+1. Click "+ New Soundscape"
+2. Leave name empty, click "Create Soundscape"
+3. Verify red error message appears below name field (no alert)
+4. Start typing → error message hides automatically
+
+---
+
+#### #4 - Browser Cache Shows Old Code ✅
+
+**Status:** Fixed  
+**Priority:** 🟡 Medium  
+**Component:** `map_editor_v2.html` → cache-busting version
+
+**Issue:**
+```
+Deploy new code → Browser shows old version ❌
+Expected: Browser fetches new version ✅
+```
+
+**Root Cause:**
+- Cache-busting version was stripped by pre-commit hook
+- Not updated after deploy
+- Browser cached old JavaScript file
+
+**Fix:**
+```html
+<!-- Before -->
+<script src="map_editor_v2.js"></script>
+
+<!-- After -->
+<script src="map_editor_v2.js?v=20260328006"></script>
+```
+
+**Deploy Script:**
+- `deploy.ps1` automatically adds `?v=YYYYMMDDHHMMSS` to all script tags
+- Temporary `.deploy` files created with cache-busting
+- Uploaded to server, then cleaned up
+
+**Testing:**
+1. Deploy: `& .\deploy.ps1`
+2. Hard refresh browser: `Ctrl+Shift+R`
+3. Check console for new version number
+4. Verify new features work
+
+---
+
+#### #5 - No Feedback on Soundscape Creation ✅
+
+**Status:** Fixed  
+**Priority:** 🟢 Low  
+**Component:** `map_editor_v2.js` → `_createNewSoundscapeFromDialog()`
+
+**Issue:**
+```
+Create soundscape → No confirmation ❌
+Expected: Success toast notification ✅
+```
+
+**Root Cause:**
+- Soundscape created silently
+- No user feedback after creation
+- User unsure if operation succeeded
+
+**Fix:**
+```javascript
+this._showToast(`Created "${name}"`, 'success');
+```
+
+**Testing:**
+1. Click "+ New Soundscape"
+2. Enter name/description, click "Create Soundscape"
+3. Verify green success toast appears: `✅ Created "My Soundscape"`
+4. Verify edit form populated with new data
+
+---
+
+### Known Issues (Session 5 Testing)
+
+| ID | Priority | Component | Issue | Status |
+|----|----------|-----------|-------|--------|
+| TBA | 🟡 Medium | Performance | 100+ waypoints may cause lag | ⏳ Pending testing |
+| TBA | 🟢 Low | Accessibility | Screen reader compatibility unknown | ⏳ Pending audit |
+| TBA | 🟢 Low | Cross-browser | Safari/Firefox behavior unverified | ⏳ Pending testing |
+
+---
+
+### Bug Report Template
+
+```markdown
+#### #X - [Brief Title]
+
+**Status:** Open | Fixed | Won't Fix  
+**Priority:** 🔴 Critical | 🟡 Medium | 🟢 Low  
+**Component:** [File/Function]
+
+**Issue:**
+```
+What happens ❌
+Expected behavior ✅
+```
+
+**Root Cause:**
+[Explanation]
+
+**Fix:**
+```javascript
+// Code changes
+```
+
+**Testing:**
+1. [Step 1]
+2. [Step 2]
+3. [Verify fix]
+```
+
+---
+
 ## 📚 Related Documents
 
 - `FEATURES.md` - Feature catalog
