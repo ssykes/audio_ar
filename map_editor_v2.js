@@ -841,14 +841,25 @@ class MapEditorApp extends MapAppShared {
         const area = this._getAreaById(updatedData.id);
         if (!area) return;
 
+        this.debugLog(`✏️ Updating area: ${area.id}`);
+        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
+        this.debugLog(`   Area before update soundUrl: ${area.soundUrl || '(empty)'}`);
+
         // Update area properties
         Object.assign(area, updatedData);
+
+        this.debugLog(`   Area after update soundUrl: ${area.soundUrl || '(empty)'}`);
 
         // Update layer if exists
         const layer = this.areaMarkers.get(area.id);
         if (layer && layer.areaData) {
             layer.areaData = area;
         }
+
+        // Verify soundscape has the updated data
+        const soundscape = this.getActiveSoundscape();
+        const areaInSoundscape = soundscape?.getAreas().find(a => a.id === area.id);
+        this.debugLog(`   Area in soundscape soundUrl: ${areaInSoundscape?.soundUrl || '(empty)'}`);
 
         // Refresh list to show updated name
         this._refreshAreaList();
@@ -1719,6 +1730,7 @@ function getFormData() {
     // Add type-specific fields
     if (type === 'file') {
         data.soundUrl = document.getElementById('slideoutSoundUrl').value;
+        addDebugLog(`📝 getFormData: soundUrl=${data.soundUrl || '(empty)'}`);
     } else if (type === 'oscillator') {
         data.waveform = document.getElementById('slideoutWaveform').value;
         data.frequency = parseFloat(document.getElementById('slideoutFrequency').value);
@@ -1953,7 +1965,10 @@ function openSlideout(type, id, name, meta, color) {
 
         // Populate type-specific fields
         if (area.type === 'file') {
-            if (slideoutSoundUrl) slideoutSoundUrl.value = area.soundUrl || '';
+            if (slideoutSoundUrl) {
+                slideoutSoundUrl.value = area.soundUrl || '';
+                addDebugLog(`🎵 Area soundUrl loaded: ${area.soundUrl || '(empty)'}`);
+            }
         }
     }
 

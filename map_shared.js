@@ -594,6 +594,12 @@ class MapAppShared {
             return cleanArea;
         });
 
+        // Debug: log area soundUrls to verify they're being saved
+        this.debugLog(`🗺️ Areas being saved: ${cleanAreas.length}`);
+        cleanAreas.forEach((area, idx) => {
+            this.debugLog(`   Area ${idx + 1}: "${area.name}" soundUrl=${area.soundUrl || '(empty)'}`);
+        });
+
         // Debug: log what we're sending
         this.debugLog(`📦 Saving: ${cleanWaypoints.length} waypoints, ${behaviors.length} behaviors, ${cleanAreas.length} areas`);
         this.debugLog(`🏷️ Soundscape metadata: name="${soundscape.name}", desc="${soundscape.description}", public=${soundscape.isPublic}`);
