@@ -41,6 +41,10 @@
             border-color: #00ff88;
             transform: translateY(-1px);
         }
+        /* Hide "New Soundscape" button on mobile/phone devices */
+        .new-soundscape-link.hidden {
+            display: none;
+        }
         .subtitle {
             color: #888; 
             margin-bottom: 20px;
@@ -709,6 +713,9 @@
                     this._debugLog('[picker] 🗺️ Soundscape Picker initializing...', 'info');
                     console.log('[SoundscapePicker] Initializing...');
 
+                    // Check device type and hide "New Soundscape" button on phones
+                    this._checkDeviceType();
+
                     await this._checkLoginStatus();
                     await this._loadSoundscapes();
                     this._setupEventListeners();
@@ -727,6 +734,25 @@
                                 <small>Check console (F12) for details</small>
                             </li>
                         `;
+                    }
+                }
+            }
+
+            /**
+             * Check device type and hide "New Soundscape" button on phones
+             * @private
+             */
+            _checkDeviceType() {
+                const ua = navigator.userAgent;
+                const isPhone = /iPhone|iPod|Android.*Mobile|IEMobile|Opera Mini/i.test(ua);
+
+                if (isPhone) {
+                    this._debugLog('[picker] 📱 Phone detected - hiding "New Soundscape" button', 'info');
+                    const link = document.getElementById('newSoundscapeLink');
+                    if (link) {
+                        link.classList.add('hidden');
+                        link.style.pointerEvents = 'none';
+                        link.title = 'Create soundscapes on PC or tablet';
                     }
                 }
             }
