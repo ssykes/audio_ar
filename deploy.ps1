@@ -262,6 +262,7 @@ Write-Host "Creating deployment copies with cache-busting versions..." -Foregrou
 $HTML_FILES_WITH_VERSIONS = @(
     "map_player.html",
     "map_editor.html",
+    "map_editor_v2.html",
     "index.html",
     "single_sound_v2.html",
     "soundscape_picker.html",
