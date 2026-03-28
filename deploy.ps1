@@ -99,19 +99,19 @@ $HTML_FILES = @(
 )
 
 # Patterns to match existing versioned script tags (using proper regex)
-$JS_VERSION_PATTERN = 'spatial_audio\.js\?v=\d+'
-$DEBUG_LOGGER_PATTERN = 'debug_logger\.js\?v=\d+'
-$APP_VERSION_PATTERN = 'spatial_audio_app\.js\?v=\d+'
-$WAKE_LOCK_PATTERN = 'wake_lock_helper\.js\?v=\d+'
-$MAP_SHARED_PATTERN = 'map_shared\.js\?v=\d+'
-$MAP_EDITOR_PATTERN = 'map_editor\.js\?v=\d+'
-$MAP_EDITOR_V2_PATTERN = 'map_editor_v2\.js\?v=\d+'
-$MAP_PLAYER_PATTERN = 'map_player\.js\?v=\d+'
-$SOUNDSCAPE_PATTERN = 'soundscape\.js\?v=\d+'
-$API_CLIENT_PATTERN = 'api-client\.js\?v=\d+'
-$DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js\?v=\d+'
-$SW_VERSION_PATTERN = 'sw\.js\?v=\d+'
-$SW_REGISTER_PATTERN = 'sw-register\.js\?v=\d+'
+$JS_VERSION_PATTERN = 'spatial_audio\.js(\?v=\d+)?'
+$DEBUG_LOGGER_PATTERN = 'debug_logger\.js(\?v=\d+)?'
+$APP_VERSION_PATTERN = 'spatial_audio_app\.js(\?v=\d+)?'
+$WAKE_LOCK_PATTERN = 'wake_lock_helper\.js(\?v=\d+)?'
+$MAP_SHARED_PATTERN = 'map_shared\.js(\?v=\d+)?'
+$MAP_EDITOR_PATTERN = 'map_editor\.js(\?v=\d+)?'
+$MAP_EDITOR_V2_PATTERN = 'map_editor_v2\.js(\?v=\d+)?'
+$MAP_PLAYER_PATTERN = 'map_player\.js(\?v=\d+)?'
+$SOUNDSCAPE_PATTERN = 'soundscape\.js(\?v=\d+)?'
+$API_CLIENT_PATTERN = 'api-client\.js(\?v=\d+)?'
+$DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js(\?v=\d+)?'
+$SW_VERSION_PATTERN = 'sw\.js(\?v=\d+)?'
+$SW_REGISTER_PATTERN = 'sw-register\.js(\?v=\d+)?'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
