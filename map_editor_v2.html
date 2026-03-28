@@ -1219,7 +1219,19 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    
+
+    <!-- Unregister Service Worker (map_editor_v2 is desktop-only, no offline support) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (const registration of registrations) {
+                    registration.unregister();
+                    console.log('[map_editor_v2] 📴 Service Worker unregistered (desktop mode - no offline)');
+                }
+            });
+        }
+    </script>
+
     <!-- Internal Scripts -->
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
