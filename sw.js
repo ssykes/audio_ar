@@ -14,7 +14,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v1';  // Updated for map_editor_v2.html skip
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin)
@@ -245,6 +245,12 @@ self.addEventListener('fetch', (event) => {
 
   // Only handle GET requests
   if (event.request.method !== 'GET') {
+    return;
+  }
+
+  // Skip map_editor_v2.html - desktop editor mode, not for offline use
+  if (url.pathname.includes('map_editor_v2.html')) {
+    console.log('[SW] ⏭️ Skipping map_editor_v2.html (desktop mode - no offline)');
     return;
   }
 
