@@ -1478,6 +1478,17 @@
                     // Desktop or Tablet Editor: Go to map_editor_v2.html
                     console.log('[SoundscapePicker] Editor mode → map_editor_v2.html');
                     this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
+                    
+                    // Unregister Service Worker before navigating to desktop editor
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then((registrations) => {
+                            for (const registration of registrations) {
+                                registration.unregister();
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
+                            }
+                        });
+                    }
+                    
                     window.location.href = 'map_editor_v2.html';
                 } else {
                     // Phone or Tablet Player: Go to map_player.html
@@ -1542,6 +1553,15 @@
                 document.getElementById('newSoundscapeLink')?.addEventListener('click', (e) => {
                     e.preventDefault();
                     // Navigate to map editor with flag to prime for new soundscape
+                    // Unregister Service Worker before navigating to desktop editor
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then((registrations) => {
+                            for (const registration of registrations) {
+                                registration.unregister();
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
+                            }
+                        });
+                    }
                     window.location.href = 'map_editor_v2.html?new=true';
                 });
 
