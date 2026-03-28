@@ -916,9 +916,857 @@ this._showToast(`Created "${name}"`, 'success');
 
 | ID | Priority | Component | Issue | Status |
 |----|----------|-----------|-------|--------|
+| #6 | 🔴 Critical | Areas | Area sound URL does not persist after save | 🐛 Reported |
+| #7 | 🟢 Low | Map UX | Map doesn't zoom to soundscape on page load/refresh | 🐛 Reported |
+| #8 | 🟢 Low | UX | Three confirmation alerts when deleting soundscape | 🐛 Reported |
+| #9 | 🟢 Low | UX | Alert confirmation when deleting Areas/Waypoints from edit panel | 🐛 Reported |
+| #10 | 🟢 Low | Visual | Waypoint marker uses musical note emoji instead of colored dot | 🐛 Reported |
+| #11 | 🟡 Medium | Usability | No way to drag completed Area polygons to new location | 🐛 Reported |
 | TBA | 🟡 Medium | Performance | 100+ waypoints may cause lag | ⏳ Pending testing |
 | TBA | 🟢 Low | Accessibility | Screen reader compatibility unknown | ⏳ Pending audit |
 | TBA | 🟢 Low | Cross-browser | Safari/Firefox behavior unverified | ⏳ Pending testing |
+
+---
+
+### Open Bugs
+
+#### #6 - Area/Waypoint Sound URL Does Not Persist 🔴
+
+**Status:** 🟡 **Investigating** (SoundUrl IS saving to server correctly)  
+**Priority:** 🔴 Critical  
+**Component:** `map_editor_v2.js` → Area/Waypoint editing/saving  
+**Reported:** 2026-03-28  
+**Last Updated:** 2026-03-28
+
+**Issue:**
+```
+Edit Area/Waypoint → Update sound URL → Save → Reload page → Sound URL lost ❌
+Expected: Sound URL persists after save ✅
+```
+
+**Current Findings:**
+
+✅ **SoundUrl IS being saved to server correctly**
+
+Console log from save operation shows soundUrl in payload:
+```javascript
+[api-client.js] saveSoundscape payload: {
+  "waypoints": [
+    {
+      "id": "89ea55da-24cb-4ebc-9e58-8e2d7459783c",
+      "name": "Sound 1",
+      "soundUrl": "/sounds/frogs.mp3",  ← ✅ Correctly included
+      ...
+    },
+    {
+      "id": "4ac789d6-23f0-41bb-8063-5f56ef754574",
+      "name": "Sound 2",
+      "soundUrl": "/sounds/BoxingBell.mp3",  ← ✅ Correctly included
+      ...
+    }
+  ]
+}
+```
+
+**Fixed Issues:**
+- ✅ lat/lon toFixed() error (server returns strings, not numbers)
+
+**Next Steps - Investigation:**
+1. Check if soundUrl is returned from server on page load
+2. Check if soundUrl is populated in soundscape.waypointData
+3. Check if soundUrl is loaded into form when editing existing waypoint/area
+4. Check if soundUrl is stripped during JSON serialization/deserialization
+
+**Debug Logging Added:**
+```
+🎵 Waypoint soundUrl loaded: [value]  ← When form opens
+📝 getFormData: soundUrl=[value]       ← When form data captured
+✏️ Updating waypoint: [id]             ← When updating
+Updated data soundUrl: [value]
+Waypoint before/after update soundUrl: [value]
+Waypoint in soundscape soundUrl: [value]
+📍 Waypoints being saved: [count]
+WP N: "name" soundUrl=[value]          ← What's sent to server
+```
+
+**Hypothesis:**
+The soundUrl is being saved correctly, but may not be loaded correctly when:
+- Page is refreshed (soundscape loaded from server)
+- Existing waypoint/area is edited (form not populated from soundscape data)
+
+**Testing Needed:**
+1. Save waypoint with soundUrl
+2. Refresh page (F5)
+3. Click same waypoint to edit
+4. Check debug console for: `🎵 Waypoint soundUrl loaded: [value]`
+5. If empty, issue is in loading from server, not saving
+
+---
+
+#### #7 - Map Doesn't Zoom to Soundscape on Load 🟢
+
+**Status:** 🐛 **Open** (Reported, not fixed)  
+**Priority:** 🟢 Low (UX enhancement)  
+**Component:** `map_editor_v2.js` → Map initialization  
+**Reported:** 2026-03-28
+
+**Issue:**
+```
+Refresh page or load map_editor_v2 → Map shows default zoom/location ❌
+Expected: Map zooms to fit soundscape bounds (or current location if new) ✅
+```
+
+**Steps to Reproduce:**
+1. Open `map_editor_v2.html` (desktop mode)
+2. Create waypoints/areas across a geographic area
+3. Refresh page (F5)
+4. Observe map view
+
+**Actual Behavior:**
+- Map loads at default zoom level (usually zoomed out too far)
+- User must manually zoom/pan to see soundscape
+- Disorienting - user loses context of their soundscape
+
+**Expected Behavior:**
+
+**Existing Soundscape:**
+- Map should automatically zoom to fit all waypoints and areas
+- Use Leaflet's `fitBounds()` to frame the soundscape
+- Include all waypoints and area vertices in bounds calculation
+- Add small padding/margin around bounds for visual clarity
+
+**New Soundscape (no waypoints/areas):**
+- Map should zoom to user's current GPS location
+- Use `navigator.geolocation.getCurrentPosition()`
+- Set reasonable zoom level (e.g., zoom 15-17 for street level)
+- If GPS unavailable, use default location (e.g., city center)
+
+**User Experience:**
+```
+Load map_editor_v2.html
+    ↓
+Check if soundscape has waypoints/areas
+    ↓
+┌─────────────────────────────────────────┐
+│ Has Content                             │
+│  ↓                                      │
+│  Calculate bounds from:                 │
+│  - All waypoint coordinates             │
+│  - All area polygon vertices            │
+│  ↓                                      │
+│  map.fitBounds(bounds, { padding: 50 }) │
+│  ↓                                      │
+│  ✅ Soundscape framed nicely            │
+└─────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────┐
+│ New/Empty Soundscape                    │
+│  ↓                                      │
+│  Get user GPS location                  │
+│  ↓                                      │
+│  map.setView(gpsCoords, zoom=16)        │
+│  ↓                                      │
+│  ✅ Centered on user location           │
+└─────────────────────────────────────────┘
+```
+
+**Implementation Notes:**
+
+**For Existing Soundscapes:**
+```javascript
+// Calculate bounds from all content
+const allPoints = [];
+
+// Add waypoint coordinates
+waypoints.forEach(wp => {
+    allPoints.push([wp.lat, wp.lon]);
+});
+
+// Add area vertices
+areas.forEach(area => {
+    area.vertices.forEach(vertex => {
+        allPoints.push([vertex.lat, vertex.lon]);
+    });
+});
+
+// Zoom to fit
+if (allPoints.length > 0) {
+    const bounds = L.latLngBounds(allPoints);
+    map.fitBounds(bounds, { padding: [50, 50] });
+}
+```
+
+**For New Soundscapes:**
+```javascript
+// Get GPS location
+if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const coords = [pos.coords.latitude, pos.coords.longitude];
+        map.setView(coords, 16); // Street-level zoom
+    }, (err) => {
+        // Fallback to default location
+        map.setView([51.505, -0.09], 13); // London
+    });
+}
+```
+
+**When to Trigger:**
+- ✅ On initial page load
+- ✅ After soundscape loaded from server
+- ✅ When switching soundscapes
+- ✅ When returning from soundscape_picker
+
+**Edge Cases:**
+- Single waypoint: Zoom in close (zoom 17-18)
+- Very spread out waypoints: Show all, but cap max zoom
+- No GPS: Use sensible default (user's city or last known location)
+- Privacy: Don't auto-zoom if user denies GPS permission
+
+**Testing:**
+1. Create soundscape with 5-10 waypoints across an area
+2. Refresh page
+3. Verify map zooms to show all waypoints
+4. Create new soundscape (no content)
+5. Verify map centers on GPS location
+6. Deny GPS permission
+7. Verify fallback to default location
+
+**Related:**
+- Leaflet `fitBounds()` documentation
+- Geolocation API
+- Map initialization in `map_shared.js` or `map_editor_v2.js`
+
+---
+
+#### #8 - Triple Confirmation Alerts on Soundscape Delete 🟢
+
+**Status:** 🐛 **Open** (Reported, not fixed)  
+**Priority:** 🟢 Low (UX annoyance)  
+**Component:** `map_editor_v2.js` → Delete soundscape functionality  
+**Reported:** 2026-03-28
+
+**Issue:**
+```
+Click "Delete Soundscape" → Three alert() confirmations appear ❌
+Expected: Single confirmation dialog ✅
+```
+
+**Steps to Reproduce:**
+1. Open `map_editor_v2.html` (desktop mode)
+2. Click "More" → "Delete Soundscape" button
+3. Count the number of confirmation alerts
+
+**Actual Behavior:**
+- Three separate `alert()` dialogs appear sequentially
+- User must click "OK" three times
+- Annoying and confusing user experience
+
+**Expected Behavior:**
+- Single confirmation dialog: "Are you sure you want to delete this soundscape?"
+- Options: "Cancel" and "Delete"
+- Clear warning about data loss
+
+**Example:**
+```
+┌─────────────────────────────────────────┐
+│ ⚠️ Delete Soundscape                   │
+│                                         │
+│ Are you sure you want to delete         │
+│ "Forest Ambience"?                      │
+│                                         │
+│ This will permanently delete:           │
+│ • 12 waypoints                          │
+│ • 3 areas                               │
+│ • All associated data                   │
+│                                         │
+│ This action cannot be undone.           │
+│                                         │
+│      [Cancel]     [Delete Soundscape]   │
+└─────────────────────────────────────────┘
+```
+
+**Hypothesis - Root Cause:**
+Multiple `confirm()` or `alert()` calls in the delete flow:
+1. One from "Delete Soundscape" button click handler
+2. One from `deleteSoundscape()` function
+3. One from server delete confirmation
+
+**Investigation Needed:**
+- [ ] Search for all `confirm(` calls in delete flow
+- [ ] Search for all `alert(` calls in delete flow
+- [ ] Check event bubbling (is delete triggered multiple times?)
+- [ ] Check if multiple event listeners attached to button
+- [ ] Trace delete flow from button click to completion
+
+**Files to Check:**
+- `map_editor_v2.js` - Delete button handler
+- `map_editor_v2.js` - `deleteSoundscape()` method
+- `map_shared.js` - Shared delete logic
+- `api-client.js` - Server delete request
+
+**Fix Approach:**
+
+**Option 1: Single confirm() call**
+```javascript
+// Remove all extra confirm() calls
+document.getElementById('deleteSoundscapeBtn')?.addEventListener('click', () => {
+    const soundscape = this.getActiveSoundscape();
+    if (!soundscape) return;
+
+    // Single confirmation
+    const confirmed = confirm(
+        `Are you sure you want to delete "${soundscape.name}"?\n\n` +
+        `This will delete:\n` +
+        `• ${soundscape.waypointData?.length || 0} waypoints\n` +
+        `• ${soundscape.getAreas().length} areas\n\n` +
+        `This action cannot be undone.`
+    );
+
+    if (confirmed) {
+        this._deleteSoundscape(soundscape.id);
+    }
+});
+```
+
+**Option 2: Custom modal (better UX)**
+```javascript
+// Replace browser alert with custom modal
+_showDeleteConfirmation(soundscapeName, waypointCount, areaCount) {
+    return new Promise((resolve) => {
+        // Show custom modal with styled confirmation
+        // Returns true if user confirms, false if cancels
+    });
+}
+```
+
+**Testing:**
+1. Click "Delete Soundscape" button
+2. Verify only ONE confirmation dialog appears
+3. Click "Cancel" → Verify delete is aborted
+4. Click "Delete" → Verify soundscape is deleted
+5. Verify redirect to soundscape_picker or empty state
+6. Verify success toast: "Soundscape deleted"
+
+**Edge Cases:**
+- Delete last soundscape → Create new automatically?
+- Delete without saving → Discard unsaved changes warning?
+- Server delete fails → Show error message?
+
+**Related:**
+- Bug #3 - Alert Popup on Soundscape Creation (same UX issue)
+- Toast notifications for user feedback
+- Custom modal dialogs vs browser alerts
+
+---
+
+#### #9 - Remove Alert on Delete from Edit Panel 🟢
+
+**Status:** 🐛 **Open** (Reported, not fixed)  
+**Priority:** 🟢 Low (UX enhancement)  
+**Component:** `map_editor_v2.js` → Slideout edit panel  
+**Reported:** 2026-03-28
+
+**Issue:**
+```
+Delete Area/Waypoint from slideout panel → Browser alert() appears ❌
+Expected: Silent delete with toast notification (or undo option) ✅
+```
+
+**Steps to Reproduce:**
+1. Open `map_editor_v2.html` (desktop mode)
+2. Click on an Area or Waypoint in the explorer list
+3. Slideout edit panel opens
+4. Click "Delete" button in slideout footer
+5. Browser `confirm()` alert appears
+
+**Actual Behavior:**
+- Browser confirmation dialog interrupts workflow
+- Inconsistent with modern UI patterns
+- Breaks visual styling (browser-native alert vs app theme)
+
+**Expected Behavior:**
+
+**Option 1: Silent delete with toast (recommended)**
+```
+Click "Delete"
+    ↓
+Item deleted immediately
+    ↓
+Toast appears: "✅ Area deleted" with [Undo] button
+    ↓
+Auto-dismiss after 3 seconds
+```
+
+**Option 2: Inline confirmation**
+```
+Click "Delete"
+    ↓
+Delete button changes to:
+  "Are you sure? [Confirm] [Cancel]"
+    ↓
+User clicks "Confirm" or "Cancel"
+    ↓
+Delete or abort
+```
+
+**User Experience Comparison:**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Current: Browser alert** | Simple to implement | Jarring, breaks theme, slow |
+| **Silent + Undo toast** | Fast, modern, non-blocking | User might accidentally delete |
+| **Inline confirmation** | Themed, consistent | Extra click required |
+
+**Recommended Implementation:**
+
+**Silent Delete with Undo Toast:**
+```javascript
+// Delete button handler
+document.getElementById('slideoutDelete')?.addEventListener('click', () => {
+    if (!this.selectedItem || !this.selectedItemType) return;
+
+    const item = this.selectedItem;
+    const itemType = this.selectedItemType; // 'waypoint' or 'area'
+    const itemName = item.querySelector('.item-name').textContent;
+
+    // Delete immediately
+    if (itemType === 'waypoint') {
+        this._deleteWaypoint(item.dataset.id);
+    } else {
+        this._deleteArea(item.dataset.id);
+    }
+
+    // Show toast with undo option
+    this._showToast(`${itemType} "${itemName}" deleted`, 'success', {
+        action: 'Undo',
+        onAction: () => this._undoDelete(itemType, item.dataset.id)
+    });
+
+    // Close slideout
+    closeSlideout();
+});
+```
+
+**Toast with Undo:**
+```
+┌─────────────────────────────────────────┐
+│ ✅ Area "Forest Zone" deleted  [Undo] ✕ │
+└─────────────────────────────────────────┘
+  (auto-dismisses after 5 seconds)
+```
+
+**Undo Implementation:**
+```javascript
+// Store last deleted item for undo
+_lastDeletedItem = null;
+
+_undoDelete(itemType, id) {
+    if (!this._lastDeletedItem) return;
+
+    // Restore from backup
+    if (itemType === 'waypoint') {
+        this.waypoints.push(this._lastDeletedItem);
+        this._refreshWaypointList();
+    } else {
+        this.areas.push(this._lastDeletedItem);
+        this._refreshAreaList();
+    }
+
+    this._markSoundscapeDirty();
+    this._scheduleAutoSave();
+
+    this._showToast('Undo successful', 'success');
+    this._lastDeletedItem = null;
+}
+```
+
+**Testing:**
+1. Click Area/Waypoint in explorer
+2. Click "Delete" in slideout panel
+3. Verify NO browser alert appears
+4. Verify item is deleted immediately
+5. Verify toast appears: "✅ [Type] deleted [Undo]"
+6. Wait 5 seconds → Verify toast auto-dismisses
+7. OR click "Undo" → Verify item is restored
+
+**Edge Cases:**
+- Delete then save → Undo no longer available (cleared on save)
+- Delete multiple items → Only last item can be undone
+- Delete then close page → Undo not available (as expected)
+
+**Accessibility:**
+- Toast should be announced by screen readers
+- Undo button should be keyboard accessible
+- Auto-dismiss timer should be announced
+
+**Related:**
+- Bug #3 - Alert Popup on Soundscape Creation
+- Bug #8 - Triple Confirmation Alerts on Delete
+- Toast notification system (already implemented)
+
+---
+
+#### #10 - Replace Waypoint Emoji with Colored Dot 🟢
+
+**Status:** 🐛 **Open** (Reported, not fixed)  
+**Priority:** 🟢 Low (Visual enhancement)  
+**Component:** `map_editor_v2.js` → Waypoint marker rendering  
+**Reported:** 2026-03-28
+
+**Issue:**
+```
+Waypoint markers display musical note emoji (🎵) ❌
+Expected: Small opaque dot matching waypoint color ✅
+```
+
+**Current Behavior:**
+- Waypoint markers show 🎵 emoji in center
+- Emoji doesn't match custom waypoint color
+- Looks unprofessional/cluttered at scale
+- Emoji rendering inconsistent across browsers/OS
+
+**Expected Behavior:**
+- Simple opaque dot (circle) in center
+- Dot color matches waypoint's custom color property
+- Clean, professional appearance
+- Consistent rendering across all platforms
+
+**Visual Comparison:**
+
+| Current | Proposed |
+|---------|----------|
+| 🎵 Emoji (fixed) | ● Colored dot (dynamic) |
+| Ignores waypoint.color | Uses waypoint.color |
+| Cartoon-ish appearance | Professional/clean |
+| OS-dependent rendering | Consistent SVG/Canvas |
+
+**Mockup:**
+```
+Current:          Proposed:
+   🎵               ●  (cyan dot)
+   🎵               ●  (red dot)
+   🎵               ●  (green dot)
+```
+
+**Implementation:**
+
+**Option 1: L.divIcon with CSS (recommended)**
+```javascript
+// Replace emoji with colored dot
+const icon = L.divIcon({
+    className: 'waypoint-dot',
+    html: `<div style="
+        width: 12px;
+        height: 12px;
+        background-color: ${waypoint.color};
+        border-radius: 50%;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    "></div>`,
+    iconSize: [12, 12],
+    iconAnchor: [6, 6]
+});
+```
+
+**Option 2: L.circleMarker**
+```javascript
+// Use Leaflet's built-in circle marker
+const marker = L.circleMarker([waypoint.lat, waypoint.lon], {
+    radius: 6,
+    fillColor: waypoint.color,
+    color: '#fff',
+    weight: 2,
+    opacity: 1,
+    fillOpacity: 1,
+    draggable: true
+});
+```
+
+**CSS Styling (for Option 1):**
+```css
+.waypoint-dot {
+    /* No CSS needed - inline styles used */
+    /* Wrapper div is transparent */
+}
+
+.waypoint-dot div {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.waypoint-dot:hover div {
+    transform: scale(1.2);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+}
+
+/* Selected waypoint */
+.waypoint-dot.selected div {
+    border-width: 3px;
+    border-color: var(--accent-primary);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+```
+
+**Benefits:**
+- ✅ Matches custom waypoint colors
+- ✅ Cleaner visual at scale (100+ waypoints)
+- ✅ Consistent across browsers/OS
+- ✅ Professional appearance
+- ✅ Better performance (no emoji text rendering)
+- ✅ Easier to style (hover, selected states)
+
+**Testing:**
+1. Create waypoint with default color (cyan)
+2. Verify dot is cyan with white border
+3. Change waypoint color to red
+4. Verify dot updates to red
+5. Hover over waypoint → Verify scale animation
+6. Select waypoint → Verify pulse animation
+7. Zoom in/out → Verify dot stays crisp
+8. Test with 50+ waypoints → Verify performance
+
+**Edge Cases:**
+- Very dark colors → Add white border for visibility
+- Very light colors → Add dark border for contrast
+- Color blind users → Ensure distinguishable colors
+- Print/black & white → Still visible in grayscale
+
+**Accessibility:**
+- Dot should have aria-label with waypoint name
+- Keyboard navigation should work (Tab to select)
+- Focus indicator visible (different border style)
+
+**Related:**
+- Waypoint color picker (already implemented)
+- Map marker architecture in `map_shared.js`
+- Leaflet custom icons documentation
+
+---
+
+#### #11 - Add Drag Handle for Area Polygons 🟡
+
+**Status:** 🐛 **Open** (Reported, not fixed)  
+**Priority:** 🟡 Medium (Usability improvement)  
+**Component:** `map_editor_v2.js` → Area polygon interaction  
+**Reported:** 2026-03-28
+
+**Issue:**
+```
+Completed Area polygons cannot be dragged to new location ❌
+Expected: Center drag handle (like waypoint dots) for repositioning ✅
+```
+
+**Steps to Reproduce:**
+1. Open `map_editor_v2.html` (desktop mode)
+2. Draw an Area polygon (complete the shape)
+3. Try to drag the entire polygon to a new location
+4. Notice: No way to move the entire area
+
+**Actual Behavior:**
+- Can only edit individual vertices (drag polygon points)
+- No way to move entire polygon as a unit
+- Must delete and redraw to reposition
+- Time-consuming for fine adjustments
+
+**Expected Behavior:**
+
+**Visual Design:**
+```
+Completed Area Polygon:
+    ┌─────────────────┐
+    │   ● ● ●         │
+    │  ●     ●        │
+    │   ●   ●         │  ← Small dot in center
+    │    ● ●          │     (drag handle)
+    │      ●          │
+    └─────────────────┘
+         📍 ← Center handle (colored, draggable)
+```
+
+**Interaction:**
+- Small dot appears in center of completed Area
+- Dot matches Area's color (like waypoint dots)
+- Click and drag dot to move entire polygon
+- All vertices move together
+- Release to drop at new location
+
+**Implementation:**
+
+**Step 1: Calculate Center Point**
+```javascript
+// Calculate centroid of polygon
+function calculateCentroid(vertices) {
+    let latSum = 0, lonSum = 0;
+    vertices.forEach(v => {
+        latSum += v.lat;
+        lonSum += v.lon;
+    });
+    return {
+        lat: latSum / vertices.length,
+        lon: lonSum / vertices.length
+    };
+}
+```
+
+**Step 2: Create Drag Handle Marker**
+```javascript
+// Add center handle after Area is completed
+_createAreaDragHandle(area, polygon) {
+    const centroid = this._calculateCentroid(area.vertices);
+
+    const handleIcon = L.divIcon({
+        className: 'area-drag-handle',
+        html: `<div style="
+            width: 14px;
+            height: 14px;
+            background-color: ${area.color || '#ff6b6b'};
+            border-radius: 50%;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            cursor: grab;
+        "></div>`,
+        iconSize: [14, 14],
+        iconAnchor: [7, 7]
+    });
+
+    const handle = L.marker([centroid.lat, centroid.lon], {
+        icon: handleIcon,
+        draggable: true,
+        zIndexOffset: 1000  // Above polygon
+    }).addTo(this.map);
+
+    // Store reference to handle
+    this.areaHandles.set(area.id, handle);
+
+    // Drag event - move entire polygon
+    handle.on('drag', (e) => {
+        const newCenter = e.target.getLatLng();
+        this._moveAreaToCenter(area, polygon, newCenter);
+    });
+
+    handle.on('dragend', (e) => {
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+    });
+}
+```
+
+**Step 3: Move Polygon to New Center**
+```javascript
+_moveAreaToCenter(area, polygon, newCenter) {
+    const oldCentroid = this._calculateCentroid(area.vertices);
+    const latDiff = newCenter.lat - oldCentroid.lat;
+    const lonDiff = newCenter.lng - oldCenter.lon;
+
+    // Update all vertices
+    area.vertices.forEach(vertex => {
+        vertex.lat += latDiff;
+        vertex.lon += lonDiff;
+    });
+
+    // Update Leaflet polygon
+    const newLatLngs = area.vertices.map(v => [v.lat, v.lon]);
+    polygon.setLatLngs(newLatLngs);
+
+    // Update drag handle position
+    const handle = this.areaHandles.get(area.id);
+    if (handle) {
+        handle.setLatLng(newCenter);
+    }
+}
+```
+
+**Step 4: Show/Hide Handle**
+```javascript
+// Show handle when Area is selected
+_selectArea(areaId) {
+    const handle = this.areaHandles.get(areaId);
+    if (handle) {
+        handle.getElement().style.opacity = '1';
+        handle.getElement().style.pointerEvents = 'auto';
+    }
+}
+
+// Hide handle when Area is deselected
+_deselectArea() {
+    this.areaHandles.forEach(handle => {
+        handle.getElement().style.opacity = '0.5';
+        handle.getElement().style.pointerEvents = 'none';
+    });
+}
+```
+
+**CSS Styling:**
+```css
+.area-drag-handle {
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.area-drag-handle div {
+    transition: transform 0.2s;
+}
+
+.area-drag-handle:hover div {
+    transform: scale(1.3);
+}
+
+.area-drag-handle.dragging div {
+    cursor: grabbing;
+    transform: scale(1.5);
+}
+
+/* Hidden when not selected */
+.area-drag-handle.inactive {
+    opacity: 0;
+    pointer-events: none;
+}
+```
+
+**Visual States:**
+
+| State | Appearance |
+|-------|------------|
+| **Idle** | Semi-transparent dot (opacity 0.5) |
+| **Hover** | Full opacity, scale 1.3x |
+| **Dragging** | Scale 1.5x, cursor changes |
+| **Selected** | Full opacity, pulse animation |
+
+**Testing:**
+1. Draw Area polygon
+2. Verify drag handle appears in center
+3. Verify handle matches Area color
+4. Click and drag handle
+5. Verify entire polygon moves
+6. Release → Verify polygon stays in new position
+7. Verify auto-save triggers
+8. Reload page → Verify new position persists
+9. Test with multiple Areas → Each has own handle
+10. Select/deselect Areas → Handle visibility changes
+
+**Edge Cases:**
+- Irregular polygons → Centroid may be outside shape (adjust algorithm)
+- Very small Areas → Handle might overlap vertices (increase offset)
+- Very large Areas → Handle still centered (works at any scale)
+- Overlapping Areas → Each has own handle (z-index management)
+
+**Accessibility:**
+- Handle should have aria-label: "Drag to move Area"
+- Keyboard alternative: Arrow keys to nudge position
+- Screen reader announces: "Area drag handle, use arrow keys to move"
+
+**Performance:**
+- Only create handles for visible Areas
+- Remove handles when Areas are deleted
+- Lazy-load handles (create on first selection)
+
+**Related:**
+- Bug #10 - Replace Waypoint Emoji with Colored Dot (similar visual)
+- Area CRUD operations (Session 2)
+- Leaflet marker drag events
 
 ---
 
