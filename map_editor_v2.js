@@ -776,8 +776,14 @@ class MapEditorApp extends MapAppShared {
         const waypoint = this._getWaypointById(updatedData.id);
         if (!waypoint) return;
 
+        this.debugLog(`✏️ Updating waypoint: ${waypoint.id}`);
+        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
+        this.debugLog(`   Waypoint before update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
+
         // Update waypoint properties
         Object.assign(waypoint, updatedData);
+
+        this.debugLog(`   Waypoint after update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
 
         // Update marker if exists
         const marker = this.markers.get(waypoint.id);
@@ -785,6 +791,11 @@ class MapEditorApp extends MapAppShared {
             // Update radius circle
             this._updateRadiusCircle(waypoint);
         }
+
+        // Verify soundscape has the updated data
+        const soundscape = this.getActiveSoundscape();
+        const waypointInSoundscape = soundscape?.waypointData?.find(wp => wp.id === waypoint.id);
+        this.debugLog(`   Waypoint in soundscape soundUrl: ${waypointInSoundscape?.soundUrl || '(empty)'}`);
 
         // Refresh list to show updated name
         this._refreshWaypointList();
@@ -1911,8 +1922,8 @@ function openSlideout(type, id, name, meta, color) {
         slideoutActivationRadiusValue.textContent = `${waypoint.activationRadius || 20}m`;
         slideoutLoop.checked = waypoint.loop !== false;
         slideoutSortOrder.value = waypoint.sortOrder || 0;
-        slideoutLat.textContent = waypoint.lat?.toFixed(6) || '--';
-        slideoutLon.textContent = waypoint.lon?.toFixed(6) || '--';
+        slideoutLat.textContent = (typeof waypoint.lat === 'number' ? waypoint.lat.toFixed(6) : waypoint.lat) || '--';
+        slideoutLon.textContent = (typeof waypoint.lon === 'number' ? waypoint.lon.toFixed(6) : waypoint.lon) || '--';
 
         // Show type selector and render type-specific fields
         slideoutType.style.display = 'block';
@@ -1930,7 +1941,10 @@ function openSlideout(type, id, name, meta, color) {
 
         // Populate type-specific fields
         if (waypoint.type === 'file') {
-            if (slideoutSoundUrl) slideoutSoundUrl.value = waypoint.soundUrl || '';
+            if (slideoutSoundUrl) {
+                slideoutSoundUrl.value = waypoint.soundUrl || '';
+                addDebugLog(`🎵 Waypoint soundUrl loaded: ${waypoint.soundUrl || '(empty)'}`);
+            }
         }
 
     } else if (type === 'Area') {

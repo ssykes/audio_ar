@@ -588,6 +588,12 @@ class MapAppShared {
             return cleanWp; // Keep camelCase - server repository handles snake_case conversion
         });
 
+        // Debug: log waypoint soundUrls to verify they're being saved
+        this.debugLog(`📍 Waypoints being saved: ${cleanWaypoints.length}`);
+        cleanWaypoints.forEach((wp, idx) => {
+            this.debugLog(`   WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+        });
+
         // Strip Leaflet layer references from areas
         const cleanAreas = (soundscape.areas || []).map(area => {
             const { _leafletLayer, ...cleanArea } = area;
