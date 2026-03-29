@@ -22,6 +22,7 @@ class MapEditorApp extends MapAppShared {
         this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
         this.nextAreaId = 1;
         this.isDrawingArea = false;
+        this.isDraggingArea = false;  // Track if area is being dragged
 
         // Track selected item for editing
         this.selectedItem = null;
@@ -694,6 +695,7 @@ class MapEditorApp extends MapAppShared {
     _addWaypoint(lat, lon) {
         if (this.state !== 'editor') return;
         if (this.isDrawingArea) return;  // Don't create waypoints while drawing areas
+        if (this.isDraggingArea) return;  // Don't create waypoints while dragging areas
 
         const waypoint = {
             id: 'wp' + this.nextId++,
@@ -1033,9 +1035,86 @@ class MapEditorApp extends MapAppShared {
 
             // Store area data on layer
             polygon.areaData = area;
+
+            // Make polygon draggable in edit mode (not in simulate mode)
+            this._makeAreaDraggable(polygon);
         });
 
         this.debugLog(`📍 Loaded ${areas.length} Areas`);
+    }
+
+    /**
+     * Make area polygon draggable in edit mode
+     * @param {L.Polygon} polygon - Leaflet polygon layer
+     * @private
+     */
+    _makeAreaDraggable(polygon) {
+        let isDragging = false;
+        let dragStartLatLng = null;
+
+        polygon.on('mousedown', (e) => {
+            // Don't drag in simulate mode
+            if (isSimulating) {
+                return;
+            }
+
+            // Only drag if clicking on the fill (not on vertices)
+            if (e.originalEvent.target.classList.contains('leaflet-interactive')) {
+                isDragging = true;
+                this.isDraggingArea = true;  // Prevent waypoint creation
+                dragStartLatLng = e.latlng;
+                this.map.dragging.disable();  // Disable map pan while dragging area
+                this.map.getContainer().style.cursor = 'grabbing';
+            }
+        });
+
+        polygon.on('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const deltaLat = e.latlng.lat - dragStartLatLng.lat;
+            const deltaLon = e.latlng.lng - dragStartLatLng.lng;
+
+            // Move all vertices
+            const latlngs = polygon.getLatLngs()[0];
+            const newLatLngs = latlngs.map(ll => [ll.lat + deltaLat, ll.lng + deltaLon]);
+
+            polygon.setLatLngs(newLatLngs);
+            dragStartLatLng = e.latlng;
+
+            // Update area data
+            if (polygon.areaData) {
+                polygon.areaData.polygon = newLatLngs.map((ll, idx) => ({
+                    lat: ll[0],
+                    lng: ll[1],
+                    ...polygon.areaData.polygon[idx]
+                }));
+            }
+        });
+
+        polygon.on('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                this.isDraggingArea = false;  // Allow waypoint creation again
+                this.map.dragging.enable();  // Re-enable map pan
+                this.map.getContainer().style.cursor = '';
+
+                // Mark soundscape dirty and save
+                if (polygon.areaData) {
+                    this._markSoundscapeDirty();
+                    this._scheduleAutoSave();
+                    this.debugLog(`✏️ Area dragged: ${polygon.areaData.name}`);
+                }
+            }
+        });
+
+        polygon.on('mouseout', () => {
+            if (isDragging) {
+                isDragging = false;
+                this.isDraggingArea = false;  // Allow waypoint creation again
+                this.map.dragging.enable();
+                this.map.getContainer().style.cursor = '';
+            }
+        });
     }
 
     /**
@@ -2051,7 +2130,7 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
         btn.textContent = 'Simulate';
         simPanel.classList.remove('active');
         addDebugLog('Simulation stopped');
-        
+
         // Stop simulation mode (remove avatar, stop audio)
         try {
             addDebugLog('⏹ Calling app._stopSimulation()...');
