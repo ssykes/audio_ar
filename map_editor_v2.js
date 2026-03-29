@@ -913,132 +913,6 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Load soundscape list from server
-     * @private
-     */
-    async _loadSoundscapeList() {
-        if (!this.isLoggedIn) return;
-
-        try {
-            const selector = document.getElementById('soundscapeSelector');
-            if (!selector) return;
-
-            // Clear existing options
-            selector.innerHTML = '<option value="">Select Soundscape...</option>';
-
-            // Get server soundscapes
-            const serverSoundscapes = await this.api.getSoundscapes();
-            const serverIds = new Set(serverSoundscapes.map(ss => ss.id));
-
-            // Add server soundscapes
-            serverSoundscapes.forEach(ss => {
-                const option = document.createElement('option');
-                option.value = ss.id;
-                option.textContent = ss.name;
-                // Select if this is the active one
-                const localId = Array.from(this.serverSoundscapeIds.entries())
-                    .find(([_, serverId]) => serverId === ss.id)?.[0];
-                if (localId === this.activeSoundscapeId) {
-                    option.selected = true;
-                }
-                selector.appendChild(option);
-            });
-
-            // Add local-only soundscapes
-            for (const [localId, soundscape] of this.soundscapes.entries()) {
-                const hasServer = this.serverSoundscapeIds.has(localId);
-                if (!hasServer && !serverIds.has(localId)) {
-                    const option = document.createElement('option');
-                    option.value = localId;
-                    option.textContent = soundscape.name + ' (local only)';
-                    if (localId === this.activeSoundscapeId) {
-                        option.selected = true;
-                    }
-                    selector.appendChild(option);
-                    this.debugLog(`  📁 Added local-only: ${soundscape.name}`);
-                }
-            }
-
-            this.debugLog(`📋 Soundscape selector populated (${selector.options.length - 1} soundscapes)`);
-        } catch (error) {
-            this.debugLog('❌ Failed to load soundscapes: ' + error.message);
-        }
-    }
-
-    /**
-     * Handle soundscape selector change
-     * @private
-     */
-    async _onSoundscapeChange() {
-        const selector = document.getElementById('soundscapeSelector');
-        const selectedValue = selector?.value;
-
-        if (!selectedValue) return;
-
-        // Find the local ID for this server ID
-        let localId = Array.from(this.serverSoundscapeIds.entries())
-            .find(([_, serverId]) => serverId === selectedValue)?.[0];
-
-        // If not found in mapping, check if it's a local-only soundscape
-        if (!localId && this.soundscapes.has(selectedValue)) {
-            localId = selectedValue;
-            this.debugLog('📁 Found local-only soundscape (not on server)');
-        }
-
-        if (!localId) {
-            // Not loaded yet - load from server
-            this.debugLog('🔄 Loading soundscape from server...');
-            try {
-                const data = await this.api.loadSoundscape(selectedValue);
-                // Convert server response to SoundScape instance
-                const soundscape = SoundScape.fromJSON(data.soundscape);
-                this.soundscapes.set(soundscape.id, soundscape);
-                this.activeSoundscapeId = soundscape.id;
-                this.serverSoundscapeIds.set(soundscape.id, selectedValue);
-                this.waypoints = data.waypoints;
-
-                // Restore nextId
-                if (this.waypoints.length > 0) {
-                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                    this.nextId = maxId + 1;
-                }
-
-                // Clear and render waypoints
-                this.markers.forEach(marker => marker.remove());
-                this.markers.clear();
-                this.waypoints.forEach(wp => this._createMarker(wp));
-                this._refreshWaypointList();
-
-                // Load areas
-                this._loadAreasIntoDrawer(soundscape.getAreas() || []);
-                this._refreshAreaList();
-
-                // Center map on the new waypoints
-                if (this.waypoints.length > 0) {
-                    const sumLat = this.waypoints.reduce((sum, wp) => sum + wp.lat, 0);
-                    const sumLon = this.waypoints.reduce((sum, wp) => sum + wp.lon, 0);
-                    const centerLat = sumLat / this.waypoints.length;
-                    const centerLon = sumLon / this.waypoints.length;
-                    this.map.setView([centerLat, centerLon], 17);
-                    this.debugLog(`🗺️ Map centered at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}]`);
-                }
-
-                // Update edit form
-                this._initForms();
-
-                this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints)`);
-            } catch (error) {
-                this.debugLog('❌ Failed to load soundscape: ' + error.message);
-                this._showToast('⚠️ Soundscape not on server', 'warning');
-            }
-        } else {
-            // Already loaded - just switch
-            this.switchSoundscape(localId);
-            this._initForms();
-        }
-    }
-
-    /**
      * Update soundscape metadata from form
      * @private
      */
@@ -1381,7 +1255,7 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Load ALL soundscapes from server
+     * Load ONE soundscape from server (the active/persisted one)
      * @private
      */
     async _loadSoundscapeFromServer() {
@@ -1391,89 +1265,88 @@ class MapEditorApp extends MapAppShared {
         }
 
         try {
-            this.debugLog('☁️ Loading soundscapes from server...');
+            this.debugLog('☁️ Loading soundscape from server...');
 
-            // Get list of soundscapes
-            const soundscapes = await this.api.getSoundscapes();
-
-            if (soundscapes.length === 0) {
-                this.debugLog('📭 No soundscapes on server - creating default');
-                await this._createNewSoundscape();
-                return;
-            }
-
-            // Load ALL soundscapes into local cache
-            this.debugLog(`🎼 Loading ${soundscapes.length} soundscape(s)...`);
-            for (const ss of soundscapes) {
-                try {
-                    const data = await this.api.loadSoundscape(ss.id);
-                    const soundscape = SoundScape.fromJSON(data.soundscape);
-
-                    // Add waypointData to soundscape
-                    soundscape.waypointData = data.waypoints;
-
-                    // Debug: log waypoint soundUrls
-                    this.debugLog(`  🔍 Waypoints loaded for ${soundscape.name}:`);
-                    data.waypoints.forEach((wp, idx) => {
-                        this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
-                    });
-
-                    // Add to soundscapes map
-                    this.soundscapes.set(soundscape.id, soundscape);
-                    this.serverSoundscapeIds.set(soundscape.id, ss.id);
-
-                    this.debugLog(`  ✅ Loaded: ${soundscape.name} (${data.waypoints.length} waypoints, ${soundscape.getAreas().length} areas)`);
-                } catch (error) {
-                    this.debugLog(`  ⚠️ Failed to load ${ss.name}: ${error.message}`);
-                }
-            }
-
-            // Set active to selected soundscape (from localStorage) or most recent
+            // Determine which soundscape to load
             // Priority: 1) editor_active_soundscape_id (persisted from last session), 2) selected_soundscape_id (one-time from picker), 3) most recent
             const persistedId = localStorage.getItem('editor_active_soundscape_id');
             const selectedId = localStorage.getItem('selected_soundscape_id');
-            
+
             this.debugLog(`🔍 Persisted soundscape ID: ${persistedId || 'none'}`);
             this.debugLog(`🔍 Selected soundscape ID (one-time): ${selectedId || 'none'}`);
 
-            let activeLocalId = null;
+            let targetServerId = null;
 
             if (persistedId) {
-                // Restore from previous session (page refresh)
-                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
-                    .find(([_, serverId]) => serverId === persistedId)?.[0];
+                targetServerId = persistedId;
+                this.debugLog(`📥 Will load persisted soundscape: ${persistedId}`);
+            } else if (selectedId) {
+                targetServerId = selectedId;
+                this.debugLog(`📥 Will load selected soundscape: ${selectedId}`);
+            }
 
-                if (activeLocalId) {
-                    this.debugLog(`✅ Restoring from previous session: ${persistedId}`);
-                } else {
-                    this.debugLog(`⚠️ Persisted soundscape not found in cache, trying selected_soundscape_id`);
+            // If no persisted or selected ID, get list and use most recent
+            if (!targetServerId) {
+                const soundscapes = await this.api.getSoundscapes();
+                if (soundscapes.length === 0) {
+                    this.debugLog('📭 No soundscapes on server - creating default');
+                    await this._createNewSoundscape();
+                    return;
                 }
+                targetServerId = soundscapes[0].id;
+                this.debugLog(`📅 Using most recent soundscape: ${targetServerId}`);
             }
 
-            if (!activeLocalId && selectedId) {
-                // One-time selection from soundscape_picker
-                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
-                    .find(([_, serverId]) => serverId === selectedId)?.[0];
+            // Load the single soundscape from server
+            this.debugLog('📥 Loading soundscape from server...');
+            const data = await this.api.loadSoundscape(targetServerId);
+            const soundscape = SoundScape.fromJSON(data.soundscape);
 
-                if (activeLocalId) {
-                    this.debugLog(`✅ Using selected soundscape: ${selectedId}`);
-                } else {
-                    this.debugLog(`⚠️ Selected soundscape not found in cache, using most recent`);
-                }
+            // Add waypointData to soundscape
+            soundscape.waypointData = data.waypoints;
+
+            // Debug: log waypoint soundUrls
+            this.debugLog(`  🔍 Waypoints loaded for ${soundscape.name}:`);
+            data.waypoints.forEach((wp, idx) => {
+                this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+            });
+
+            // Store soundscape and map to server ID
+            this.soundscapes.set(soundscape.id, soundscape);
+            this.serverSoundscapeIds.set(soundscape.id, targetServerId);
+            this.activeSoundscapeId = soundscape.id;
+
+            // Load waypoints
+            this.waypoints = data.waypoints || [];
+            this.debugLog(`  📍 Loaded ${this.waypoints.length} waypoints`);
+
+            // Restore nextId
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
             }
 
-            // If no persisted or selected ID, use most recent
-            if (!activeLocalId && soundscapes.length > 0) {
-                const latest = soundscapes[0];
-                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
-                    .find(([_, serverId]) => serverId === latest.id)?.[0];
-                this.debugLog(`📅 Using most recent soundscape: ${latest.id}`);
-            }
+            // Clear and render waypoints
+            this.markers.forEach(marker => marker.remove());
+            this.markers.clear();
+            this.waypoints.forEach(wp => this._createMarker(wp));
+            this._updateWaypointList();
 
-            if (activeLocalId) {
-                // Switch soundscape (this will load waypoints and areas)
-                this.switchSoundscape(activeLocalId);
-                this._initForms();
+            // Load areas
+            const areas = soundscape.getAreas() || [];
+            this.debugLog(`  🗺️ Loading ${areas.length} areas...`);
+            this._loadAreasIntoDrawer(areas);
+            this._refreshAreaList();
+
+            // Center and zoom map to show all waypoints
+            if (this.waypoints.length > 0) {
+                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+
+                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
             }
 
             // Clear one-time selection (but keep persisted ID for next refresh)
@@ -1481,7 +1354,7 @@ class MapEditorApp extends MapAppShared {
                 localStorage.removeItem('selected_soundscape_id');
             }
 
-            this.debugLog(`✅ Loaded ${soundscapes.length} soundscape(s) from server`);
+            this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
             this._updateSyncStatus(true);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
@@ -1527,12 +1400,8 @@ class MapEditorApp extends MapAppShared {
                 this.serverSoundscapeIds.set(id, serverId);
                 this.debugLog(`🎼 Created on server: ${name} (server ID: ${serverId})`);
 
-                // Now save to server with the mapping in place
-                this._updateSoundscapeSelector();
+                // Save to server with the mapping in place
                 this._saveSoundscapeToStorage();
-
-                // Refresh soundscape list from server
-                await this._loadSoundscapeList();
 
                 this.debugLog(`✅ Soundscape created and saved to server`);
             } catch (error) {
@@ -1541,7 +1410,6 @@ class MapEditorApp extends MapAppShared {
             }
         } else {
             // Not logged in - save locally only
-            this._updateSoundscapeSelector();
             this._saveSoundscapeToStorage();
         }
 
@@ -2234,14 +2102,6 @@ if (editDescription) {
 if (editPublic) {
     editPublic.addEventListener('change', () => {
         app._updateSoundscapeFromForm();
-    });
-}
-
-// Soundscape selector
-const soundscapeSelector = document.getElementById('soundscapeSelector');
-if (soundscapeSelector) {
-    soundscapeSelector.addEventListener('change', () => {
-        app._onSoundscapeChange();
     });
 }
 
