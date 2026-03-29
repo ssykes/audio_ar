@@ -2005,12 +2005,24 @@ waypointsList.addEventListener('click', (e) => {
 
 // Simulate/Edit toggle
 let isSimulating = false;
-document.getElementById('btnSimulate').addEventListener('click', (e) => {
+document.getElementById('btnSimulate').addEventListener('click', async (e) => {
     e.stopPropagation();
+    
+    console.log('[Simulate] Button clicked, isSimulating will be:', !isSimulating);
+    console.log('[Simulate] app exists:', !!app);
+    console.log('[Simulate] app.showSimulator:', app?.showSimulator);
+    console.log('[Simulate] app.waypoints.length:', app?.waypoints?.length);
     
     // Check if simulation is available
     if (!app || !app.showSimulator) {
         addDebugLog('⚠️ Simulation not available');
+        return;
+    }
+    
+    // Check if there are waypoints
+    if (!app.waypoints || app.waypoints.length === 0) {
+        addDebugLog('⚠️ Add at least one waypoint first');
+        alert('⚠️ Please add at least one waypoint before simulation');
         return;
     }
     
@@ -2025,14 +2037,29 @@ document.getElementById('btnSimulate').addEventListener('click', (e) => {
         addDebugLog('Simulation started');
         
         // Start simulation mode (create avatar marker, start audio)
-        app._startSimulation();
+        try {
+            addDebugLog('🎮 Calling app._startSimulation()...');
+            await app._startSimulation();
+            addDebugLog('✅ app._startSimulation() completed');
+        } catch (error) {
+            addDebugLog('❌ Simulation start error: ' + error.message);
+            console.error('Simulation error:', error);
+            alert('❌ Simulation error: ' + error.message);
+        }
     } else {
         btn.textContent = 'Simulate';
         simPanel.classList.remove('active');
         addDebugLog('Simulation stopped');
         
         // Stop simulation mode (remove avatar, stop audio)
-        app._stopSimulation();
+        try {
+            addDebugLog('⏹ Calling app._stopSimulation()...');
+            app._stopSimulation();
+            addDebugLog('✅ app._stopSimulation() completed');
+        } catch (error) {
+            addDebugLog('❌ Simulation stop error: ' + error.message);
+            console.error('Simulation stop error:', error);
+        }
     }
 });
 

@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Map Editor v2</title>
     
     <!-- Leaflet CSS -->
@@ -1220,19 +1223,30 @@
         window.API_BASE_URL = '/api';
     </script>
 
-    <!-- Unregister Service Worker (map_editor_v2 is desktop-only, no offline support) -->
+    <!-- Unregister Service Worker (MUST run BEFORE other scripts) -->
+    <!-- map_editor_v2 is desktop-only, no offline support - SW causes stale cache issues -->
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then((registrations) => {
-                for (const registration of registrations) {
-                    registration.unregister();
-                    console.log('[map_editor_v2] 📴 Service Worker unregistered (desktop mode - no offline)');
-                }
-            });
-        }
+        (function() {
+            console.log('[map_editor_v2] 📴 Checking for Service Worker...');
+            if ('serviceWorker' in navigator) {
+                // Synchronously check and unregister
+                navigator.serviceWorker.getRegistrations().then((registrations) => {
+                    console.log('[map_editor_v2] Found ' + registrations.length + ' SW registration(s)');
+                    for (const registration of registrations) {
+                        registration.unregister().then(() => {
+                            console.log('[map_editor_v2] ✅ SW unregistered: ' + registration.scope);
+                        }).catch(err => {
+                            console.error('[map_editor_v2] ❌ Failed to unregister SW:', err);
+                        });
+                    }
+                }).catch(err => {
+                    console.error('[map_editor_v2] ❌ Failed to get SW registrations:', err);
+                });
+            }
+        })();
     </script>
 
-    <!-- Internal Scripts -->
+    <!-- Internal Scripts (with cache-busting versions) -->
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
     <script src="spatial_audio.js"></script>
