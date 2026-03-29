@@ -21,7 +21,8 @@ class Waypoint {
         activationRadius = 20,
         icon = '•',
         color = '#00d9ff',
-        sortOrder = 0
+        sortOrder = 0,
+        type = 'file'
     ) {
         this.id = id;
         this.soundscapeId = soundscapeId;
@@ -35,6 +36,7 @@ class Waypoint {
         this.icon = icon;
         this.color = color;
         this.sortOrder = sortOrder;
+        this.type = type;
     }
 
     /**
@@ -55,7 +57,8 @@ class Waypoint {
             row.activation_radius ?? 20,
             row.icon || '•',
             row.color || '#00d9ff',
-            row.sort_order ?? 0
+            row.sort_order ?? 0,
+            row.type || 'file'
         );
     }
 
@@ -77,7 +80,8 @@ class Waypoint {
             json.activationRadius || json.activation_radius || 20,
             json.icon || '•',
             json.color || '#00d9ff',
-            json.sortOrder ?? 0
+            json.sortOrder ?? 0,
+            json.type || 'file'
         );
     }
 
@@ -98,7 +102,8 @@ class Waypoint {
             activation_radius: this.activationRadius,
             icon: this.icon,
             color: this.color,
-            sort_order: this.sortOrder
+            sort_order: this.sortOrder,
+            type: this.type
         };
     }
 
@@ -119,7 +124,8 @@ class Waypoint {
             activationRadius: this.activationRadius,
             icon: this.icon,
             color: this.color,
-            sortOrder: this.sortOrder
+            sortOrder: this.sortOrder,
+            type: this.type
         };
     }
 }

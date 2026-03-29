@@ -22,7 +22,8 @@ class Area {
         order = 0,            // placement order for opaque priority
         icon = '◈',           // diamond for Areas
         color = '#ff6b6b',    // red-ish
-        sortOrder = 0
+        sortOrder = 0,
+        type = 'file'
     ) {
         this.id = id;
         this.soundscapeId = soundscapeId;
@@ -37,6 +38,7 @@ class Area {
         this.icon = icon;
         this.color = color;
         this.sortOrder = sortOrder;
+        this.type = type;
     }
 
     /**
@@ -47,7 +49,7 @@ class Area {
     static fromRow(row) {
         // PostgreSQL JSONB returns objects, not strings - only parse if string
         const polygon = typeof row.polygon === 'string' ? JSON.parse(row.polygon) : row.polygon;
-        
+
         return new Area(
             row.id,
             row.soundscape_id,
@@ -61,7 +63,8 @@ class Area {
             row.order ?? 0,
             row.icon || '◈',
             row.color || '#ff6b6b',
-            row.sort_order ?? 0
+            row.sort_order ?? 0,
+            row.type || 'file'
         );
     }
 
@@ -84,7 +87,8 @@ class Area {
             json.order ?? 0,
             json.icon || '◈',
             json.color || '#ff6b6b',
-            json.sortOrder ?? 0
+            json.sortOrder ?? 0,
+            json.type || 'file'
         );
     }
 
@@ -106,7 +110,8 @@ class Area {
             order: this.order,
             icon: this.icon,
             color: this.color,
-            sort_order: this.sortOrder
+            sort_order: this.sortOrder,
+            type: this.type
         };
     }
 
@@ -128,7 +133,8 @@ class Area {
             order: this.order,
             icon: this.icon,
             color: this.color,
-            sortOrder: this.sortOrder
+            sortOrder: this.sortOrder,
+            type: this.type
         };
     }
 }

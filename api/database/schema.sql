@@ -32,6 +32,7 @@ CREATE TABLE waypoints (
     lat DOUBLE PRECISION NOT NULL,
     lon DOUBLE PRECISION NOT NULL,
     sound_url VARCHAR(512) NOT NULL,
+    type VARCHAR(50) DEFAULT 'file',
     volume DOUBLE PRECISION DEFAULT 0.8,
     loop BOOLEAN DEFAULT true,
     activation_radius DOUBLE PRECISION DEFAULT 20.0,
@@ -53,10 +54,31 @@ CREATE TABLE behaviors (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Areas table (sound polygons in each soundscape)
+CREATE TABLE areas (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    soundscape_id UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL DEFAULT 'Area',
+    polygon JSONB NOT NULL,  -- [{lat, lng}, ...]
+    sound_url VARCHAR(512),
+    type VARCHAR(50) DEFAULT 'file',
+    volume DOUBLE PRECISION DEFAULT 0.8,
+    loop BOOLEAN DEFAULT true,
+    fade_zone_width DOUBLE PRECISION DEFAULT 5.0,
+    overlap_mode VARCHAR(50) DEFAULT 'mix',  -- 'mix' | 'opaque'
+    "order" INTEGER DEFAULT 0,
+    icon VARCHAR(50) DEFAULT '◈',
+    color VARCHAR(50) DEFAULT '#ff6b6b',
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for performance
 CREATE INDEX idx_soundscapes_user_id ON soundscapes(user_id);
 CREATE INDEX idx_waypoints_soundscape_id ON waypoints(soundscape_id);
 CREATE INDEX idx_behaviors_soundscape_id ON behaviors(soundscape_id);
+CREATE INDEX idx_areas_soundscape_id ON areas(soundscape_id);
 CREATE INDEX idx_users_email ON users(email);
 
 -- Create updated_at trigger function
@@ -76,6 +98,9 @@ CREATE TRIGGER update_soundscapes_updated_at BEFORE UPDATE ON soundscapes
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_waypoints_updated_at BEFORE UPDATE ON waypoints
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Grant permissions to audio_ar_user
