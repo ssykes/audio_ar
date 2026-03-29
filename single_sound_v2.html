@@ -94,7 +94,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.418</span></h1>
+        <h1>🔊 Single Sound Test <span style="font-size:0.5em; color:#666;">v2.419</span></h1>
         <p class="subtitle">Clean architecture with SpatialAudioApp</p>
 
         <div id="status">Tap "Start" to begin</div>
@@ -186,12 +186,12 @@
                 loop: true
             };
             let wakeLock = null;  // Keep screen on
-            // TODO: Move to spatial_audio_app.js?v=20260328173928 - app.setCompassThrottle(ms)
+            // TODO: Move to spatial_audio_app.js?v=20260328202152 - app.setCompassThrottle(ms)
             let lastCompassUpdate = 0;  // Throttle compass updates
             const COMPASS_THROTTLE_MS = 100;  // Max 10 updates/sec
             let needsAudioEnable = false;  // Track if second tap is needed (iOS DuckDuckGo)
 
-            // TODO: Move to spatial_audio_app.js?v=20260328173928 - app.enableWakeLock()
+            // TODO: Move to spatial_audio_app.js?v=20260328202152 - app.enableWakeLock()
             // Request wake lock to prevent screen sleep
             async function requestWakeLock() {
                 try {
@@ -214,7 +214,7 @@
                 }
             }
 
-            // TODO: Move to spatial_audio_app.js?v=20260328173928 - app.disableWakeLock()
+            // TODO: Move to spatial_audio_app.js?v=20260328202152 - app.disableWakeLock()
             // Release wake lock
             async function releaseWakeLock() {
                 if (wakeLock) {
@@ -223,7 +223,7 @@
                 }
             }
 
-            // TODO: Move to spatial_audio_app.js?v=20260328173928 - app.monitorAudioState()
+            // TODO: Move to spatial_audio_app.js?v=20260328202152 - app.monitorAudioState()
             // Monitor audio state and resume if suspended (prevents sleep interruption)
             let audioMonitorInterval = null;
             function monitorAudioState() {
@@ -274,7 +274,7 @@
 
             debugLog('📄 Single Sound Test v2.6 initialized');
 
-            // TODO: Move to spatial_audio_app.js?v=20260328173928 - app.autoResumeAudio()
+            // TODO: Move to spatial_audio_app.js?v=20260328202152 - app.autoResumeAudio()
             // Resume audio when page becomes visible (after phone wakes up)
             document.addEventListener('visibilitychange', async () => {
                 if (document.visibilityState === 'visible' && app && app.isRunning && app.engine) {

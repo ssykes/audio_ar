@@ -2007,6 +2007,13 @@ waypointsList.addEventListener('click', (e) => {
 let isSimulating = false;
 document.getElementById('btnSimulate').addEventListener('click', (e) => {
     e.stopPropagation();
+    
+    // Check if simulation is available
+    if (!app || !app.showSimulator) {
+        addDebugLog('⚠️ Simulation not available');
+        return;
+    }
+    
     isSimulating = !isSimulating;
 
     const btn = document.getElementById('btnSimulate');
@@ -2016,10 +2023,16 @@ document.getElementById('btnSimulate').addEventListener('click', (e) => {
         btn.textContent = 'Edit';
         simPanel.classList.add('active');
         addDebugLog('Simulation started');
+        
+        // Start simulation mode (create avatar marker, start audio)
+        app._startSimulation();
     } else {
         btn.textContent = 'Simulate';
         simPanel.classList.remove('active');
         addDebugLog('Simulation stopped');
+        
+        // Stop simulation mode (remove avatar, stop audio)
+        app._stopSimulation();
     }
 });
 
