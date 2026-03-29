@@ -99,9 +99,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, volume, loop, activation_radius, icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.volume ?? 0.8,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, type, volume, loop, activation_radius, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
@@ -124,9 +124,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < areas.length; i++) {
         const area = areas[i];
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.volume ?? 0.8,
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.type || 'file', area.volume ?? 0.8,
            area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i]
         );
         createdAreas.push(this._toEntity(areaResult.rows[0]));
@@ -178,9 +178,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, volume, loop, activation_radius, icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.volume ?? 0.8,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, type, volume, loop, activation_radius, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
@@ -205,13 +205,14 @@ class SoundScapeRepository extends BaseRepository {
         console.log(`[SoundScapeRepository] Area ${i}:`, JSON.stringify({
           name: area.name,
           soundUrl: area.soundUrl,
+          type: area.type,
           polygonVertices: area.polygon?.length,
           hasPolygon: !!area.polygon
         }));
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.volume ?? 0.8,
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.type || 'file', area.volume ?? 0.8,
            area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i]
         );
         console.log(`[SoundScapeRepository] Area ${i} inserted with id=${areaResult.rows[0].id}`);
