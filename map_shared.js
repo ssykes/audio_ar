@@ -771,11 +771,20 @@ class MapAppShared {
      * @protected
      */
     _createMarker(waypoint) {
+        // Use colored dot instead of emoji icon
         const icon = L.divIcon({
             className: 'waypoint-marker',
-            html: '<div style="font-size: 24px; cursor: grab; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;">' + waypoint.icon + '</div>',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16]
+            html: `<div style="
+                width: 12px;
+                height: 12px;
+                background-color: ${waypoint.color || '#00d9ff'};
+                border-radius: 50%;
+                cursor: grab;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                border: 2px solid #fff;
+            "></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
         });
 
         this.debugLog(`📍 Creating marker for ${waypoint.name} at [${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}]`);
@@ -836,7 +845,10 @@ class MapAppShared {
         if (this.showDetailedInfo) {
             return `
                 <div style="min-width: 200px;">
-                    <h3 style="margin: 0 0 10px 0;">${waypoint.icon} ${waypoint.name}</h3>
+                    <h3 style="margin: 0 0 10px 0;">
+                        <span style="display:inline-block;width:10px;height:10px;background-color:${waypoint.color||'#00d9ff'};border-radius:50%;margin-right:8px;"></span>
+                        ${waypoint.name}
+                    </h3>
                     <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
                         <div>📍 ${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}</div>
                         <div>🔊 Radius: ${waypoint.activationRadius}m</div>
@@ -849,7 +861,7 @@ class MapAppShared {
                 </div>
             `;
         } else {
-            return `<h3>${waypoint.icon} ${waypoint.name}</h3>`;
+            return `<h3><span style="display:inline-block;width:10px;height:10px;background-color:${waypoint.color||'#00d9ff'};border-radius:50%;margin-right:8px;"></span>${waypoint.name}</h3>`;
         }
     }
 
@@ -1024,7 +1036,7 @@ class MapAppShared {
 
         listEl.innerHTML = this.waypoints.map(wp => `
             <div style="display:flex;align-items:center;padding:8px;margin:4px 0;background:rgba(255,255,255,0.05);border-radius:6px;">
-                <span style="font-size:20px;margin-right:8px;">${wp.icon}</span>
+                <span style="display:inline-block;width:10px;height:10px;background-color:${wp.color||'#00d9ff'};border-radius:50%;margin-right:8px;"></span>
                 <div style="flex:1;">
                     <div style="font-weight:bold;">${wp.name}</div>
                     <div style="font-size:0.8em;color:#888;">

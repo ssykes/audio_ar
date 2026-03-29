@@ -327,12 +327,15 @@
 
         /* Colored dot for waypoints (overrides base .item-icon styles) */
         .waypoint-item-icon {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 4px;
-            background-color: inherit;
+            display: inline-block !important;
+            width: 8px !important;
+            height: 8px !important;
+            border-radius: 50% !important;
+            margin-right: 4px !important;
+            background-color: inherit !important;
+            /* Ensure no text/emoji shows */
+            font-size: 0 !important;
+            line-height: 0 !important;
         }
 
         .item-list-item:hover .item-icon {
