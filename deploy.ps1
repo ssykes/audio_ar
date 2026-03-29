@@ -94,6 +94,7 @@ $HTML_FILES = @(
     "index.html",
     "auto_rotate.html",
     "map_editor.html",
+    "map_editor_v2.html",
     "map_player.html",
     "soundscape_picker.html"
 )
@@ -284,6 +285,7 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(map_shared\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_player\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_editor\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_editor_v2\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_placer\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(debug_logger\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""

@@ -22,15 +22,23 @@ addEventListener('fetch', event => {
 
 async function handleRequest(request) {
   const url = new URL(request.url)
-  
+
   // Only add security headers to HTML pages (not assets like images, CSS, etc.)
   const isHTMLPage = url.pathname.endsWith('.html') || url.pathname === '/'
-  
+
   // Fetch the original response from your origin server
   const response = await fetch(request)
-  
-  // If not an HTML page, return as-is (no need for security headers on assets)
+
+  // If not an HTML page, return as-is but add no-cache for JS files
   if (!isHTMLPage) {
+    // Add no-cache headers for JavaScript files
+    if (url.pathname.endsWith('.js')) {
+      const newResponse = new Response(response.body, response)
+      newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+      newResponse.headers.set('Pragma', 'no-cache')
+      newResponse.headers.set('Expires', '0')
+      return newResponse
+    }
     return response
   }
   

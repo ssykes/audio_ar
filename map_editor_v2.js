@@ -616,7 +616,7 @@ class MapEditorApp extends MapAppShared {
             const meta = `${wp.activationRadius}m`;
             const html = `
                 <div class="item-list-item" data-id="${wp.id}" data-type="waypoint" data-color="${wp.color}">
-                    <span class="item-icon" style="display: inline-block; width: 8px; height: 8px; background-color: ${wp.color}; border-radius: 50%; margin-right: 4px;"></span>
+                    <span class="item-icon waypoint-item-icon" style="background-color: ${wp.color};"></span>
                     <span class="item-name">${wp.name}</span>
                     <span class="item-meta">${meta}</span>
                 </div>
@@ -624,6 +624,8 @@ class MapEditorApp extends MapAppShared {
             waypointsList.insertAdjacentHTML('beforeend', html);
         });
     }
+
+    // Cache-busting marker: 20260329114500
 
     /**
      * Refresh the area list from current data
