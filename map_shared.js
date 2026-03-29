@@ -426,6 +426,16 @@ class MapAppShared {
 
         this.debugLog(`🎼 Switched to: ${soundscape.name} (${this.waypoints.length} waypoints)`);
         this._showToast(`🎼 Switched to: ${soundscape.name}`, 'info');
+
+        // Persist active soundscape for page refresh (editor mode only)
+        if (this.mode === 'editor') {
+            const serverId = this.serverSoundscapeIds?.get(id);
+            if (serverId) {
+                localStorage.setItem('editor_active_soundscape_id', serverId);
+                this.debugLog(`💾 Persisted editor_active_soundscape_id: ${serverId}`);
+            }
+        }
+
         return true;
     }
 

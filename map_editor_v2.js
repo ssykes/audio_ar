@@ -63,7 +63,7 @@ class MapEditorApp extends MapAppShared {
             // Prompt user to create new soundscape or cancel
             await this._promptNewSoundscape();
         } else if (this.isLoggedIn) {
-            // Load from server if logged in
+            // Load from server if logged in (will check for persisted soundscape)
             await this._loadSoundscapeFromServer();
         } else {
             // Not logged in - create a default soundscape
@@ -1429,13 +1429,29 @@ class MapEditorApp extends MapAppShared {
             }
 
             // Set active to selected soundscape (from localStorage) or most recent
+            // Priority: 1) editor_active_soundscape_id (persisted from last session), 2) selected_soundscape_id (one-time from picker), 3) most recent
+            const persistedId = localStorage.getItem('editor_active_soundscape_id');
             const selectedId = localStorage.getItem('selected_soundscape_id');
-            this.debugLog(`🔍 Selected soundscape ID from localStorage: ${selectedId || 'none'}`);
+            
+            this.debugLog(`🔍 Persisted soundscape ID: ${persistedId || 'none'}`);
+            this.debugLog(`🔍 Selected soundscape ID (one-time): ${selectedId || 'none'}`);
 
             let activeLocalId = null;
 
-            if (selectedId) {
-                // Try to use selected soundscape
+            if (persistedId) {
+                // Restore from previous session (page refresh)
+                activeLocalId = Array.from(this.serverSoundscapeIds.entries())
+                    .find(([_, serverId]) => serverId === persistedId)?.[0];
+
+                if (activeLocalId) {
+                    this.debugLog(`✅ Restoring from previous session: ${persistedId}`);
+                } else {
+                    this.debugLog(`⚠️ Persisted soundscape not found in cache, trying selected_soundscape_id`);
+                }
+            }
+
+            if (!activeLocalId && selectedId) {
+                // One-time selection from soundscape_picker
                 activeLocalId = Array.from(this.serverSoundscapeIds.entries())
                     .find(([_, serverId]) => serverId === selectedId)?.[0];
 
@@ -1446,7 +1462,7 @@ class MapEditorApp extends MapAppShared {
                 }
             }
 
-            // If no selected ID or not found, use most recent
+            // If no persisted or selected ID, use most recent
             if (!activeLocalId && soundscapes.length > 0) {
                 const latest = soundscapes[0];
                 activeLocalId = Array.from(this.serverSoundscapeIds.entries())
@@ -1460,7 +1476,7 @@ class MapEditorApp extends MapAppShared {
                 this._initForms();
             }
 
-            // Clear selected ID (one-time use)
+            // Clear one-time selection (but keep persisted ID for next refresh)
             if (selectedId) {
                 localStorage.removeItem('selected_soundscape_id');
             }
