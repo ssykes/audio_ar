@@ -901,15 +901,6 @@ class MapPlayerApp extends MapAppShared {
                 reverbEnabled: true
             });
 
-            // === SESSION 3: Load Areas from soundscape into AreaManager ===
-            const soundscape = this.getActiveSoundscape();
-            if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
-                console.log('[MapPlayer] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager...');
-                await this.app.loadAreas(soundscape.areas);
-            } else {
-                console.log('[MapPlayer] 🗺️ No areas in soundscape');
-            }
-
             // ---------------------------------------------------------------------
             // STEP 6: Set up callbacks
             // ---------------------------------------------------------------------
@@ -960,7 +951,7 @@ class MapPlayerApp extends MapAppShared {
             console.log('[MapPlayer] 🚀 Starting soundscape...');
 
             // Use startSoundScape if we have a soundscape with behaviors, otherwise use start()
-            // (soundscape variable already declared above for Area loading)
+            const soundscape = this.getActiveSoundscape();
             if (soundscape && soundscape.behaviors &&
                 soundscape.behaviors.length > 0) {
                 console.log('[MapPlayer] 🎼 Starting with behaviors:', soundscape.behaviors.length);
@@ -971,6 +962,15 @@ class MapPlayerApp extends MapAppShared {
             }
 
             console.log('[MapPlayer] ✅ Soundscape started');
+
+            // === SESSION 3: Load Areas from soundscape into AreaManager (AFTER start) ===
+            // This ensures AreaManager exists and listener position is initialized
+            if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
+                console.log('[MapPlayer] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (post-start)...');
+                await this.app.loadAreas(soundscape.areas);
+            } else {
+                console.log('[MapPlayer] 🗺️ No areas in soundscape');
+            }
 
             // Update state
             this.state = 'player';
