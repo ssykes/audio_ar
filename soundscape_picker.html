@@ -644,9 +644,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260330154756 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260330160445 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260330154756 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260330160445 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1349,7 +1349,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260330154756
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260330160445
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
@@ -1601,8 +1601,8 @@
                         // Unregister all service workers
                         const registrations = await navigator.serviceWorker.getRegistrations();
                         for (const registration of registrations) {
-                            await registration.unregister();
-                            this._debugLog('✅ SW unregistered: ' + registration.scope, 'success');
+                            const unregistered = await registration.unregister();
+                            this._debugLog('✅ SW unregistered: ' + registration.scope + ' (' + (unregistered ? 'success' : 'failed') + ')', 'success');
                         }
 
                         // Clear all caches
@@ -1613,10 +1613,15 @@
                         }
 
                         this._showToast('🔄 Clearing cache and reloading...', 'info');
-                        this._debugLog('💡 Reloading page...', 'info');
-                        
+                        this._debugLog('💡 Reloading page (bypassing SW)...', 'info');
+
+                        // Use location.href instead of reload() to avoid SW race condition
+                        // reload() can be served by the dying SW before it fully unregisters
+                        // href forces a fresh fetch without SW control
                         setTimeout(() => {
-                            window.location.reload(true);
+                            // Add cache-busting param to ensure fresh fetch
+                            const url = window.location.href.split('?')[0];
+                            window.location.href = url + '?nocache=' + Date.now();
                         }, 1500);
 
                     } catch (error) {

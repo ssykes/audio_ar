@@ -331,40 +331,44 @@ class MapPlayerApp extends MapAppShared {
         console.log('[ForceSWUpdate] Starting...');
         console.log('[ForceSWUpdate] this.debugLog type:', typeof this.debugLog);
         console.log('[ForceSWUpdate] this:', this);
-        
+
         if (typeof this.debugLog !== 'function') {
             console.error('[ForceSWUpdate] this.debugLog is not a function!');
             alert('Error: debugLog not available');
             return;
         }
-        
+
         this.debugLog('🔄 Forcing Service Worker update...');
 
         try {
             // Unregister all service workers
             const registrations = await navigator.serviceWorker.getRegistrations();
             console.log('[ForceSWUpdate] Found', registrations.length, 'SW registrations');
-            
+
             for (const registration of registrations) {
-                await registration.unregister();
-                this.debugLog('✅ Service Worker unregistered: ' + registration.scope);
+                const unregistered = await registration.unregister();
+                this.debugLog('✅ Service Worker unregistered: ' + registration.scope + ' (' + (unregistered ? 'success' : 'failed') + ')');
             }
 
             // Clear all caches
             const cacheNames = await caches.keys();
             console.log('[ForceSWUpdate] Found', cacheNames.length, 'caches');
-            
+
             for (const cacheName of cacheNames) {
                 await caches.delete(cacheName);
                 this.debugLog('🗑️ Cache deleted: ' + cacheName);
             }
 
             this._showToast('🔄 Clearing cache and reloading...', 'info');
-            this.debugLog('💡 Reloading page...');
+            this.debugLog('💡 Reloading page (bypassing SW)...');
 
-            // Force hard reload
+            // Use location.href instead of reload() to avoid SW race condition
+            // reload() can be served by the dying SW before it fully unregisters
+            // href forces a fresh fetch without SW control
             setTimeout(() => {
-                window.location.reload(true);
+                // Add cache-busting param to ensure fresh fetch
+                const url = window.location.href.split('?')[0];
+                window.location.href = url + '?nocache=' + Date.now();
             }, 1500);
 
         } catch (error) {
