@@ -2134,6 +2134,7 @@ class AreaManager {
     /**
      * Mix volumes for overlapping areas with direction-aware crossfading
      * Handles both 'mix' and 'opaque' overlap modes
+     * Maintains constant total volume across all overlapping areas
      * @param {Array<AreaSoundSource>} activeAreas - Currently active areas
      * @param {number} travelDirection - Direction of travel in degrees (0-360°)
      * @private
@@ -2168,83 +2169,54 @@ class AreaManager {
             }
         }
 
-        // === MIX MODE: Direction-aware crossfade ===
-        // When listener is in overlapping region, crossfade based on direction of travel
+        // === MIX MODE: Direction-aware crossfade with constant total volume ===
+        // Key principle: Total volume across all areas = 100% (constant)
+        // Each area gets a share based on direction of travel
         if (mixAreas.length > 0) {
             const t = this.engine.ctx.currentTime;
+            const numAreas = mixAreas.length;
 
-            if (mixAreas.length === 1) {
-                // Single area: play at full calculated volume
-                const area = mixAreas[0];
+            // Calculate direction weight for each area
+            // Areas we're moving toward get higher weight, areas behind get lower weight
+            const weights = mixAreas.map(area => {
+                const center = this._calculateAreaCenter(area.polygon);
+                const dirToCenter = this._calculateDirection(
+                    this.listener.lat,
+                    this.listener.lon,
+                    center.lat,
+                    center.lon
+                );
+                const angleDiff = Math.abs(this._normalizeAngle(travelDirection - dirToCenter));
+                // Weight based on alignment with travel direction
+                // 0° = directly ahead (weight = 1), 180° = directly behind (weight = 0)
+                return Math.max(0, Math.cos(angleDiff * Math.PI / 180));
+            });
+
+            // Normalize weights so they sum to 1.0 (constant total volume)
+            const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+            const normalizedWeights = totalWeight > 0
+                ? weights.map(w => w / totalWeight)
+                : weights.map(() => 1 / numAreas);  // Equal share if no direction
+
+            // Apply crossfaded volumes: each area gets its share of 100% total
+            for (let i = 0; i < mixAreas.length; i++) {
+                const area = mixAreas[i];
                 if (area.gain) {
-                    const currentVolume = area.gain.gain.value;
+                    // Base volume from updateVolume() (handles fade zones)
+                    const baseVolume = area.gain.gain.value;
+                    // Apply crossfade weight (ensures constant total volume)
+                    const crossfadedVolume = baseVolume * normalizedWeights[i];
                     area.gain.gain.cancelScheduledValues(t);
-                    area.gain.gain.setTargetAtTime(currentVolume, t, 0.01);
+                    area.gain.gain.setTargetAtTime(crossfadedVolume, t, 0.05);
                 }
-            } else if (mixAreas.length === 2) {
-                // Two overlapping areas: crossfade based on direction
-                const [area1, area2] = mixAreas;
+            }
 
-                // Calculate distance to each area's center
-                const center1 = this._calculateAreaCenter(area1.polygon);
-                const center2 = this._calculateAreaCenter(area2.polygon);
-                const distToCenter1 = this._distanceToCenter(this.listener.lat, this.listener.lon, center1.lat, center1.lon);
-                const distToCenter2 = this._distanceToCenter(this.listener.lat, this.listener.lon, center2.lat, center2.lon);
-
-                // Calculate direction to each area center
-                const dirToCenter1 = this._calculateDirection(this.listener.lat, this.listener.lon, center1.lat, center1.lon);
-                const dirToCenter2 = this._calculateDirection(this.listener.lat, this.listener.lon, center2.lat, center2.lon);
-
-                // Calculate angle difference between travel direction and each area center
-                const angleDiff1 = Math.abs(this._normalizeAngle(travelDirection - dirToCenter1));
-                const angleDiff2 = Math.abs(this._normalizeAngle(travelDirection - dirToCenter2));
-
-                // Determine which area we're moving toward (smaller angle = moving toward)
-                // Crossfade factor: 0 = fully area1, 1 = fully area2
-                let crossfadeFactor;
-                if (angleDiff1 < angleDiff2) {
-                    // Moving toward area1, away from area2
-                    // Area1 increases, area2 decreases
-                    crossfadeFactor = angleDiff1 / (angleDiff1 + angleDiff2 + 0.1);
-                } else {
-                    // Moving toward area2, away from area1
-                    crossfadeFactor = angleDiff2 / (angleDiff1 + angleDiff2 + 0.1);
-                }
-
-                // Get base volumes from updateVolume()
-                const baseVolume1 = area1.gain ? area1.gain.gain.value : 0;
-                const baseVolume2 = area2.gain ? area2.gain.gain.value : 0;
-
-                // Apply crossfade: blend volumes based on direction
-                // Area we're moving toward gets higher volume
-                const volume1 = baseVolume1 * (1 - crossfadeFactor);
-                const volume2 = baseVolume2 * crossfadeFactor;
-
-                // Apply crossfaded volumes
-                if (area1.gain) {
-                    area1.gain.gain.cancelScheduledValues(t);
-                    area1.gain.gain.setTargetAtTime(volume1, t, 0.05);
-                }
-                if (area2.gain) {
-                    area2.gain.gain.cancelScheduledValues(t);
-                    area2.gain.gain.setTargetAtTime(volume2, t, 0.05);
-                }
-
-                // Debug logging
-                if (Math.random() < 0.1) {
-                    console.log(`[Crossfade] ${area1.areaId}→${(volume1*100).toFixed(0)}% | ${area2.areaId}→${(volume2*100).toFixed(0)}% (factor: ${crossfadeFactor.toFixed(2)})`);
-                }
-            } else {
-                // Three or more areas: simple normalization
-                const normalizationFactor = 1 / mixAreas.length;
-                for (const area of mixAreas) {
-                    if (area.gain) {
-                        const currentVolume = area.gain.gain.value;
-                        const normalizedVolume = currentVolume * normalizationFactor;
-                        area.gain.gain.cancelScheduledValues(t);
-                        area.gain.gain.setTargetAtTime(normalizedVolume, t, 0.01);
-                    }
-                }
+            // Debug logging
+            if (Math.random() < 0.1) {
+                const debugInfo = mixAreas.map((a, i) =>
+                    `${a.areaId}:${(normalizedWeights[i] * 100).toFixed(0)}%`
+                ).join(' | ');
+                console.log(`[Crossfade] ${debugInfo} (total: 100%)`);
             }
         }
 
@@ -2272,19 +2244,6 @@ class AreaManager {
             lat: sumLat / polygon.length,
             lon: sumLon / polygon.length
         };
-    }
-
-    /**
-     * Calculate distance between two points
-     * @param {number} lat1 - Point 1 latitude
-     * @param {number} lon1 - Point 1 longitude
-     * @param {number} lat2 - Point 2 latitude
-     * @param {number} lon2 - Point 2 longitude
-     * @returns {number} Distance (arbitrary units for comparison)
-     * @private
-     */
-    _distanceToCenter(lat1, lon1, lat2, lon2) {
-        return Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(lon2 - lon1, 2));
     }
 
     /**
