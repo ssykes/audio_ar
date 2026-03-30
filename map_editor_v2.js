@@ -2099,19 +2099,17 @@ function saveSlideout() {
 function deleteSlideout() {
     if (!selectedItemData || !selectedItem || !selectedItemType) return;
 
-    if (confirm(`Delete ${selectedItemData.name}?`)) {
-        if (selectedItemType === 'Waypoint') {
-            app._deleteWaypoint(selectedItemData.id);
-        } else if (selectedItemType === 'Area') {
-            app._deleteArea(selectedItemData.id);
-        }
-
-        // Remove from list
-        selectedItem.remove();
-
-        addDebugLog(`🗑️ Deleted ${selectedItemType}: ${selectedItemData.name}`);
-        closeSlideout();
+    if (selectedItemType === 'Waypoint') {
+        app._deleteWaypoint(selectedItemData.id);
+    } else if (selectedItemType === 'Area') {
+        app._deleteArea(selectedItemData.id);
     }
+
+    // Remove from list
+    selectedItem.remove();
+
+    addDebugLog(`🗑️ Deleted ${selectedItemType}: ${selectedItemData.name}`);
+    closeSlideout();
 }
 
 // Close slideout handlers
