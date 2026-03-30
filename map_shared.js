@@ -410,18 +410,33 @@ class MapAppShared {
             }
         }
 
-        // Center and zoom map to show all waypoints
-        if (this.waypoints.length > 0) {
-            // Create bounds from all waypoint positions
-            const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
-            
-            // Fit map to show all waypoints with padding
+        // Center and zoom map to show all waypoints AND areas
+        const bounds = [];
+        
+        // Add waypoint positions
+        this.waypoints.forEach(wp => {
+            bounds.push([wp.lat, wp.lon]);
+        });
+        
+        // Add area vertices
+        if (soundscape.areas && soundscape.areas.length > 0) {
+            soundscape.areas.forEach(area => {
+                if (area.polygon && area.polygon.length > 0) {
+                    area.polygon.forEach(vertex => {
+                        bounds.push([vertex.lat, vertex.lng]);
+                    });
+                }
+            });
+        }
+        
+        if (bounds.length > 0) {
+            // Fit map to show all waypoints and areas with padding
             this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
-            
+
             const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
             const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
-            
-            this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
+
+            this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints and areas)`);
         }
 
         this.debugLog(`🎼 Switched to: ${soundscape.name} (${this.waypoints.length} waypoints)`);

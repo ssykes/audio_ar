@@ -1477,15 +1477,30 @@ class MapEditorApp extends MapAppShared {
                 });
             }
 
-            // Center and zoom map to show all waypoints
-            if (this.waypoints.length > 0) {
-                const bounds = this.waypoints.map(wp => [wp.lat, wp.lon]);
+            // Center and zoom map to show all waypoints AND areas
+            const bounds = [];
+            
+            // Add waypoint positions
+            this.waypoints.forEach(wp => {
+                bounds.push([wp.lat, wp.lon]);
+            });
+            
+            // Add area vertices
+            areas.forEach(area => {
+                if (area.polygon && area.polygon.length > 0) {
+                    area.polygon.forEach(vertex => {
+                        bounds.push([vertex.lat, vertex.lng]);
+                    });
+                }
+            });
+            
+            if (bounds.length > 0) {
                 this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
 
                 const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
                 const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
 
-                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show all waypoints)`);
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show ${this.waypoints.length} waypoints and ${areas.length} areas)`);
             }
 
             // Clear one-time selection (but keep persisted ID for next refresh)
