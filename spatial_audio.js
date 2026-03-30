@@ -1012,9 +1012,11 @@ class AreaSoundSource extends SampleSource {
      * Update volume based on listener position relative to area
      * @param {number} listenerLat - Listener latitude
      * @param {number} listenerLon - Listener longitude
+     * @param {number} [direction] - Direction of travel (optional, used for crossfade)
+     * @param {boolean} [isEntering] - Whether listener is entering area (optional)
      * @returns {number} Current volume (0.0 - 1.0)
      */
-    updateVolume(listenerLat, listenerLon) {
+    updateVolume(listenerLat, listenerLon, direction = null, isEntering = false) {
         // Guard: Check if audio nodes are ready
         if (!this.gain || !this.sourceNode) {
             return 0;
@@ -1044,6 +1046,7 @@ class AreaSoundSource extends SampleSource {
         }
 
         // Apply volume smoothly (prevent clicks)
+        // Note: Actual crossfade mixing is applied by AreaManager._mixAreas()
         const t = this.engine.ctx.currentTime;
         this.gain.gain.cancelScheduledValues(t);
         this.gain.gain.setTargetAtTime(volume * this.options.gain, t, 0.01);

@@ -2012,6 +2012,8 @@ class AreaManager {
         this.listener = listener;
         this.areas = new Map();  // Map<areaId, AreaSoundSource>
         this.activeAreas = new Set();  // Set of areaIds listener is inside
+        this.previousActiveAreas = new Set();  // Track previous frame's active areas for crossfade
+        this.lastUpdatePos = { lat: 0, lon: 0 };  // For direction calculation
     }
 
     /**
@@ -2069,20 +2071,28 @@ class AreaManager {
 
         const activeAreas = [];
 
+        // Calculate direction of travel from last position
+        const direction = this._calculateDirection(this.lastUpdatePos.lat, this.lastUpdatePos.lon, listenerLat, listenerLon);
+
         // Update each area
         for (const [areaId, areaSource] of this.areas) {
             const isActive = areaSource.isActive(listenerLat, listenerLon);
+            const wasActive = this.previousActiveAreas.has(areaId);
 
             if (isActive) {
                 activeAreas.push(areaSource);
                 this.activeAreas.add(areaId);
 
-                // Update volume based on position
-                areaSource.updateVolume(listenerLat, listenerLon);
+                // Determine if entering or exiting based on direction
+                const isEntering = !wasActive;
+                const isExiting = false;  // Still inside, but may be approaching edge
+
+                // Update volume with crossfade awareness
+                areaSource.updateVolume(listenerLat, listenerLon, direction, isEntering);
             } else {
                 this.activeAreas.delete(areaId);
 
-                // Fade out smoothly
+                // Fade out smoothly when exiting area
                 if (areaSource.gain) {
                     const t = this.engine.ctx.currentTime;
                     areaSource.gain.gain.cancelScheduledValues(t);
@@ -2091,19 +2101,44 @@ class AreaManager {
             }
         }
 
-        // Handle overlap mixing
+        // Handle overlap mixing with direction-aware crossfade
         if (activeAreas.length > 0) {
-            this._mixAreas(activeAreas);
+            this._mixAreas(activeAreas, direction);
         }
+
+        // Store state for next update
+        this.previousActiveAreas = new Set(this.activeAreas);
+        this.lastUpdatePos = { lat: listenerLat, lon: listenerLon };
     }
 
     /**
-     * Mix volumes for overlapping areas
-     * Handles both 'mix' and 'opaque' overlap modes
-     * @param {Array<AreaSoundSource>} activeAreas - Currently active areas
+     * Calculate direction of travel between two points
+     * @param {number} lat1 - Start latitude
+     * @param {number} lon1 - Start longitude
+     * @param {number} lat2 - End latitude
+     * @param {number} lon2 - End longitude
+     * @returns {number} Direction in degrees (0-360°)
      * @private
      */
-    _mixAreas(activeAreas) {
+    _calculateDirection(lat1, lon1, lat2, lon2) {
+        if (lat1 === 0 && lon1 === 0) return 0;  // No previous position
+
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+        const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                  Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+        const bearing = Math.atan2(y, x) * 180 / Math.PI;
+        return (bearing + 360) % 360;
+    }
+
+    /**
+     * Mix volumes for overlapping areas with direction-aware crossfading
+     * Handles both 'mix' and 'opaque' overlap modes
+     * @param {Array<AreaSoundSource>} activeAreas - Currently active areas
+     * @param {number} travelDirection - Direction of travel in degrees (0-360°)
+     * @private
+     */
+    _mixAreas(activeAreas, travelDirection = 0) {
         // Separate by overlap mode
         const mixAreas = activeAreas.filter(a => a.overlapMode === 'mix');
         const opaqueAreas = activeAreas.filter(a => a.overlapMode === 'opaque');
@@ -2133,22 +2168,135 @@ class AreaManager {
             }
         }
 
-        // === MIX MODE ===
-        // Crossfade all mix areas (equal mixing)
+        // === MIX MODE: Direction-aware crossfade ===
+        // When listener is in overlapping region, crossfade based on direction of travel
         if (mixAreas.length > 0) {
-            // Simple equal mixing: each area plays at its calculated volume
-            // Future enhancement: normalize total volume to prevent clipping
-            for (const area of mixAreas) {
-                // Volume already set by updateVolume()
-                // No additional mixing needed for equal mix
+            const t = this.engine.ctx.currentTime;
+
+            if (mixAreas.length === 1) {
+                // Single area: play at full calculated volume
+                const area = mixAreas[0];
+                if (area.gain) {
+                    const currentVolume = area.gain.gain.value;
+                    area.gain.gain.cancelScheduledValues(t);
+                    area.gain.gain.setTargetAtTime(currentVolume, t, 0.01);
+                }
+            } else if (mixAreas.length === 2) {
+                // Two overlapping areas: crossfade based on direction
+                const [area1, area2] = mixAreas;
+
+                // Calculate distance to each area's center
+                const center1 = this._calculateAreaCenter(area1.polygon);
+                const center2 = this._calculateAreaCenter(area2.polygon);
+                const distToCenter1 = this._distanceToCenter(this.listener.lat, this.listener.lon, center1.lat, center1.lon);
+                const distToCenter2 = this._distanceToCenter(this.listener.lat, this.listener.lon, center2.lat, center2.lon);
+
+                // Calculate direction to each area center
+                const dirToCenter1 = this._calculateDirection(this.listener.lat, this.listener.lon, center1.lat, center1.lon);
+                const dirToCenter2 = this._calculateDirection(this.listener.lat, this.listener.lon, center2.lat, center2.lon);
+
+                // Calculate angle difference between travel direction and each area center
+                const angleDiff1 = Math.abs(this._normalizeAngle(travelDirection - dirToCenter1));
+                const angleDiff2 = Math.abs(this._normalizeAngle(travelDirection - dirToCenter2));
+
+                // Determine which area we're moving toward (smaller angle = moving toward)
+                // Crossfade factor: 0 = fully area1, 1 = fully area2
+                let crossfadeFactor;
+                if (angleDiff1 < angleDiff2) {
+                    // Moving toward area1, away from area2
+                    // Area1 increases, area2 decreases
+                    crossfadeFactor = angleDiff1 / (angleDiff1 + angleDiff2 + 0.1);
+                } else {
+                    // Moving toward area2, away from area1
+                    crossfadeFactor = angleDiff2 / (angleDiff1 + angleDiff2 + 0.1);
+                }
+
+                // Get base volumes from updateVolume()
+                const baseVolume1 = area1.gain ? area1.gain.gain.value : 0;
+                const baseVolume2 = area2.gain ? area2.gain.gain.value : 0;
+
+                // Apply crossfade: blend volumes based on direction
+                // Area we're moving toward gets higher volume
+                const volume1 = baseVolume1 * (1 - crossfadeFactor);
+                const volume2 = baseVolume2 * crossfadeFactor;
+
+                // Apply crossfaded volumes
+                if (area1.gain) {
+                    area1.gain.gain.cancelScheduledValues(t);
+                    area1.gain.gain.setTargetAtTime(volume1, t, 0.05);
+                }
+                if (area2.gain) {
+                    area2.gain.gain.cancelScheduledValues(t);
+                    area2.gain.gain.setTargetAtTime(volume2, t, 0.05);
+                }
+
+                // Debug logging
+                if (Math.random() < 0.1) {
+                    console.log(`[Crossfade] ${area1.areaId}→${(volume1*100).toFixed(0)}% | ${area2.areaId}→${(volume2*100).toFixed(0)}% (factor: ${crossfadeFactor.toFixed(2)})`);
+                }
+            } else {
+                // Three or more areas: simple normalization
+                const normalizationFactor = 1 / mixAreas.length;
+                for (const area of mixAreas) {
+                    if (area.gain) {
+                        const currentVolume = area.gain.gain.value;
+                        const normalizedVolume = currentVolume * normalizationFactor;
+                        area.gain.gain.cancelScheduledValues(t);
+                        area.gain.gain.setTargetAtTime(normalizedVolume, t, 0.01);
+                    }
+                }
             }
         }
 
         // Debug: Log active areas (throttled)
         if (Math.random() < 0.05) {
             const activeInfo = activeAreas.map(a => `${a.areaId}(${a.overlapMode}:${a.order})`).join(', ');
-            console.log(`[AreaManager] Active areas: ${activeInfo}`);
+            console.log(`[AreaManager] Active areas: ${activeInfo} (mix: ${mixAreas.length})`);
         }
+    }
+
+    /**
+     * Calculate center point of a polygon
+     * @param {Array} polygon - Array of {lat, lon} points
+     * @returns {{lat: number, lon: number}} Center coordinates
+     * @private
+     */
+    _calculateAreaCenter(polygon) {
+        if (!polygon || polygon.length === 0) return { lat: 0, lon: 0 };
+        let sumLat = 0, sumLon = 0;
+        for (const point of polygon) {
+            sumLat += point.lat;
+            sumLon += point.lon;
+        }
+        return {
+            lat: sumLat / polygon.length,
+            lon: sumLon / polygon.length
+        };
+    }
+
+    /**
+     * Calculate distance between two points
+     * @param {number} lat1 - Point 1 latitude
+     * @param {number} lon1 - Point 1 longitude
+     * @param {number} lat2 - Point 2 latitude
+     * @param {number} lon2 - Point 2 longitude
+     * @returns {number} Distance (arbitrary units for comparison)
+     * @private
+     */
+    _distanceToCenter(lat1, lon1, lat2, lon2) {
+        return Math.sqrt(Math.pow(lat2 - lat1, 2) + Math.pow(lon2 - lon1, 2));
+    }
+
+    /**
+     * Normalize angle to range -180 to 180
+     * @param {number} angle - Angle in degrees
+     * @returns {number} Normalized angle
+     * @private
+     */
+    _normalizeAngle(angle) {
+        while (angle > 180) angle -= 360;
+        while (angle < -180) angle += 360;
+        return angle;
     }
 
     /**
