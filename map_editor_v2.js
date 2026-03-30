@@ -8,6 +8,7 @@
  */
 
 console.log('[map_editor_v2.js] Script started');
+console.log('📍 MAP_EDITOR_V2_JS_VERSION: 20260329170500-DRAG-FIX');
 
 // =====================================================================
 // MapEditorApp Class
@@ -1044,77 +1045,124 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Make area polygon draggable in edit mode
+     * Make area polygon draggable in edit mode using centroid handle
      * @param {L.Polygon} polygon - Leaflet polygon layer
      * @private
      */
     _makeAreaDraggable(polygon) {
-        let isDragging = false;
-        let dragStartLatLng = null;
+        // Create centroid drag handle
+        const latlngs = polygon.getLatLngs()[0];
+        const centroid = this._calculateCentroid(latlngs);
 
-        polygon.on('mousedown', (e) => {
-            // Don't drag in simulate mode
-            if (isSimulating) {
-                return;
-            }
-
-            // Only drag if clicking on the fill (not on vertices)
-            if (e.originalEvent.target.classList.contains('leaflet-interactive')) {
-                isDragging = true;
-                this.isDraggingArea = true;  // Prevent waypoint creation
-                dragStartLatLng = e.latlng;
-                this.map.dragging.disable();  // Disable map pan while dragging area
-                this.map.getContainer().style.cursor = 'grabbing';
-            }
+        const handleIcon = L.divIcon({
+            className: 'area-drag-handle',
+            html: `<div style="
+                font-size: 20px;
+                color: ${polygon.areaData?.color || '#ff6b6b'};
+                cursor: grab;
+                line-height: 1;
+            ">◈</div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
         });
 
-        polygon.on('mousemove', (e) => {
-            if (!isDragging) return;
+        const dragHandle = L.marker([centroid.lat, centroid.lon], {
+            icon: handleIcon,
+            draggable: true,
+            zIndexOffset: 1000,
+            autoPan: false
+        }).addTo(this.map);
 
-            const deltaLat = e.latlng.lat - dragStartLatLng.lat;
-            const deltaLon = e.latlng.lng - dragStartLatLng.lng;
+        // Store handle reference
+        if (!this.areaHandles) this.areaHandles = new Map();
+        this.areaHandles.set(polygon.areaData?.id, dragHandle);
 
-            // Move all vertices
-            const latlngs = polygon.getLatLngs()[0];
-            const newLatLngs = latlngs.map(ll => [ll.lat + deltaLat, ll.lng + deltaLon]);
+        let isDragging = false;
+        let dragStartLatLng = null;
+        let originalPolygon = null;
 
+        // Enable dragging explicitly
+        dragHandle.dragging.enable();
+
+        dragHandle.on('dragstart', (e) => {
+            if (isSimulating) return;
+            isDragging = true;
+            dragStartLatLng = e.target.getLatLng();
+            // Store original polygon as array of [lat, lon] arrays
+            const rawLatLngs = polygon.getLatLngs()[0];
+            originalPolygon = rawLatLngs.map(ll => [ll.lat, ll.lng]);
+            this.isDraggingArea = true;
+            this.map.dragging.disable();
+        });
+
+        dragHandle.on('drag', (e) => {
+            if (!isDragging || !originalPolygon) return;
+
+            const handle = e.target;
+            const currentLatLng = handle.getLatLng();
+            const deltaLat = currentLatLng.lat - dragStartLatLng.lat;
+            const deltaLon = currentLatLng.lng - dragStartLatLng.lng;
+
+            // Move all vertices from ORIGINAL position
+            const newLatLngs = originalPolygon.map(ll => [ll[0] + deltaLat, ll[1] + deltaLon]);
             polygon.setLatLngs(newLatLngs);
-            dragStartLatLng = e.latlng;
 
             // Update area data
             if (polygon.areaData) {
-                polygon.areaData.polygon = newLatLngs.map((ll, idx) => ({
+                // Create new polygon data from newLatLngs
+                polygon.areaData.polygon = newLatLngs.map(ll => ({
                     lat: ll[0],
-                    lng: ll[1],
-                    ...polygon.areaData.polygon[idx]
+                    lng: ll[1]
                 }));
-            }
-        });
 
-        polygon.on('mouseup', () => {
-            if (isDragging) {
-                isDragging = false;
-                this.isDraggingArea = false;  // Allow waypoint creation again
-                this.map.dragging.enable();  // Re-enable map pan
-                this.map.getContainer().style.cursor = '';
-
-                // Mark soundscape dirty and save
-                if (polygon.areaData) {
-                    this._markSoundscapeDirty();
-                    this._scheduleAutoSave();
-                    this.debugLog(`✏️ Area dragged: ${polygon.areaData.name}`);
+                // Update soundscape.areas directly
+                const soundscape = this.getActiveSoundscape();
+                if (soundscape && soundscape.areas) {
+                    const areaIndex = soundscape.areas.findIndex(a => a.id === polygon.areaData.id);
+                    if (areaIndex >= 0) {
+                        soundscape.areas[areaIndex].polygon = polygon.areaData.polygon;
+                    }
                 }
             }
         });
 
-        polygon.on('mouseout', () => {
+        dragHandle.on('dragend', (e) => {
             if (isDragging) {
                 isDragging = false;
-                this.isDraggingArea = false;  // Allow waypoint creation again
+                this.isDraggingArea = false;
                 this.map.dragging.enable();
-                this.map.getContainer().style.cursor = '';
+
+                if (polygon.areaData) {
+                    this._markSoundscapeDirty();
+                    this._scheduleAutoSave();
+                }
             }
         });
+    }
+
+    /**
+     * Calculate centroid of polygon vertices
+     * @param {L.LatLng[]} latlngs - Polygon vertices
+     * @returns {{lat: number, lon: number}}
+     * @private
+     */
+    _calculateCentroid(latlngs) {
+        if (!latlngs || latlngs.length === 0) {
+            return { lat: 0, lon: 0 };
+        }
+
+        let latSum = 0, lonSum = 0;
+        latlngs.forEach((ll) => {
+            const lat = typeof ll === 'object' ? ll.lat : ll[0];
+            const lon = typeof ll === 'object' ? ll.lng : ll[1];
+            latSum += lat;
+            lonSum += lon;
+        });
+
+        return {
+            lat: latSum / latlngs.length,
+            lon: lonSum / latlngs.length
+        };
     }
 
     /**
@@ -1417,6 +1465,17 @@ class MapEditorApp extends MapAppShared {
             this.debugLog(`  🗺️ Loading ${areas.length} areas...`);
             this._loadAreasIntoDrawer(areas);
             this._refreshAreaList();
+            
+            // Debug: log soundscape.areas reference
+            this.debugLog(`  🗺️ soundscape.areas after load: ${soundscape.areas?.length || 0} areas`);
+            if (soundscape.areas && soundscape.areas.length > 0) {
+                soundscape.areas.forEach((area, idx) => {
+                    this.debugLog(`    soundscape.areas[${idx}]: "${area.name}" polygon=${area.polygon ? 'YES' : 'MISSING'}`);
+                    if (area.polygon && area.polygon.length > 0) {
+                        this.debugLog(`      First vertex: [${area.polygon[0].lat.toFixed(5)}, ${area.polygon[0].lng.toFixed(5)}]`);
+                    }
+                });
+            }
 
             // Center and zoom map to show all waypoints
             if (this.waypoints.length > 0) {

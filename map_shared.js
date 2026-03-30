@@ -614,6 +614,9 @@ class MapAppShared {
         this.debugLog(`🗺️ Areas being saved: ${cleanAreas.length}`);
         cleanAreas.forEach((area, idx) => {
             this.debugLog(`   Area ${idx + 1}: "${area.name}" soundUrl=${area.soundUrl || '(empty)'}`);
+            if (area.polygon && area.polygon.length > 0) {
+                this.debugLog(`     First vertex: [${area.polygon[0].lat.toFixed(5)}, ${area.polygon[0].lng.toFixed(5)}]`);
+            }
         });
 
         // Debug: log what we're sending

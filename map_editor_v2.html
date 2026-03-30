@@ -1239,6 +1239,13 @@
     <!-- Unregister Service Worker (MUST run BEFORE other scripts) -->
     <!-- map_editor_v2 is desktop-only, no offline support - SW causes stale cache issues -->
     <script>
+        // Add cache-busting timestamp to force fresh HTML load
+        if (window.location.search.indexOf('nocache=') === -1) {
+            const newUrl = window.location.pathname + '?nocache=' + Date.now() + window.location.hash;
+            window.history.replaceState(null, '', newUrl);
+            console.log('[map_editor_v2] Added cache-busting:', newUrl);
+        }
+    
         (function() {
             console.log('[map_editor_v2] 📴 Checking for Service Worker...');
             if ('serviceWorker' in navigator) {
