@@ -2083,12 +2083,11 @@ class AreaManager {
                 activeAreas.push(areaSource);
                 this.activeAreas.add(areaId);
 
-                // Determine if entering or exiting based on direction
-                const isEntering = !wasActive;
-                const isExiting = false;  // Still inside, but may be approaching edge
-
-                // Update volume with crossfade awareness
-                areaSource.updateVolume(listenerLat, listenerLon, direction, isEntering);
+                // For non-mix areas (opaque), update volume immediately
+                // For mix areas, volume will be set by _mixAreas()
+                if (areaSource.overlapMode !== 'mix') {
+                    areaSource.updateVolume(listenerLat, listenerLon, direction, !wasActive);
+                }
             } else {
                 this.activeAreas.delete(areaId);
 
@@ -2199,13 +2198,27 @@ class AreaManager {
                 : weights.map(() => 1 / numAreas);  // Equal share if no direction
 
             // Apply crossfaded volumes: each area gets its share of 100% total
+            // Step 1: Calculate base volume for each area (from fade zone)
+            // Step 2: Apply crossfade weight to base volume
             for (let i = 0; i < mixAreas.length; i++) {
                 const area = mixAreas[i];
                 if (area.gain) {
-                    // Base volume from updateVolume() (handles fade zones)
-                    const baseVolume = area.gain.gain.value;
+                    // Calculate base volume from distance to edge (fade zone effect)
+                    const distanceToEdge = GPSUtils.distanceToEdge(
+                        this.listener.lat,
+                        this.listener.lon,
+                        area.polygon
+                    );
+                    
+                    let fadeVolume = 1.0;
+                    if (distanceToEdge < area.fadeZoneWidth) {
+                        // In fade zone - interpolate volume
+                        fadeVolume = distanceToEdge / area.fadeZoneWidth;
+                        fadeVolume = Math.pow(fadeVolume, 0.5);  // Square root for smoother transition
+                    }
+                    
                     // Apply crossfade weight (ensures constant total volume)
-                    const crossfadedVolume = baseVolume * normalizedWeights[i];
+                    const crossfadedVolume = fadeVolume * area.options.gain * normalizedWeights[i];
                     area.gain.gain.cancelScheduledValues(t);
                     area.gain.gain.setTargetAtTime(crossfadedVolume, t, 0.05);
                 }

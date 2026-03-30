@@ -1412,6 +1412,64 @@ class MapAppShared {
             if (bearingEl) bearingEl.textContent = '--';
             if (volumeEl) volumeEl.textContent = '--';
         }
+
+        // === Update Area Overlap Debug Display ===
+        this._updateAreaOverlapDisplay();
+    }
+
+    /**
+     * Update area overlap debug display in simulation panel
+     * Shows real-time volume and crossfade info for each active area
+     * @protected
+     */
+    _updateAreaOverlapDisplay() {
+        const sectionEl = document.getElementById('areaOverlapSection');
+        const listEl = document.getElementById('areaOverlapList');
+        
+        if (!sectionEl || !listEl || !this.app || !this.app.areaManager) {
+            if (sectionEl) sectionEl.style.display = 'none';
+            return;
+        }
+
+        // Get active areas from AreaManager
+        const status = this.app.areaManager.getStatus();
+        
+        if (status.activeAreas === 0) {
+            sectionEl.style.display = 'none';
+            return;
+        }
+
+        // Show section
+        sectionEl.style.display = 'block';
+        
+        // Build display for each active area
+        const lines = [];
+        const totalAreas = status.totalAreas;
+        
+        for (const areaId of status.areaIds) {
+            const area = this.app.areaManager.areas.get(areaId);
+            if (area && area.gain) {
+                const currentVol = (area.gain.gain.value * 100).toFixed(0);
+                const baseVol = (area.options.gain * 100).toFixed(0);
+                const distanceToEdge = GPSUtils.distanceToEdge(
+                    this.app.listener.lat,
+                    this.app.listener.lon,
+                    area.polygon
+                );
+                lines.push(`${areaId}: ${currentVol}% (base: ${baseVol}%, edge: ${distanceToEdge.toFixed(1)}m)`);
+            }
+        }
+
+        // Add summary
+        const totalVol = status.areaIds.reduce((sum, id) => {
+            const area = this.app.areaManager.areas.get(id);
+            return sum + (area && area.gain ? area.gain.gain.value : 0);
+        }, 0);
+        
+        lines.push(`---`);
+        lines.push(`Total: ${(totalVol * 100).toFixed(0)}% | Count: ${status.activeAreas}/${totalAreas}`);
+
+        listEl.innerHTML = lines.map(line => `<div style="padding: 2px 0;">${line}</div>`).join('');
     }
 
     /**
