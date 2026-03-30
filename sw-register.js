@@ -4,28 +4,12 @@
  * Shared SW registration for all pages - ensures consistent behavior
  * across soundscape_picker.html, map_player.html, and other pages.
  *
- * ⚠️ KNOWN BUG: Service Worker cache not auto-updating on deploy
- * ================================================================
- * 
- * Problem: After deploy, mobile browsers continue serving stale cached files
- * even though the server has new code. The SW update check is async and doesn't
- * complete before the page loads with old cached content.
- * 
- * Root cause: The SW update flow:
- * 1. Page loads with old SW controlling it
- * 2. SW checks for update (async) ← Too late, page already loaded
- * 3. New SW downloads and installs
- * 4. New SW waits for old SW to die (skipWaiting called)
- * 5. New SW activates and claims clients ← Requires page reload
- * 
- * Workaround: Force SW update check on EVERY page load (line 124)
- * This ensures new deploys are picked up, but adds network overhead.
- * 
- * TODO: Proper fix - use BroadcastChannel or message passing to force
- * reload when new SW activates, without requiring manual cache clear.
- * See: https://web.dev/service-worker-lifecycle/#wait
+ * Features:
+ * - Version check via postMessage to detect deploy changes
+ * - BroadcastChannel listener for SW activation notifications
+ * - Auto-reload when new SW activates (no manual cache clear needed)
  *
- * @version 1.2 - Always check for SW updates on page load (workaround for cache bug)
+ * @version 2.0 - Proper version detection and auto-reload
  * @since Feature 16B: Service Worker Refactor
  */
 
@@ -36,6 +20,38 @@
 
     // Cache version - updated by deploy.ps1
     const CACHE_VERSION = 'v1';  // Must match sw.js
+
+    // BroadcastChannel for SW update notifications
+    const updateChannel = new BroadcastChannel('sw-updates');
+
+    // Listen for SW activation notifications
+    updateChannel.onmessage = (event) => {
+        if (event.data && event.data.type === 'SW_UPDATED') {
+            console.log('[SW] 🔄 Received SW_UPDATED notification (v' + event.data.version + ')');
+            // Short delay to ensure cache is ready
+            setTimeout(() => {
+                console.log('[SW] 🔄 Auto-reloading to use new SW');
+                window.location.reload();
+            }, 500);
+        }
+    };
+
+    /**
+     * Get SW version via postMessage (accurate version detection)
+     * @param {ServiceWorker} sw - Service worker instance
+     * @returns {Promise<string>} SW cache version
+     */
+    function getSwVersion(sw) {
+        return new Promise((resolve) => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (event) => {
+                resolve(event.data.version);
+            };
+            sw.postMessage({ type: 'CACHE_VERSION' }, [channel.port2]);
+            // Timeout fallback in case SW doesn't respond
+            setTimeout(() => resolve('unknown'), 1000);
+        });
+    }
 
     /**
      * Register service worker with update checking
@@ -58,33 +74,29 @@
         navigator.serviceWorker.getRegistration()
             .then((existingRegistration) => {
                 if (existingRegistration && existingRegistration.active) {
-                    // SW already active - check if version changed
-                    const currentVersion = existingRegistration.active.scriptURL.match(/\?v=(\d+)/)?.[1];
-                    
-                    if (currentVersion && currentVersion !== CACHE_VERSION) {
-                        // Version changed - force unregister and re-register
-                        console.log('[SW] 🔄 Version changed (' + currentVersion + ' → ' + CACHE_VERSION + ') - unregistering old SW');
-                        return existingRegistration.unregister()
-                            .then(() => {
-                                console.log('[SW] 📡 Registering new Service Worker...');
-                                return navigator.serviceWorker.register(swUrl);
-                            })
-                            .then((registration) => {
-                                console.log('[SW] ✅ Registered:', registration.scope);
-                                options.onReady?.(registration);
-                                setupUpdateListener(registration, options);
-                            });
-                    }
-                    
-                    // Same version - just use it (works offline)
-                    console.log('[SW] ✅ Already active, skipping re-registration');
-                    options.onReady?.(existingRegistration);
+                    // SW already active - check if version changed via postMessage
+                    return getSwVersion(existingRegistration.active)
+                        .then((swVersion) => {
+                            if (swVersion !== CACHE_VERSION) {
+                                // Version changed - force unregister and re-register
+                                console.log('[SW] 🔄 Version changed (' + swVersion + ' → ' + CACHE_VERSION + ') - unregistering old SW');
+                                return existingRegistration.unregister()
+                                    .then(() => {
+                                        console.log('[SW] 📡 Registering new Service Worker...');
+                                        return navigator.serviceWorker.register(swUrl);
+                                    })
+                                    .then((registration) => {
+                                        console.log('[SW] ✅ Registered:', registration.scope);
+                                        options.onReady?.(registration);
+                                        setupUpdateListener(registration, options);
+                                    });
+                            }
 
-                    // Still check for updates when online
-                    if (navigator.onLine) {
-                        existingRegistration.update();
-                    }
-                    return;
+                            // Same version - just use it (works offline)
+                            console.log('[SW] ✅ Already active, skipping re-registration');
+                            options.onReady?.(existingRegistration);
+                            return existingRegistration;
+                        });
                 }
 
                 // No active SW - register new one
@@ -120,19 +132,16 @@
             if (newWorker) {
                 newWorker.addEventListener('statechange', () => {
                     if (newWorker.state === 'installed') {
-                        console.log('[SW] ✅ New version installed - auto-reloading');
-                        // Force reload to use new SW (clears old cache)
-                        if (navigator.serviceWorker.controller) {
-                            // Only reload if there was a previous controller (not first load)
-                            window.location.reload();
-                        }
+                        console.log('[SW] ✅ New version installed - waiting for activation');
+                        // Note: No reload here - BroadcastChannel will notify when SW activates
+                        // This prevents reload before cache is ready
                     }
                 });
             }
         });
 
-        // ALWAYS check for updates on every page load (when online)
-        // This ensures new deploys are picked up immediately
+        // Check for updates on every page load (when online)
+        // This ensures new deploys are detected even if version check missed it
         if (navigator.onLine) {
             console.log('[SW] 🔄 Checking for SW update on every load...');
             registration.update().then(updated => {

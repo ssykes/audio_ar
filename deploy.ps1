@@ -35,7 +35,8 @@ $DISPLAY_VERSION_FILES = @(
     "auto_rotate.html",
     "map_editor.html",
     "map_player.html",
-    "soundscape_picker.html"
+    "soundscape_picker.html",
+    "clear_sw_cache.html"
 )
 
 foreach ($htmlFile in $DISPLAY_VERSION_FILES) {
@@ -96,7 +97,8 @@ $HTML_FILES = @(
     "map_editor.html",
     "map_editor_v2.html",
     "map_player.html",
-    "soundscape_picker.html"
+    "soundscape_picker.html",
+    "clear_sw_cache.html"
 )
 
 # Patterns to match existing versioned script tags (using proper regex)
@@ -267,7 +269,8 @@ $HTML_FILES_WITH_VERSIONS = @(
     "index.html",
     "single_sound_v2.html",
     "soundscape_picker.html",
-    "auto_rotate.html"
+    "auto_rotate.html",
+    "clear_sw_cache.html"
 )
 
 foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
@@ -326,7 +329,8 @@ $ALL_FILES = @(
     "wake_lock_helper.js",
     "api-client.js",
     "download_manager.js",
-    "map_offline.html"
+    "map_offline.html",
+    "clear_sw_cache.html"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow
@@ -342,7 +346,7 @@ $failedCount = 0
 $verifiedCount = 0
 
 # Critical files that need version verification
-$CRITICAL_FILES = @('download_manager.js', 'soundscape.js', 'api-client.js', 'spatial_audio.js')
+$CRITICAL_FILES = @('map_player.js', 'map_shared.js', 'download_manager.js', 'soundscape.js', 'api-client.js', 'spatial_audio.js', 'spatial_audio_app.js')
 
 foreach ($file in $ALL_FILES) {
     $localFile = Join-Path $LOCAL_PATH $file
@@ -390,6 +394,27 @@ foreach ($file in $ALL_FILES) {
             } else {
                 Write-Host " [Verified]" -ForegroundColor Green
                 $verifiedCount++
+            }
+        }
+        
+        # EXTRA VERIFICATION: Check that new code patterns exist on server (for JS files)
+        if ($file -eq 'map_player.js') {
+            Write-Host "   Checking new code on server..." -NoNewline
+            $codeCheck = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "grep -c 'ForceSWUpdate' ${SERVER_PATH}/${file} 2>&1"
+            if ($codeCheck -gt 0) {
+                Write-Host " [New code confirmed ✅]" -ForegroundColor Green
+            } else {
+                Write-Host " [OLD CODE! ⚠️]" -ForegroundColor Red
+                Write-Host "   Server has old code! Re-uploading..." -ForegroundColor Yellow
+                & scp $localFile $remotePath 2>$null
+                Start-Sleep -Seconds 2
+                $codeCheck2 = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "grep -c 'ForceSWUpdate' ${SERVER_PATH}/${file} 2>&1"
+                if ($codeCheck2 -gt 0) {
+                    Write-Host "   [Re-upload successful ✅]" -ForegroundColor Green
+                } else {
+                    Write-Host "   [Re-upload FAILED! ❌]" -ForegroundColor Red
+                    Write-Host "   Manual upload required: scp $file ssykes@macminiwebsever:/var/www/html/" -ForegroundColor Yellow
+                }
             }
         }
     } else {
@@ -602,6 +627,7 @@ Write-Host "   Landing Page:       http://ssykes.net/index.html" -ForegroundColo
 Write-Host "   Soundscape Picker:  http://ssykes.net/soundscape_picker.html" -ForegroundColor White
 Write-Host "   Map Editor:         http://ssykes.net/map_editor.html" -ForegroundColor White
 Write-Host "   Map Player:         http://ssykes.net/map_player.html" -ForegroundColor White
+Write-Host "   Clear SW Cache:     http://ssykes.net/clear_sw_cache.html" -ForegroundColor White
 Write-Host "   Test Page:          http://ssykes.net/auto_rotate.html" -ForegroundColor White
 Write-Host "   Single Sound:       http://ssykes.net/single_sound_v2.html" -ForegroundColor White
 Write-Host ""

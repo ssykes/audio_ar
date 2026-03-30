@@ -17,19 +17,12 @@
 const CACHE_VERSION = 'v1';  // Updated for map_editor_v2 cache-busting
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
-// Files to cache (same-origin)
+// Files to cache (same-origin) - HTML pages only for offline support
+// JS/CSS files have cache-busting query strings, don't cache them here
 const FILES_TO_CACHE = [
   'soundscape_picker.html',
   'map_player.html',
   'map_offline.html',
-  'api-client.js',
-  'soundscape.js',
-  'download_manager.js',
-  'spatial_audio.js',
-  'spatial_audio_app.js',
-  'map_shared.js',
-  'map_player.js',
-  'wake_lock_helper.js',
   'manifest.json',
   'icon-192.svg',
 ];
@@ -192,22 +185,22 @@ self.addEventListener('activate', (event) => {
       })
       .then(async () => {
         console.log('[SW] ✅ Old caches deleted');
-        
+
         // Verify all critical files are cached
         const cache = await caches.open(CACHE_NAME);
         const cachedKeys = await cache.keys();
         const cachedURLs = cachedKeys.map(k => k.url);
-        
+
         console.log('[SW] 🔍 Verifying cached files...');
         console.log('[SW] Expected:', FILES_TO_CACHE.length, 'files');
         console.log('[SW] Cached:', cachedKeys.length, 'files');
-        
+
         // Check for missing critical files
         const missing = FILES_TO_CACHE.filter(file => {
           const fullPath = self.location.origin + '/' + file;
           return !cachedURLs.includes(fullPath);
         });
-        
+
         if (missing.length > 0) {
           console.error('[SW] ⚠️ Missing critical files:', missing);
           console.error('[SW] ⚠️ These files should be cached but are not!');
@@ -215,10 +208,20 @@ self.addEventListener('activate', (event) => {
         } else {
           console.log('[SW] ✅ All critical files verified');
         }
-        
+
         console.log('[SW] ✅ Activation complete');
         console.log('[SW] Claiming all clients');
-        return self.clients.claim();
+        await self.clients.claim();
+
+        // Notify all controlled clients that SW has been updated
+        const clients = await self.clients.matchAll();
+        console.log('[SW] 📢 Notifying', clients.length, 'clients of SW update');
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'SW_UPDATED',
+            version: CACHE_VERSION
+          });
+        });
       })
   );
 });
@@ -275,6 +278,44 @@ self.addEventListener('fetch', (event) => {
         logPrefix: '[SW] 🗺️',
         placeholder: OFFLINE_TILE_PLACEHOLDER
       })
+    );
+    return;
+  }
+
+  // HTML files - network-first with cache fallback (ensures fresh code on deploy)
+  if (url.pathname.endsWith('.html') || url.pathname === '/') {
+    console.log('[SW] 🌐 HTML request (network-first):', url.pathname);
+    event.respondWith(
+      (async () => {
+        try {
+          // Try network first with 3-second timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+          const networkResponse = await fetch(event.request, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          // Cache the fresh HTML for next time
+          if (networkResponse && networkResponse.status === 200) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(event.request, networkResponse.clone());
+            console.log('[SW] 💾 Cached fresh HTML:', url.pathname);
+          }
+          return networkResponse;
+        } catch (error) {
+          // Network failed - serve from cache
+          console.log('[SW] 📦 Network failed, serving from cache:', url.pathname);
+          const cachedResponse = await caches.match(event.request);
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+          // No cache either - return offline page
+          return new Response('Offline - page not cached', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        }
+      })()
     );
     return;
   }

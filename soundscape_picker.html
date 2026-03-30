@@ -626,6 +626,7 @@
             updateSWStatus('❌', 'No SW support', 'rgba(255, 107, 107, 0.3)');
         }
     </script>
+    -->
     <script>
         /**
          * SoundscapePickerApp - List soundscapes and allow user to select one
@@ -643,9 +644,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260329181847 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260330154756 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260329181847 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260330154756 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1348,7 +1349,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260329181847
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260330154756
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
