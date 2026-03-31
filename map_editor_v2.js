@@ -838,7 +838,8 @@ class MapEditorApp extends MapAppShared {
         if (soundscape) {
             soundscape.removeSound(waypointId);
             this._markSoundscapeDirty();
-            this._scheduleAutoSave();
+            // Force immediate save for deletions (don't debounce)
+            this._executeAutoSaveForce();
         }
 
         // Refresh list
@@ -907,7 +908,8 @@ class MapEditorApp extends MapAppShared {
         if (soundscape) {
             soundscape.deleteArea(areaId);
             this._markSoundscapeDirty();
-            this._scheduleAutoSave();
+            // Force immediate save for deletions (don't debounce)
+            this._executeAutoSaveForce();
         }
 
         // Refresh list
@@ -1929,8 +1931,10 @@ function handleItemClick(e, type, id, name, meta, color) {
         selectedItem.classList.remove('selected');
     }
 
-    // Select new item
-    const item = e.currentTarget;
+    // Select new item (use the item from the event, not currentTarget)
+    const item = e.target.closest('.item-list-item');
+    if (!item) return;
+    
     item.classList.add('selected');
     selectedItem = item;
     selectedItemType = type;
