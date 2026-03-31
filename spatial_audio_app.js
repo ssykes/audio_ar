@@ -2021,16 +2021,10 @@ class AreaManager {
      * @param {Array} areaConfigs - Array of Area data objects
      */
     async loadAreas(areaConfigs) {
-        console.log('[AreaManager] ===== Loading', areaConfigs.length, 'areas =====');
-        console.log('[AreaManager] Listener position:', this.listener.lat.toFixed(6), this.listener.lon.toFixed(6));
-        console.log('[AreaManager] Audio context state:', this.engine.ctx.state);
+        console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
 
         for (const areaConfig of areaConfigs) {
             try {
-                console.log('[AreaManager] --- Loading area:', areaConfig.id, '---');
-                console.log('[AreaManager] soundUrl:', areaConfig.soundUrl);
-                console.log('[AreaManager] loop:', areaConfig.loop !== false);
-                
                 const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
@@ -2043,40 +2037,19 @@ class AreaManager {
                     gain: areaConfig.volume || 0.8
                 });
 
-                console.log('[AreaManager] Calling areaSource.init()...');
                 areaSource.init();
-                console.log('[AreaManager] areaSource.init() complete');
-                
-                console.log('[AreaManager] Calling areaSource.load()...');
-                const loaded = await areaSource.load();  // Load audio buffer
-                console.log('[AreaManager] areaSource.load() returned:', loaded);
-                
+                const loaded = await areaSource.load();
                 if (loaded) {
-                    console.log('[AreaManager] Calling areaSource.start()...');
-                    areaSource.start();  // Start playing (initially silent)
-                    console.log('[AreaManager] areaSource.start() returned, isPlaying:', areaSource.isPlaying);
-                    
-                    // CRITICAL: Immediately update volume based on listener position
-                    // Otherwise areas will be silent until listener moves
-                    console.log('[AreaManager] Calling updateVolume()...');
-                    const initialVolume = areaSource.updateVolume(
-                        this.listener.lat,
-                        this.listener.lon
-                    );
-                    console.log('[AreaManager] Area', areaConfig.id, 'started at', (initialVolume * 100).toFixed(0) + '% volume');
-                    console.log('[AreaManager] areaSource.gain.gain.value:', areaSource.gain?.gain?.value);
-                } else {
-                    console.error('[AreaManager] ❌ Area', areaConfig.id, 'FAILED to load');
+                    areaSource.start();
+                    areaSource.updateVolume(this.listener.lat, this.listener.lon);
                 }
                 this.areas.set(areaConfig.id, areaSource);
-                console.log('[AreaManager] ✅ Loaded area:', areaConfig.id);
             } catch (error) {
-                console.error('[AreaManager] ❌ Failed to load area', areaConfig.id, error);
-                console.error('[AreaManager] Error stack:', error.stack);
+                console.error('[AreaManager] Failed to load area', areaConfig.id, error);
             }
         }
 
-        console.log('[AreaManager] ===== Total areas loaded:', this.areas.size, '=====');
+        console.log('[AreaManager] Total areas loaded:', this.areas.size);
     }
 
     /**
@@ -2239,17 +2212,8 @@ class AreaManager {
 
                     // Apply crossfade weight (ensures constant total volume)
                     const crossfadedVolume = fadeVolume * area.options.gain * normalizedWeights[i];
-                    
-                    console.log(`[MixAreas] ${area.id}: distance=${distanceToEdge.toFixed(1)}m, fadeVol=${(fadeVolume*100).toFixed(0)}%, weight=${(normalizedWeights[i]*100).toFixed(0)}%, final=${(crossfadedVolume*100).toFixed(0)}%`);
-                    console.log(`[MixAreas] ${area.id}: gain.gain.value BEFORE=${(area.gain.gain.value*100).toFixed(0)}%`);
-                    
                     area.gain.gain.cancelScheduledValues(t);
                     area.gain.gain.setTargetAtTime(crossfadedVolume, t, 0.05);
-                    
-                    // Verify it was set
-                    setTimeout(() => {
-                        console.log(`[MixAreas] ${area.id}: gain.gain.value AFTER=${(area.gain.gain.value*100).toFixed(0)}%`);
-                    }, 50);
                 }
             }
 
