@@ -1201,8 +1201,9 @@ class MapEditorApp extends MapAppShared {
 
         let latSum = 0, lonSum = 0;
         latlngs.forEach((ll) => {
-            const lat = typeof ll === 'object' ? ll.lat : ll[0];
-            const lon = typeof ll === 'object' ? ll.lng : ll[1];
+            // Check if ll is a LatLng object (has lat/lng properties) or an array [lat, lng]
+            const lat = (ll.lat !== undefined) ? ll.lat : ll[0];
+            const lon = (ll.lng !== undefined) ? ll.lng : ll[1];
             latSum += lat;
             lonSum += lon;
         });
@@ -2253,12 +2254,15 @@ waypointsList.addEventListener('mouseover', (e) => {
         const waypointId = item.dataset.id;
         const marker = app.markers.get(waypointId);
         if (marker) {
-            // Get the icon element and scale it up
+            // Get the icon element and add a glow effect
             const iconElement = marker.getElement();
             if (iconElement) {
-                iconElement.style.transition = 'transform 0.15s ease';
-                iconElement.style.transform = 'scale(1.5)';
-                iconElement.style.zIndex = '1000';
+                // Use box-shadow for highlight instead of transform (which conflicts with Leaflet positioning)
+                const innerDiv = iconElement.querySelector('div');
+                if (innerDiv) {
+                    innerDiv.style.transition = 'box-shadow 0.15s ease';
+                    innerDiv.style.boxShadow = '0 0 10px 3px rgba(255, 255, 255, 0.8)';
+                }
             }
         }
         // Also highlight the radius circle if it exists
@@ -2279,11 +2283,13 @@ waypointsList.addEventListener('mouseout', (e) => {
         const waypointId = item.dataset.id;
         const marker = app.markers.get(waypointId);
         if (marker) {
-            // Restore original scale
+            // Restore original glow
             const iconElement = marker.getElement();
             if (iconElement) {
-                iconElement.style.transform = 'scale(1)';
-                iconElement.style.zIndex = '';
+                const innerDiv = iconElement.querySelector('div');
+                if (innerDiv) {
+                    innerDiv.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+                }
             }
         }
         // Restore radius circle style
