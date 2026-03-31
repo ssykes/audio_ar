@@ -2206,6 +2206,92 @@ waypointsList.addEventListener('click', (e) => {
     }
 });
 
+// Add hover handlers to lists - highlight map graphics on hover
+// Note: Using mouseover/mouseout because they bubble (unlike mouseenter/mouseleave)
+areasList.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const areaId = item.dataset.id;
+        const layer = app.areaMarkers.get(areaId);
+        if (layer) {
+            // Store original style
+            layer._originalStyle = {
+                color: layer.options.color,
+                weight: layer.options.weight
+            };
+            // Apply highlight style - only change the outline, not the fill
+            layer.setStyle({
+                color: '#ffffff',
+                weight: 4
+            });
+        }
+    }
+});
+
+areasList.addEventListener('mouseout', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const areaId = item.dataset.id;
+        const layer = app.areaMarkers.get(areaId);
+        if (layer && layer._originalStyle) {
+            // Restore original style
+            layer.setStyle(layer._originalStyle);
+            delete layer._originalStyle;
+        }
+    }
+});
+
+waypointsList.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const waypointId = item.dataset.id;
+        const marker = app.markers.get(waypointId);
+        if (marker) {
+            // Get the icon element and scale it up
+            const iconElement = marker.getElement();
+            if (iconElement) {
+                iconElement.style.transition = 'transform 0.15s ease';
+                iconElement.style.transform = 'scale(1.5)';
+                iconElement.style.zIndex = '1000';
+            }
+        }
+        // Also highlight the radius circle if it exists
+        const waypoint = app._getWaypointById(waypointId);
+        if (waypoint && waypoint.circleMarker) {
+            waypoint.circleMarker.setStyle({
+                color: '#ffffff',
+                weight: 3,
+                opacity: 0.8
+            });
+        }
+    }
+});
+
+waypointsList.addEventListener('mouseout', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const waypointId = item.dataset.id;
+        const marker = app.markers.get(waypointId);
+        if (marker) {
+            // Restore original scale
+            const iconElement = marker.getElement();
+            if (iconElement) {
+                iconElement.style.transform = 'scale(1)';
+                iconElement.style.zIndex = '';
+            }
+        }
+        // Restore radius circle style
+        const waypoint = app._getWaypointById(waypointId);
+        if (waypoint && waypoint.circleMarker) {
+            waypoint.circleMarker.setStyle({
+                color: waypoint.color || '#00d9ff',
+                weight: 1,
+                opacity: 0.3
+            });
+        }
+    }
+});
+
 // =====================================================================
 // Other UI Handlers
 // =====================================================================
