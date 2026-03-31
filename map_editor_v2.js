@@ -1777,10 +1777,14 @@ function getFormData() {
         volume: parseFloat(document.getElementById('slideoutVolume').value),
         loop: document.getElementById('slideoutLoop').checked,
         activationRadius: parseInt(document.getElementById('slideoutActivationRadius').value),
-        sortOrder: parseInt(document.getElementById('slideoutSortOrder').value),
-        lat: slideoutLat.textContent,
-        lon: slideoutLon.textContent
+        sortOrder: parseInt(document.getElementById('slideoutSortOrder').value)
     };
+
+    // Only include lat/lon for waypoints (areas use polygon instead)
+    if (selectedItemType === 'Waypoint') {
+        data.lat = slideoutLat.textContent;
+        data.lon = slideoutLon.textContent;
+    }
 
     // Add type-specific fields
     if (type === 'file') {
