@@ -475,21 +475,24 @@
     </script>
 
     <!-- Service Worker Registration (for offline support) -->
-    <script src="sw-register.js"></script>
+    <!-- ⚠️ SERVICE WORKER TEMPORARILY DISABLED (2026-03-30) - causes cache issues during development -->
     <script>
-        // Use shared SW registration module
-        registerServiceWorker({
-            onReady: (registration) => {
-                console.log('[map_player] SW ready');
-                localStorage.setItem('sw_ready', 'true');
-            },
-            onUpdate: (registration) => {
-                console.log('[map_player] SW update available');
-            },
-            onError: (error) => {
-                console.error('[map_player] SW error:', error);
-            }
-        });
+        console.log('[map_player] ⚠️ Service Worker disabled for development');
+        console.log('[map_player] ℹ️ Offline playback unavailable until SW re-enabled');
+        
+        // Unregister any existing SW and clear caches
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (const registration of registrations) {
+                    registration.unregister();
+                }
+            });
+            caches.keys().then((names) => {
+                for (const name of names) {
+                    caches.delete(name);
+                }
+            });
+        }
     </script>
 
     <script src="api-client.js"></script>

@@ -45,6 +45,14 @@ class MapEditorApp extends MapAppShared {
         // Check for "new soundscape" mode from query parameter
         this.isNewSoundscapeMode = this._checkNewSoundscapeMode();
 
+        // FIX: Clear persisted state IMMEDIATELY if in new soundscape mode
+        // This prevents loading an existing soundscape when creating a new one
+        if (this.isNewSoundscapeMode) {
+            this.debugLog('🆕 New soundscape mode detected - clearing persisted state');
+            localStorage.removeItem('editor_active_soundscape_id');
+            localStorage.removeItem('selected_soundscape_id');
+        }
+
         // Initialize map (from MapAppShared._initMap())
         this._initMap();
 
@@ -96,6 +104,23 @@ class MapEditorApp extends MapAppShared {
      */
     async _promptNewSoundscape() {
         this.debugLog('🆕 New soundscape mode activated');
+
+        // Clear any existing soundscape data to start fresh
+        this.soundscapes.clear();
+        this.activeSoundscapeId = null;
+        this.serverSoundscapeIds.clear();
+
+        // Clear map markers
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+        this.drawnItems.clearLayers();
+        this.areaMarkers.clear();
+
+        // FIX: localStorage already cleared in init(), but ensure it's clean here too
+        localStorage.removeItem('editor_active_soundscape_id');
+        localStorage.removeItem('selected_soundscape_id');
+
+        this.debugLog('🧹 Cleared existing soundscape data for fresh start');
 
         // Show prompt dialog
         const result = await this._showCreateSoundscapeDialog();
@@ -1391,6 +1416,12 @@ class MapEditorApp extends MapAppShared {
     async _loadSoundscapeFromServer() {
         if (!this.isLoggedIn) {
             this.debugLog('⚠️ Not logged in - cannot load from server');
+            return;
+        }
+
+        // FIX: Guard against loading soundscape when in new soundscape mode
+        if (this.isNewSoundscapeMode) {
+            this.debugLog('⚠️ Blocked _loadSoundscapeFromServer() - in new soundscape mode');
             return;
         }
 

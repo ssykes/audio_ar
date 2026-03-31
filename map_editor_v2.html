@@ -1243,34 +1243,24 @@
         window.API_BASE_URL = '/api';
     </script>
 
-    <!-- Unregister Service Worker (MUST run BEFORE other scripts) -->
-    <!-- map_editor_v2 is desktop-only, no offline support - SW causes stale cache issues -->
+    <!-- Unregister Service Worker (desktop-only, no offline support) -->
     <script>
-        // Add cache-busting timestamp to force fresh HTML load
+        // Add cache-busting timestamp, preserving existing query params (like ?new=true)
         if (window.location.search.indexOf('nocache=') === -1) {
-            const newUrl = window.location.pathname + '?nocache=' + Date.now() + window.location.hash;
+            const params = new URLSearchParams(window.location.search);
+            params.set('nocache', Date.now().toString());
+            const newUrl = window.location.pathname + '?' + params.toString() + window.location.hash;
             window.history.replaceState(null, '', newUrl);
-            console.log('[map_editor_v2] Added cache-busting:', newUrl);
         }
-    
-        (function() {
-            console.log('[map_editor_v2] 📴 Checking for Service Worker...');
-            if ('serviceWorker' in navigator) {
-                // Synchronously check and unregister
-                navigator.serviceWorker.getRegistrations().then((registrations) => {
-                    console.log('[map_editor_v2] Found ' + registrations.length + ' SW registration(s)');
-                    for (const registration of registrations) {
-                        registration.unregister().then(() => {
-                            console.log('[map_editor_v2] ✅ SW unregistered: ' + registration.scope);
-                        }).catch(err => {
-                            console.error('[map_editor_v2] ❌ Failed to unregister SW:', err);
-                        });
-                    }
-                }).catch(err => {
-                    console.error('[map_editor_v2] ❌ Failed to get SW registrations:', err);
-                });
-            }
-        })();
+
+        // Unregister any existing Service Workers
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (const registration of registrations) {
+                    registration.unregister();
+                }
+            });
+        }
     </script>
 
     <!-- Internal Scripts (with cache-busting versions) -->

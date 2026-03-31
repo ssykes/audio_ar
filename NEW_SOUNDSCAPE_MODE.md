@@ -16,7 +16,7 @@ Added support for creating new soundscapes via a `?new=true` query parameter tha
 
 ### 1. User clicks "+ New Soundscape" in soundscape_picker.html
 ```
-soundscape_picker.html → map_editor_v2.html?new=true
+soundscape_picker.html → map_editor_v2.html?
 ```
 
 ### 2. Map Editor detects `?new=true` and shows creation dialog
