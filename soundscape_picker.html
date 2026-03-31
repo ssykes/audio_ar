@@ -570,9 +570,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260330202757 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260330223438 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260330202757 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260330223438 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1275,7 +1275,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260330202757
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260330223438
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
@@ -1405,17 +1405,9 @@
                     // Desktop or Tablet Editor: Go to map_editor_v2.html
                     console.log('[SoundscapePicker] Editor mode → map_editor_v2.html');
                     this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
-                    
-                    // Unregister Service Worker before navigating to desktop editor
-                    if ('serviceWorker' in navigator) {
-                        navigator.serviceWorker.getRegistrations().then((registrations) => {
-                            for (const registration of registrations) {
-                                registration.unregister();
-                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
-                            }
-                        });
-                    }
-                    
+
+                    // Service Worker is already disabled on page load (no need to unregister)
+
                     window.location.href = 'map_editor_v2.html';
                 } else {
                     // Phone or Tablet Player: Go to map_player.html
@@ -1483,17 +1475,9 @@
                     localStorage.removeItem('selected_soundscape_id');
                     localStorage.removeItem('editor_active_soundscape_id');
                     console.log('[SoundscapePicker] 🧹 Cleared soundscape selection for new soundscape');
-                    
+
                     // Navigate to map editor with flag to prime for new soundscape
-                    // Unregister Service Worker before navigating to desktop editor
-                    if ('serviceWorker' in navigator) {
-                        navigator.serviceWorker.getRegistrations().then((registrations) => {
-                            for (const registration of registrations) {
-                                registration.unregister();
-                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
-                            }
-                        });
-                    }
+                    // Service Worker is already disabled (no need to unregister)
                     window.location.href = 'map_editor_v2.html?new=true';
                 });
 

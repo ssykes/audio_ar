@@ -295,8 +295,15 @@ class SoundSource {
         }
     }
 
-    start() { this.isPlaying = true; }
-    stop() { this.isPlaying = false; }
+    start() {
+        console.log('[SoundSource] start() called on:', this.constructor.name, 'Setting isPlaying = true');
+        this.isPlaying = true;
+        console.log('[SoundSource] isPlaying is now:', this.isPlaying);
+    }
+    stop() {
+        console.log('[SoundSource] stop() called on:', this.constructor.name, 'Setting isPlaying = false');
+        this.isPlaying = false;
+    }
 
     dispose() {
         this.stop();
@@ -698,47 +705,67 @@ class SampleSource extends GpsSoundSource {
     }
 
     start() {
+        console.log('[SampleSource] ===== start() called for:', this.id, '=====');
+        console.log('[SampleSource] this.buffer:', !!this.buffer);
+        console.log('[SampleSource] this.gain:', !!this.gain);
+        console.log('[SampleSource] this.loop:', this.loop);
+        console.log('[SampleSource] this.isPlaying (before):', this.isPlaying);
+        
         if (!this.buffer) {
-            console.warn('[SampleSource] Cannot start - buffer not loaded');
+            console.warn('[SampleSource] ❌ Cannot start - buffer not loaded for', this.id);
             return false;
         }
 
         if (this.sourceNode) {
+            console.log('[SampleSource] Stopping existing sourceNode...');
             this.stop();
         }
 
+        console.log('[SampleSource] Creating new BufferSource...');
         this.sourceNode = this.engine.ctx.createBufferSource();
         this.sourceNode.buffer = this.buffer;
         this.sourceNode.loop = this.loop;
+        console.log('[SampleSource] BufferSource created, loop=', this.loop);
 
         // === RANDOM MICRO-VARIATIONS (Organic Playback) ===
-        // Prevents mechanical repetition and "machine gun" effect
-        // Each loop iteration has subtle variations (like live performance)
-
-        // ±2 cents random detune (0.9998 to 1.0002)
-        // Prevents exact unison when multiple similar sounds play
         const randomDetune = 0.9998 + Math.random() * 0.0004;
         this.sourceNode.playbackRate.value = randomDetune;
+        console.log('[SampleSource] Playback rate set to:', randomDetune);
 
         // CRITICAL: Set initial gain to 0 to prevent burst
-        // updateGainByDistance() will be called immediately after start
-        // to set proper distance-based volume
         if (this.gain) {
-            this.gain.gain.value = 0;  // Start silent, prevent burst
+            console.log('[SampleSource] Setting gain to 0 (prevent burst)');
+            this.gain.gain.value = 0;
         }
         // ===================================================
 
+        console.log('[SampleSource] Connecting sourceNode to gain...');
         this.sourceNode.connect(this.gain);
-        this.sourceNode.start();
+        console.log('[SampleSource] Connection complete');
+        
+        console.log('[SampleSource] Calling sourceNode.start()...');
+        try {
+            this.sourceNode.start();
+            console.log('[SampleSource] ✅ sourceNode.start() succeeded');
+        } catch (err) {
+            console.error('[SampleSource] ❌ sourceNode.start() FAILED:', err);
+            return false;
+        }
 
         this.sourceNode.onended = () => {
+            console.log('[SampleSource] sourceNode.onended triggered, isPlaying=', this.isPlaying, 'loop=', this.loop);
             if (this.loop && this.isPlaying) {
-                this.start();  // Re-apply random variations on each loop
+                console.log('[SampleSource] Restarting (loop)...');
+                this.start();
             }
         };
 
+        console.log('[SampleSource] Calling super.start()...');
         super.start();
-        console.log('[SampleSource] Started:', this.id);
+        console.log('[SampleSource] After super.start(), this.isPlaying:', this.isPlaying);
+        
+        console.log('[SampleSource] ✅ Started:', this.id);
+        console.log('[SampleSource] ===== start() complete =====');
         return true;
     }
 
@@ -959,27 +986,45 @@ class AreaSoundSource extends SampleSource {
      * Initialize audio nodes (no panner for areas)
      */
     init() {
+        console.log('[AreaSoundSource] init() called for:', this.id);
+        
         // Create gain node (volume control only, no spatialization)
         this.gain = this.engine.ctx.createGain();
         this.gain.gain.value = this.options.gain || 1.0;  // Default 100% volume for areas
+        console.log('[AreaSoundSource] gain node created, value:', this.gain.gain.value);
 
         // Create wet/dry split for reverb (same as SampleSource)
         this.dryGain = this.engine.ctx.createGain();
         this.wetGain = this.engine.ctx.createGain();
         this.dryGain.gain.value = 1.0;
         this.wetGain.gain.value = 0.0;
+        console.log('[AreaSoundSource] dryGain and wetGain created');
 
         // Connect dry path directly to master (no panner)
+        // AREA CHAIN: sourceNode → gain → dryGain → masterGain
         this.gain.connect(this.dryGain);
+        console.log('[AreaSoundSource] ✅ gain → dryGain connected');
+        
         this.dryGain.connect(this.engine.masterGain);
+        console.log('[AreaSoundSource] ✅ dryGain → masterGain connected');
+        console.log('[AreaSoundSource] masterGain exists:', !!this.engine.masterGain);
+        
+        // Debug: Check masterGain connections
+        console.log('[AreaSoundSource] masterGain.numberOfInputs:', this.engine.masterGain.numberOfInputs);
+        console.log('[AreaSoundSource] masterGain.numberOfOutputs:', this.engine.masterGain.numberOfOutputs);
+        console.log('[AreaSoundSource] masterGain.context.destination:', !!this.engine.masterGain.context.destination);
 
         // Connect wet path to reverb if available
         if (this.engine.reverb) {
             this.gain.connect(this.wetGain);
             this.wetGain.connect(this.engine.reverb);
+            console.log('[AreaSoundSource] wet path connected to reverb');
+        } else {
+            console.log('[AreaSoundSource] No reverb available');
         }
 
-        console.log('[AreaSoundSource] Initialized:', this.id, '(no panning, volume-only)');
+        console.log('[AreaSoundSource] ✅ Initialized:', this.id, '(no panning, volume-only)');
+        console.log('[AreaSoundSource] 📊 CHAIN: sourceNode → gain → dryGain → masterGain → destination');
     }
 
     /**
@@ -1009,6 +1054,81 @@ class AreaSoundSource extends SampleSource {
     }
 
     /**
+     * Override start() to properly set isPlaying flag
+     * Bypasses OscillatorSource.start() which checks for oscillator
+     * @returns {boolean} True if started successfully
+     */
+    start() {
+        console.log('[AreaSoundSource] start() called for:', this.id);
+        console.log('[AreaSoundSource] this.buffer:', !!this.buffer);
+        console.log('[AreaSoundSource] this.gain:', !!this.gain);
+        console.log('[AreaSoundSource] this.dryGain:', !!this.dryGain);
+        console.log('[AreaSoundSource] this.engine.masterGain:', !!this.engine.masterGain);
+        
+        if (!this.buffer) {
+            console.warn('[AreaSoundSource] Cannot start - buffer not loaded');
+            return false;
+        }
+
+        if (this.sourceNode) {
+            this.stop();
+        }
+
+        this.sourceNode = this.engine.ctx.createBufferSource();
+        this.sourceNode.buffer = this.buffer;
+        this.sourceNode.loop = this.loop;
+        console.log('[AreaSoundSource] sourceNode created, loop:', this.loop);
+
+        const randomDetune = 0.9998 + Math.random() * 0.0004;
+        this.sourceNode.playbackRate.value = randomDetune;
+        console.log('[AreaSoundSource] playbackRate:', randomDetune);
+
+        // CRITICAL: Start with gain = 0 to prevent burst
+        if (this.gain) {
+            this.gain.gain.value = 0;
+            console.log('[AreaSoundSource] Initial gain set to 0');
+        }
+
+        // Connect: sourceNode → gain → dryGain → masterGain
+        this.sourceNode.connect(this.gain);
+        console.log('[AreaSoundSource] sourceNode → gain connected');
+        console.log('[AreaSoundSource] Verifying connection:');
+        console.log('  - this.gain === the gain node from init():', this.gain === this.gain);
+        console.log('  - this.gain.numberOfInputs:', this.gain.numberOfInputs);
+        console.log('  - this.gain.numberOfOutputs:', this.gain.numberOfOutputs);
+        console.log('  - this.dryGain.numberOfInputs:', this.dryGain.numberOfInputs);
+        console.log('  - this.dryGain.numberOfOutputs:', this.dryGain.numberOfOutputs);
+        
+        this.sourceNode.start();
+        console.log('[AreaSoundSource] ✅ sourceNode.start() called - audio SHOULD be playing');
+        
+        // Verify the audio chain
+        setTimeout(() => {
+            console.log('[AreaSoundSource] 🔍 Audio chain check:');
+            console.log('  - sourceNode exists:', !!this.sourceNode);
+            console.log('  - gain exists:', !!this.gain);
+            console.log('  - gain.gain.value:', this.gain?.gain?.value);
+            console.log('  - dryGain exists:', !!this.dryGain);
+            console.log('  - dryGain.gain.value:', this.dryGain?.gain?.value);
+            console.log('  - masterGain exists:', !!this.engine.masterGain);
+        }, 100);
+
+        this.sourceNode.onended = () => {
+            console.log('[AreaSoundSource] onended: isPlaying=', this.isPlaying, 'loop=', this.loop);
+            if (this.loop && this.isPlaying) {
+                console.log('[AreaSoundSource] Restarting (loop)...');
+                this.start();
+            }
+        };
+
+        // CRITICAL: Call SoundSource.start() directly to set isPlaying = true
+        SoundSource.prototype.start.call(this);
+        
+        console.log('[AreaSoundSource] ✅ Started:', this.id, 'isPlaying:', this.isPlaying);
+        return true;
+    }
+
+    /**
      * Update volume based on listener position relative to area
      * @param {number} listenerLat - Listener latitude
      * @param {number} listenerLon - Listener longitude
@@ -1027,8 +1147,9 @@ class AreaSoundSource extends SampleSource {
 
         if (!isInside) {
             // Outside polygon - silent
+            // CRITICAL: Only mute gain, NOT dryGain! dryGain must stay at 1.0 for audio passthrough
             this.gain.gain.value = 0;
-            this.dryGain.gain.value = 0;
+            // this.dryGain.gain.value = 0;  ← REMOVED - this was muting audio permanently!
             this.wetGain.gain.value = 0;
             return 0;
         }
@@ -1064,17 +1185,14 @@ class AreaSoundSource extends SampleSource {
 
     /**
      * Update reverb wet/dry mix based on distance from edge
-     * Uses same logic as GpsSoundSource for consistency
+     * NOTE: Areas have NO reverb - they're direct ambient sounds
      * @param {number} distance - Distance from edge in meters
      * @private
      */
     _updateReverbWetMix(distance) {
-        if (!this.dryGain || !this.wetGain) return;
-
-        const reverb = getReverbForDistance(distance);
-        this.wetGain.gain.value = reverb.wet;
-        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
-        this.currentWetValue = reverb.wet;
+        // No reverb for areas - keep dry at 100%, wet at 0%
+        if (this.dryGain) this.dryGain.gain.value = 1.0;
+        if (this.wetGain) this.wetGain.gain.value = 0.0;
     }
 
     /**
