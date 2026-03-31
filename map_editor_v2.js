@@ -867,6 +867,12 @@ class MapEditorApp extends MapAppShared {
             this.markers.delete(waypointId);
         }
 
+        // Remove radius circle
+        if (waypoint.circleMarker) {
+            waypoint.circleMarker.remove();
+            waypoint.circleMarker = null;
+        }
+
         // Remove from waypoints array
         const index = this.waypoints.findIndex(wp => wp.id === waypointId);
         if (index > -1) {
