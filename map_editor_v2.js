@@ -497,9 +497,9 @@ class MapEditorApp extends MapAppShared {
             // Add to soundscape
             if (soundscape) {
                 soundscape.addArea(area);
+                this.debugLog(`   Added to soundscape (soundscape.areas now has ${soundscape.areas.length} areas)`);
                 this._markSoundscapeDirty();
                 this._scheduleAutoSave();
-                this.debugLog('   Added to soundscape');
             } else {
                 this.debugLog('⚠️ No active soundscape - area created on map only');
             }
@@ -741,6 +741,9 @@ class MapEditorApp extends MapAppShared {
         // Mark soundscape dirty and schedule save (waypoint will be saved with soundscape)
         const soundscape = this.getActiveSoundscape();
         if (soundscape) {
+            // Sync soundscape.waypointData with this.waypoints (auto-save uses waypointData)
+            soundscape.waypointData = this.waypoints;
+            this.debugLog(`📝 Synced soundscape.waypointData (${soundscape.waypointData.length} waypoints)`);
             this._markSoundscapeDirty();
             this._scheduleAutoSave();
         }
@@ -781,6 +784,13 @@ class MapEditorApp extends MapAppShared {
             // Update waypoint
             waypoint.lat = newLat;
             waypoint.lon = newLon;
+
+            // Sync soundscape.waypointData with this.waypoints
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                soundscape.waypointData = this.waypoints;
+                this.debugLog(`📝 Synced soundscape.waypointData after drag (${soundscape.waypointData.length} waypoints)`);
+            }
 
             this._updateRadiusCircle(waypoint);
             this._markSoundscapeDirty();
@@ -823,6 +833,11 @@ class MapEditorApp extends MapAppShared {
 
         // Verify soundscape has the updated data
         const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            // Sync soundscape.waypointData with this.waypoints
+            soundscape.waypointData = this.waypoints;
+            this.debugLog(`📝 Synced soundscape.waypointData after form update (${soundscape.waypointData.length} waypoints)`);
+        }
         const waypointInSoundscape = soundscape?.waypointData?.find(wp => wp.id === waypoint.id);
         this.debugLog(`   Waypoint in soundscape soundUrl: ${waypointInSoundscape?.soundUrl || '(empty)'}`);
 
@@ -1314,7 +1329,8 @@ class MapEditorApp extends MapAppShared {
                     this.waypoints.forEach(wp => this._createMarker(wp));
                     this._refreshWaypointList();
 
-                    // Load areas
+                    // Load areas into soundscape and map
+                    soundscape.areas = areas;  // Sync soundscape.areas with imported data
                     this._loadAreasIntoDrawer(areas);
                     this._refreshAreaList();
 

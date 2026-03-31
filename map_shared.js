@@ -597,6 +597,8 @@ class MapAppShared {
         }
 
         this.debugLog('☁️ Auto-saving to server...');
+        this.debugLog(`   soundscape.areas: ${soundscape.areas?.length || 0} areas`);
+        this.debugLog(`   soundscape.waypointData: ${soundscape.waypointData?.length || 0} waypoints`);
 
         // Create abort controller for this save request
         this.saveAbortController = new AbortController();
