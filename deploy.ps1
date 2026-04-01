@@ -115,6 +115,7 @@ $API_CLIENT_PATTERN = 'api-client\.js(\?v=\d+)?'
 $DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js(\?v=\d+)?'
 $SW_VERSION_PATTERN = 'sw\.js(\?v=\d+)?'
 $SW_REGISTER_PATTERN = 'sw-register\.js(\?v=\d+)?'
+$MARTINEZ_PATTERN = 'martinez\.min\.js(\?v=\d+)?'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -211,6 +212,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (sw.js)" -ForegroundColor Green
         }
+
+        # Update martinez.min.js version
+        if ($content -match $MARTINEZ_PATTERN) {
+            $content = $content -replace $MARTINEZ_PATTERN, "martinez.min.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (martinez.min.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -293,7 +301,8 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(debug_logger\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(download_manager\.js)"', "`${1}?v=$VERSION`""
-        
+        $content = $content -replace '(martinez\.min\.js)"', "`${1}?v=$VERSION`""
+
         Set-Content $tempPath $content -NoNewline
         Write-Host "  Created: ${htmlFile}.deploy (v=$VERSION)" -ForegroundColor Green
     }
@@ -330,7 +339,8 @@ $ALL_FILES = @(
     "api-client.js",
     "download_manager.js",
     "map_offline.html",
-    "clear_sw_cache.html"
+    "clear_sw_cache.html",
+    "martinez.min.js"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow

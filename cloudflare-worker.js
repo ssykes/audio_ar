@@ -62,6 +62,7 @@ async function handleRequest(request) {
   // Allows: same-origin scripts, CDN resources (unpkg, jsdelivr), Google Fonts,
   // data: images, blob: media, and necessary APIs
   // Updated 2026-03-14: Added tile.openstreetmap.org for map tiles + unpkg for Leaflet CSS
+  // Updated 2026-03-31: Added martinez.min.js (same-origin) for polygon clipping
   newResponse.headers.set('Content-Security-Policy',
     "default-src 'self'; " +
     "script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://static.cloudflareinsights.com; " +
