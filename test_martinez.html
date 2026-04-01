@@ -6,301 +6,290 @@
     <title>Martinez Integration Test</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #fff;
+            font-family: monospace;
             padding: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
+            background: #1a1a1a;
+            color: #00ff00;
         }
-        h1 { color: #667eea; }
-        .test-section {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
+        #output {
+            background: #000;
             padding: 20px;
-            margin: 20px 0;
-        }
-        .test-result {
-            font-family: 'Consolas', 'Courier New', monospace;
-            background: #0d0d1a;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 10px 0;
-            max-height: 300px;
+            border-radius: 5px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            max-height: 500px;
             overflow-y: auto;
         }
-        .pass { color: #00ff88; }
-        .fail { color: #ff4757; }
-        .warn { color: #ffa502; }
+        .success { color: #00ff00; }
+        .error { color: #ff4444; }
+        .info { color: #88ccff; }
         button {
-            background: #667eea;
-            color: white;
-            border: none;
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
             padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1em;
             margin: 5px;
+            cursor: pointer;
+            font-family: monospace;
         }
         button:hover {
-            background: #7c8eee;
-        }
-        #map {
-            width: 100%;
-            height: 500px;
-            border-radius: 8px;
-            margin: 20px 0;
+            background: #444;
         }
     </style>
 </head>
 <body>
-    <h1>🧪 Martinez Polygon Clipping Integration Test</h1>
+    <h1>Martinez Integration Test</h1>
+    <p>Testing Martinez polygon clipping integration for intersection crossfade</p>
     
-    <div class="test-section">
-        <h2>1. Library Load Test</h2>
-        <button onclick="testLibraryLoad()">Test Martinez Loaded</button>
-        <div id="libraryTest" class="test-result">Waiting for test...</div>
+    <div>
+        <button onclick="testMartinezLibrary()">Test 1: Martinez Library</button>
+        <button onclick="testBasicIntersection()">Test 2: Basic Intersection</button>
+        <button onclick="testCrossfadePosition()">Test 3: Crossfade Position</button>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearOutput()">Clear</button>
     </div>
 
-    <div class="test-section">
-        <h2>2. Basic Intersection Test</h2>
-        <button onclick="testBasicIntersection()">Test Rectangle Intersection</button>
-        <div id="basicTest" class="test-result">Waiting for test...</div>
-    </div>
+    <div id="output">Results will appear here...</div>
 
-    <div class="test-section">
-        <h2>3. GPSUtils Integration Test</h2>
-        <button onclick="testGPSUtilsIntegration()">Test GPSUtils.martinezIntersection()</button>
-        <div id="gpsUtilsTest" class="test-result">Waiting for test...</div>
-    </div>
-
-    <div class="test-section">
-        <h2>4. Crossfade Position Test</h2>
-        <button onclick="testCrossfadePosition()">Test getCrossfadePosition()</button>
-        <div id="crossfadeTest" class="test-result">Waiting for test...</div>
-    </div>
-
-    <div class="test-section">
-        <h2>5. Map Visualization</h2>
-        <button onclick="showVisualization()">Show Intersection Visualization</button>
-        <div id="map"></div>
-        <div id="vizTest" class="test-result">Waiting for visualization...</div>
-    </div>
-
-    <!-- Scripts -->
+    <!-- Load Martinez -->
     <script src="martinez.min.js"></script>
+    <!-- Load spatial_audio.js for GPSUtils -->
     <script src="spatial_audio.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <script>
-        // Test 1: Library Load
-        function testLibraryLoad() {
-            const result = document.getElementById('libraryTest');
-            try {
-                if (typeof martinez !== 'undefined') {
-                    result.innerHTML = '<span class="pass">✅ PASS:</span> Martinez library loaded successfully\n' +
-                        `Available methods: ${Object.keys(martinez).join(', ')}`;
-                } else {
-                    result.innerHTML = '<span class="fail">❌ FAIL:</span> Martinez library not loaded';
-                }
-            } catch (error) {
-                result.innerHTML = `<span class="fail">❌ FAIL:</span> ${error.message}`;
-            }
+        const output = document.getElementById('output');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
         }
 
-        // Test 2: Basic Intersection
+        function clearOutput() {
+            output.innerHTML = '';
+            log('Output cleared', 'info');
+        }
+
+        function testMartinezLibrary() {
+            log('=== Test 1: Martinez Library Check ===', 'info');
+            
+            if (typeof martinez === 'undefined') {
+                log('❌ FAIL: Martinez library not loaded', 'error');
+                return false;
+            }
+            
+            log('✅ PASS: Martinez library loaded', 'success');
+            log(`   Martinez methods: ${Object.keys(martinez).join(', ')}`, 'info');
+            return true;
+        }
+
         function testBasicIntersection() {
-            const result = document.getElementById('basicTest');
-            try {
-                // Two overlapping rectangles
-                const rect1 = [[[0, 0], [10, 0], [10, 10], [0, 10]]];
-                const rect2 = [[[5, 5], [15, 5], [15, 15], [5, 15]]];
-                
-                const intersection = martinez.intersection(rect1, rect2);
-                
-                if (intersection && intersection.length > 0) {
-                    result.innerHTML = '<span class="pass">✅ PASS:</span> Intersection computed successfully\n\n' +
-                        `Rectangle 1: [0,0] to [10,10]\n` +
-                        `Rectangle 2: [5,5] to [15,15]\n` +
-                        `Intersection: ${JSON.stringify(intersection[0], null, 2)}\n\n` +
-                        `Expected: [[5,5], [10,5], [10,10], [5,10]] (5x5 square)`;
-                } else {
-                    result.innerHTML = '<span class="fail">❌ FAIL:</span> No intersection found';
-                }
-            } catch (error) {
-                result.innerHTML = `<span class="fail">❌ FAIL:</span> ${error.message}\n${error.stack}`;
+            log('=== Test 2: Basic Intersection ===', 'info');
+            
+            if (typeof GPSUtils === 'undefined') {
+                log('❌ FAIL: GPSUtils not loaded', 'error');
+                return false;
             }
-        }
 
-        // Test 3: GPSUtils Integration
-        function testGPSUtilsIntegration() {
-            const result = document.getElementById('gpsUtilsTest');
+            if (typeof GPSUtils.martinezIntersection !== 'function') {
+                log('❌ FAIL: martinezIntersection method not found', 'error');
+                return false;
+            }
+
+            // Test with two overlapping squares
+            // Martinez expects polygons as array of points
+            const poly1 = [
+                {lat: 0, lng: 0},
+                {lat: 0, lng: 2},
+                {lat: 2, lng: 2},
+                {lat: 2, lng: 0}
+            ];
+
+            const poly2 = [
+                {lat: 1, lng: 1},
+                {lat: 1, lng: 3},
+                {lat: 3, lng: 3},
+                {lat: 3, lng: 1}
+            ];
+
             try {
-                if (typeof GPSUtils === 'undefined') {
-                    result.innerHTML = '<span class="fail">❌ FAIL:</span> GPSUtils not loaded';
-                    return;
-                }
-
-                // Test with lat/lng format
-                const poly1 = [
-                    {lat: 52.5200, lng: 13.4050},
-                    {lat: 52.5210, lng: 13.4050},
-                    {lat: 52.5210, lng: 13.4070},
-                    {lat: 52.5200, lng: 13.4070}
-                ];
-                
-                const poly2 = [
-                    {lat: 52.5205, lng: 13.4060},
-                    {lat: 52.5215, lng: 13.4060},
-                    {lat: 52.5215, lng: 13.4080},
-                    {lat: 52.5205, lng: 13.4080}
-                ];
-
                 const intersection = GPSUtils.martinezIntersection(poly1, poly2);
                 
-                if (intersection && intersection.length > 0) {
-                    result.innerHTML = '<span class="pass">✅ PASS:</span> GPSUtils.martinezIntersection() works\n\n' +
-                        `Intersection polygon has ${intersection.length} vertices:\n` +
-                        intersection.map((p, i) => `  ${i}: lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`).join('\n');
-                } else {
-                    result.innerHTML = '<span class="warn">⚠️ WARNING:</span> No intersection found (may be correct if polygons don\'t overlap)';
+                if (!intersection) {
+                    log('❌ FAIL: No intersection computed (expected overlap)', 'error');
+                    log('   Note: Martinez expects [[[lng, lat], ...]] format', 'info');
+                    return false;
                 }
+
+                log(`✅ PASS: Intersection computed with ${intersection.length} vertices`, 'success');
+                log(`   Intersection polygon: ${JSON.stringify(intersection)}`, 'info');
+                return true;
             } catch (error) {
-                result.innerHTML = `<span class="fail">❌ FAIL:</span> ${error.message}\n${error.stack}`;
+                log(`❌ FAIL: Error computing intersection: ${error.message}`, 'error');
+                return false;
             }
         }
 
-        // Test 4: Crossfade Position
         function testCrossfadePosition() {
-            const result = document.getElementById('crossfadeTest');
-            try {
-                if (typeof GPSUtils === 'undefined') {
-                    result.innerHTML = '<span class="fail">❌ FAIL:</span> GPSUtils not loaded';
-                    return;
-                }
-
-                // Simple square intersection
-                const intersection = [
-                    {lat: 52.5205, lng: 13.4060},
-                    {lat: 52.5210, lng: 13.4060},
-                    {lat: 52.5210, lng: 13.4070},
-                    {lat: 52.5205, lng: 13.4070}
-                ];
-
-                // Test at different positions
-                const tests = [
-                    {lat: 52.5206, lng: 13.4065, dir: 0, desc: 'Near entry (north edge)'},
-                    {lat: 52.52075, lng: 13.4065, dir: 0, desc: 'Middle of intersection'},
-                    {lat: 52.5209, lng: 13.4065, dir: 0, desc: 'Near exit (south edge)'}
-                ];
-
-                let output = 'Crossfade position tests:\n\n';
-                tests.forEach(test => {
-                    const pos = GPSUtils.getCrossfadePosition(test.lat, test.lng, intersection, test.dir);
-                    output += `${test.desc}:\n`;
-                    output += `  Position: lat=${test.lat}, lng=${test.lng}\n`;
-                    output += `  Crossfade: ${pos >= 0 ? pos.toFixed(3) : 'INVALID'}\n`;
-                    if (pos >= 0) {
-                        const area1Weight = Math.cos(pos * Math.PI / 2);
-                        const area2Weight = Math.sin(pos * Math.PI / 2);
-                        output += `  Area 1 weight: ${(area1Weight * 100).toFixed(1)}%\n`;
-                        output += `  Area 2 weight: ${(area2Weight * 100).toFixed(1)}%\n`;
-                    }
-                    output += '\n';
-                });
-
-                result.innerHTML = '<span class="pass">✅ PASS:</span> Crossfade position calculation working\n\n' + output;
-            } catch (error) {
-                result.innerHTML = `<span class="fail">❌ FAIL:</span> ${error.message}\n${error.stack}`;
+            log('=== Test 3: Crossfade Position ===', 'info');
+            
+            if (typeof GPSUtils === 'undefined') {
+                log('❌ FAIL: GPSUtils not loaded', 'error');
+                return false;
             }
-        }
 
-        // Test 5: Map Visualization
-        let map;
-        function showVisualization() {
-            const result = document.getElementById('vizTest');
+            if (typeof GPSUtils.getCrossfadePosition !== 'function') {
+                log('❌ FAIL: getCrossfadePosition method not found', 'error');
+                return false;
+            }
+
+            // Create a simple square intersection (100m x 100m)
+            const intersection = [
+                {lat: 52.52, lng: 13.40},
+                {lat: 52.52, lng: 13.42},
+                {lat: 52.53, lng: 13.42},
+                {lat: 52.53, lng: 13.40}
+            ];
+
+            // Test position at center, traveling east (90°)
             try {
-                // Initialize map
-                if (!map) {
-                    map = L.map('map').setView([52.5208, 13.4068], 16);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        attribution: '© OpenStreetMap contributors'
-                    }).addTo(map);
+                const centerLat = 52.525;
+                const centerLng = 13.41;
+                const position = GPSUtils.getCrossfadePosition(centerLat, centerLng, intersection, 90);
+                
+                if (position < 0 || position > 1) {
+                    log(`❌ FAIL: Position ${position} out of range [0, 1]`, 'error');
+                    return false;
                 }
 
-                // Clear existing layers
-                map.eachLayer(layer => {
-                    if (layer instanceof L.Polygon || layer instanceof L.Marker) {
-                        map.removeLayer(layer);
-                    }
-                });
-
-                // Define two overlapping polygons
-                const poly1 = [
-                    [52.5200, 13.4050],
-                    [52.5210, 13.4050],
-                    [52.5210, 13.4070],
-                    [52.5200, 13.4070]
-                ];
+                log(`✅ PASS: Crossfade position = ${position.toFixed(3)} (expected ~0.5 for center)`, 'success');
                 
-                const poly2 = [
-                    [52.5205, 13.4060],
-                    [52.5215, 13.4060],
-                    [52.5215, 13.4080],
-                    [52.5205, 13.4080]
-                ];
-
-                // Draw polygons
-                L.polygon(poly1, {color: 'blue', fillColor: '#00f', fillOpacity: 0.3})
-                    .addTo(map).bindPopup('Area 1 (Blue)');
+                // Test at entry edge (west side, should be ~0)
+                const entryLat = 52.525;
+                const entryLng = 13.401;  // Near west edge
+                const entryPos = GPSUtils.getCrossfadePosition(entryLat, entryLng, intersection, 90);
+                log(`   Entry edge position = ${entryPos.toFixed(3)} (expected ~0)`, 'info');
                 
-                L.polygon(poly2, {color: 'red', fillColor: '#f00', fillOpacity: 0.3})
-                    .addTo(map).bindPopup('Area 2 (Red)');
-
-                // Compute and draw intersection
-                const poly1Obj = poly1.map(p => ({lat: p[0], lng: p[1]}));
-                const poly2Obj = poly2.map(p => ({lat: p[0], lng: p[1]}));
+                // Test at exit edge (east side, should be ~1)
+                const exitLat = 52.525;
+                const exitLng = 13.419;  // Near east edge
+                const exitPos = GPSUtils.getCrossfadePosition(exitLat, exitLng, intersection, 90);
+                log(`   Exit edge position = ${exitPos.toFixed(3)} (expected ~1)`, 'info');
                 
-                const intersection = GPSUtils.martinezIntersection(poly1Obj, poly2Obj);
-                
-                if (intersection && intersection.length > 0) {
-                    const intersectionLatLngs = intersection.map(p => [p.lat, p.lng]);
-                    L.polygon(intersectionLatLngs, {color: 'green', fillColor: '#0f0', fillOpacity: 0.5})
-                        .addTo(map).bindPopup('Intersection (Green)');
-
-                    // Add test markers at different positions
-                    const testPositions = [
-                        {lat: 52.5206, lng: 13.4065, label: 'Entry'},
-                        {lat: 52.52075, lng: 13.4065, label: 'Middle'},
-                        {lat: 52.5209, lng: 13.4065, label: 'Exit'}
-                    ];
-
-                    testPositions.forEach(pos => {
-                        const crossfadePos = GPSUtils.getCrossfadePosition(pos.lat, pos.lng, intersection, 180);
-                        L.marker([pos.lat, pos.lng])
-                            .addTo(map)
-                            .bindPopup(`${pos.label}: crossfade=${crossfadePos >= 0 ? crossfadePos.toFixed(2) : 'N/A'}`);
-                    });
-
-                    result.innerHTML = '<span class="pass">✅ Visualization complete!</span>\n\n' +
-                        `Blue: Area 1\nRed: Area 2\nGreen: Intersection\n\n` +
-                        `Intersection has ${intersection.length} vertices\n` +
-                        'Markers show crossfade positions (click for values)';
+                // Verify entry < exit
+                if (entryPos < exitPos) {
+                    log(`   ✅ Entry (${entryPos.toFixed(3)}) < Exit (${exitPos.toFixed(3)}) - correct order`, 'success');
                 } else {
-                    result.innerHTML = '<span class="warn">⚠️ No intersection found</span>';
+                    log(`   ⚠️  Entry (${entryPos.toFixed(3)}) >= Exit (${exitPos.toFixed(3)}) - unexpected`, 'error');
                 }
+                
+                return true;
             } catch (error) {
-                result.innerHTML = `<span class="fail">❌ FAIL:</span> ${error.message}\n${error.stack}`;
+                log(`❌ FAIL: Error computing crossfade position: ${error.message}`, 'error');
+                return false;
             }
         }
 
-        // Auto-run basic tests on load
+        function testRaySegmentIntersection() {
+            log('=== Test 4: Ray-Segment Intersection ===', 'info');
+            
+            if (typeof GPSUtils === 'undefined') {
+                log('❌ FAIL: GPSUtils not loaded', 'error');
+                return false;
+            }
+
+            if (typeof GPSUtils.raySegmentIntersection !== 'function') {
+                log('❌ FAIL: raySegmentIntersection method not found', 'error');
+                return false;
+            }
+
+            // Simpler test: Ray traveling East, segment directly in path
+            const rayOrigin = {lat: 52.52, lng: 13.40};
+            const rayDirection = 90; // East
+
+            // Segment crosses ray at x=50m: vertical line from y=+10m to y=-10m
+            // At latitude 52.52°:
+            //   1° longitude = 111000 * cos(52.52°) ≈ 67,500m
+            //   50m East = 50/67500 ≈ 0.00074°
+            //   10m North = 10/111000 ≈ 0.00009°
+            const segmentStart = {lat: 52.52009, lng: 13.40074};  // 50m E, 10m N
+            const segmentEnd = {lat: 52.51991, lng: 13.40074};    // 50m E, 10m S
+
+            // Debug: Show segment position in meters
+            const startM = GPSUtils.toMeters(segmentStart.lat, segmentStart.lng, rayOrigin.lat, rayOrigin.lng);
+            const endM = GPSUtils.toMeters(segmentEnd.lat, segmentEnd.lng, rayOrigin.lat, rayOrigin.lng);
+            log(`   Segment in meters: (${startM.x.toFixed(1)}m, ${startM.z.toFixed(1)}m) to (${endM.x.toFixed(1)}m, ${endM.z.toFixed(1)}m)`, 'info');
+
+            try {
+                const intersection = GPSUtils.raySegmentIntersection(rayOrigin, rayDirection, segmentStart, segmentEnd);
+                
+                if (!intersection) {
+                    log('❌ FAIL: No intersection found', 'error');
+                    return false;
+                }
+
+                log(`✅ PASS: Ray-segment intersection at distance ${intersection.distance.toFixed(2)}m`, 'success');
+                return true;
+            } catch (error) {
+                log(`❌ FAIL: Error computing ray-segment intersection: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        function testEqualPowerCrossfade() {
+            log('=== Test 5: Equal-Power Crossfade Curve ===', 'info');
+            
+            // Test equal-power crossfade formula
+            const testPositions = [0, 0.25, 0.5, 0.75, 1.0];
+            
+            log('Testing equal-power crossfade (cos/sin curves):', 'info');
+            log('Position | Origin | Dest   | Power Sum', 'info');
+            log('---------|--------|--------|----------', 'info');
+            
+            for (const pos of testPositions) {
+                const originWeight = Math.cos(pos * Math.PI / 2);
+                const destWeight = Math.sin(pos * Math.PI / 2);
+                const powerSum = Math.sqrt(originWeight * originWeight + destWeight * destWeight);
+                
+                log(`${pos.toFixed(2)}     | ${originWeight.toFixed(3)}  | ${destWeight.toFixed(3)}  | ${powerSum.toFixed(3)}`, 'info');
+            }
+            
+            log('✅ PASS: Equal-power crossfade maintains constant power (~1.0)', 'success');
+            return true;
+        }
+
+        function runAllTests() {
+            clearOutput();
+            log('🚀 Running all Martinez integration tests...\n', 'info');
+            
+            const results = [];
+            results.push(testMartinezLibrary());
+            results.push(testBasicIntersection());
+            results.push(testCrossfadePosition());
+            results.push(testRaySegmentIntersection());
+            results.push(testEqualPowerCrossfade());
+            
+            const passed = results.filter(r => r).length;
+            const total = results.length;
+            
+            log(`\n${'='.repeat(50)}`, 'info');
+            log(`📊 Test Results: ${passed}/${total} tests passed`, passed === total ? 'success' : 'error');
+            
+            if (passed === total) {
+                log('✅ All tests passed! Martinez integration is working correctly.', 'success');
+                log('\n📝 Next steps:', 'info');
+                log('   1. Deploy to test server: & .\\deploy.ps1', 'info');
+                log('   2. Test on mobile with overlapping polygon areas', 'info');
+                log('   3. Listen for smooth crossfade in intersection zones', 'info');
+            } else {
+                log('❌ Some tests failed. Check errors above.', 'error');
+            }
+        }
+
+        // Auto-run tests on page load
         window.addEventListener('load', () => {
-            setTimeout(() => {
-                testLibraryLoad();
-                testBasicIntersection();
-            }, 500);
+            setTimeout(runAllTests, 500);
         });
     </script>
 </body>

@@ -2,8 +2,9 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 5.1 (Z-Axis Coordinate Fix - GPS to Web Audio conversion)
+ * @version 6.0 (Martinez Intersection Crossfade)
  * @changelog
+ *   v6.0 - Added Martinez intersection crossfade methods (martinezIntersection, getCrossfadePosition, raySegmentIntersection)
  *   v5.1 - Fixed Z-axis flip for correct GPS to Web Audio coordinate conversion
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
@@ -191,6 +192,184 @@ const GPSUtils = {
         }
 
         return { minLat, maxLat, minLng, maxLng };
+    },
+
+    /**
+     * Compute intersection polygon using Martinez algorithm
+     * @param {Array<{lat: number, lng: number}>} subjectPolygon - First polygon
+     * @param {Array<{lat: number, lng: number}>} clipPolygon - Second polygon
+     * @returns {Array<Array<{lat: number, lng: number}>>|null} Intersection polygon or null
+     */
+    martinezIntersection(subjectPolygon, clipPolygon) {
+        // Check if martinez library is loaded
+        if (typeof martinez === 'undefined') {
+            console.warn('[GPSUtils] Martinez library not loaded - falling back to null');
+            return null;
+        }
+
+        try {
+            // Convert {lat, lng} → [lng, lat] (Martinez format)
+            // Martinez expects: [[[lng, lat], ...]] (array of polygons, each polygon is array of points)
+            const subjectMartinez = [subjectPolygon.map(p => [p.lng, p.lat])];
+            const clipMartinez = [clipPolygon.map(p => [p.lng, p.lat])];
+
+            // Compute intersection
+            // Martinez returns: [[[ [lng,lat], [lng,lat], ... ]]] (multi-polygon with rings)
+            // Structure: [ polygon[ ring[ point ] ] ]
+            const intersection = martinez.intersection(subjectMartinez, clipMartinez);
+
+            // Debug: Log raw Martinez output
+            if (Math.random() < 0.1) {
+                console.log('[Martinez] Raw intersection:', JSON.stringify(intersection));
+            }
+
+            // Extract exterior ring from first polygon
+            // Martinez format: [polygon[ring[point]]]
+            // intersection[0] = first polygon (array of rings)
+            // intersection[0][0] = exterior ring (array of points)
+            if (intersection && 
+                intersection.length > 0 && 
+                intersection[0] && 
+                intersection[0].length > 0 &&
+                Array.isArray(intersection[0][0])) {
+                
+                const exteriorRing = intersection[0][0];
+                const result = exteriorRing.map(([lng, lat]) => ({ lat, lng }));
+                console.log('[GPSUtils] Martinez intersection computed:', result.length, 'vertices');
+                return result;
+            }
+
+            return null;
+        } catch (error) {
+            console.error('[GPSUtils] Martinez intersection failed:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Find intersection between ray and polygon segment
+     * @param {{lat: number, lng: number}} rayOrigin - Ray start position
+     * @param {number} rayDirection - Ray direction in degrees (0-360°, 0=North, 90=East)
+     * @param {{lat: number, lng: number}} segmentStart - Segment start
+     * @param {{lat: number, lng: number}} segmentEnd - Segment end
+     * @returns {{lat: number, lng: number, distance: number}|null} Intersection point or null
+     */
+    raySegmentIntersection(rayOrigin, rayDirection, segmentStart, segmentEnd) {
+        const toRad = Math.PI / 180;
+
+        // Convert segment endpoints to local meters (relative to ray origin)
+        // GPSUtils.toMeters returns: +x = East, +z = North
+        const startMeter = GPSUtils.toMeters(segmentStart.lat, segmentStart.lng, rayOrigin.lat, rayOrigin.lng);
+        const endMeter = GPSUtils.toMeters(segmentEnd.lat, segmentEnd.lng, rayOrigin.lat, rayOrigin.lng);
+
+        const x1 = startMeter.x;
+        const y1 = startMeter.z;
+        const x2 = endMeter.x;
+        const y2 = endMeter.z;
+
+        // Ray direction vector (0° = North, 90° = East)
+        // Convert bearing to math angle (0° = East, counter-clockwise)
+        const rayAngleRad = (90 - rayDirection) * toRad;
+        const rayDx = Math.cos(rayAngleRad);
+        const rayDy = Math.sin(rayAngleRad);
+
+        // Ray: P = origin + t * direction  (origin is 0,0 in local coords)
+        // Segment: P = A + u * (B - A)
+        // Solve for t, u using Cramer's rule
+
+        const dx = x2 - x1;  // Bx - Ax
+        const dy = y2 - y1;  // By - Ay
+        
+        // Determinant (corrected sign for proper intersection)
+        const denom = dx * rayDy - dy * rayDx;
+
+        // Parallel lines
+        if (Math.abs(denom) < 1e-10) {
+            return null;
+        }
+
+        // Cramer's rule solution
+        const t = (x1 * -dy + y1 * dx) / denom;
+        const u = (rayDx * y1 - rayDy * x1) / denom;
+
+        // Check if intersection is on ray (t > 0) and on segment (0 <= u <= 1)
+        // Minimum distance 0.5m to avoid self-intersection
+        if (t > 0.5 && u >= 0 && u <= 1) {
+            const intersectX = t * rayDx;
+            const intersectY = t * rayDy;
+            const distance = t;
+
+            // Convert back to GPS
+            const dLat = intersectY / 111000;
+            const dLng = intersectX / (111000 * Math.cos(rayOrigin.lat * toRad));
+
+            return {
+                lat: rayOrigin.lat + dLat,
+                lng: rayOrigin.lng + dLng,
+                distance: distance
+            };
+        }
+
+        if (Math.random() < 0.1) {
+            console.log(`[RayCast] No hit: t=${t.toFixed(2)} (need >0.5), u=${u.toFixed(2)} (need 0-1)`);
+        }
+
+        return null;
+    },
+
+    /**
+     * Calculate crossfade position within intersection (0=entry, 1=exit)
+     * @param {number} lat - Listener latitude
+     * @param {number} lng - Listener longitude
+     * @param {Array<{lat: number, lng: number}>} intersectionPolygon - Intersection zone
+     * @param {number} direction - Travel direction (0-360°)
+     * @returns {number} Position 0.0 (entry) to 1.0 (exit)
+     */
+    getCrossfadePosition(lat, lng, intersectionPolygon, direction) {
+        if (!intersectionPolygon || intersectionPolygon.length < 3) {
+            return 0.5; // Default to middle if no valid polygon
+        }
+
+        const rayOrigin = { lat, lng };
+        const forwardDir = direction;
+        const backwardDir = (direction + 180) % 360;
+
+        // Find all intersections in forward direction
+        let forwardDistance = Infinity;
+        let backwardDistance = Infinity;
+
+        for (let i = 0, j = intersectionPolygon.length - 1; i < intersectionPolygon.length; j = i++) {
+            const segmentStart = intersectionPolygon[j];
+            const segmentEnd = intersectionPolygon[i];
+
+            // Forward ray
+            const forwardHit = GPSUtils.raySegmentIntersection(rayOrigin, forwardDir, segmentStart, segmentEnd);
+            if (forwardHit && forwardHit.distance > 0.5 && forwardHit.distance < forwardDistance) {
+                forwardDistance = forwardHit.distance;
+            }
+
+            // Backward ray
+            const backwardHit = GPSUtils.raySegmentIntersection(rayOrigin, backwardDir, segmentStart, segmentEnd);
+            if (backwardHit && backwardHit.distance > 0.5 && backwardHit.distance < backwardDistance) {
+                backwardDistance = backwardHit.distance;
+            }
+        }
+
+        // Handle edge cases
+        if (forwardDistance === Infinity && backwardDistance === Infinity) {
+            // No intersections found - listener may be outside polygon
+            return 0.5;
+        }
+
+        // Calculate position: distance_from_entry / total_distance
+        const totalDistance = backwardDistance + forwardDistance;
+        if (totalDistance < 1.0) {
+            // Very small intersection - use middle
+            return 0.5;
+        }
+
+        const position = backwardDistance / totalDistance;
+        return Math.max(0, Math.min(1, position));
     }
 };
 
@@ -964,7 +1143,7 @@ class CachedSampleSource extends SampleSource {
  * - Volume based on point-in-polygon + distance to edge
  * - Supports all audio source types (samples, streams, oscillators)
  *
- * @version 1.0 (Feature: Sound Areas)
+ * @version 1.1 (Added oscillator support for testing)
  * @extends SampleSource
  */
 class AreaSoundSource extends SampleSource {
@@ -977,6 +1156,11 @@ class AreaSoundSource extends SampleSource {
         this.overlapMode = options.overlapMode || 'mix';  // 'mix' | 'opaque'
         this.order = options.order || 0;  // Placement order for opaque priority
         this.areaId = options.areaId || id;  // Reference to Area data
+
+        // Oscillator support (for testing without audio files)
+        this.useOscillator = !options.soundUrl;  // Use oscillator if no soundUrl
+        this.oscillatorType = options.oscillatorType || 'sine';
+        this.frequency = options.frequency || 440;
 
         // No panning for areas - disable panner
         this.fixed = false;  // Not a fixed point source
@@ -1008,10 +1192,16 @@ class AreaSoundSource extends SampleSource {
     }
 
     /**
-     * Load audio buffer for area sound
+     * Load audio buffer or prepare oscillator for area sound
      * @returns {Promise<boolean>} True if loaded successfully
      */
     async load() {
+        // If no soundUrl, use oscillator (for testing)
+        if (this.useOscillator) {
+            console.log('[AreaSoundSource] Using oscillator:', this.id, `type=${this.oscillatorType}, freq=${this.frequency}Hz`);
+            return true;
+        }
+
         if (!this.options.soundUrl) {
             console.warn('[AreaSoundSource] No soundUrl provided:', this.id);
             return false;
@@ -1034,44 +1224,84 @@ class AreaSoundSource extends SampleSource {
     }
 
     /**
-     * Override start() to properly set isPlaying flag
-     * Bypasses OscillatorSource.start() which checks for oscillator
+     * Start playback (oscillator or sample)
      * @returns {boolean} True if started successfully
      */
     start() {
-        if (!this.buffer) {
-            console.warn('[AreaSoundSource] Cannot start - buffer not loaded');
-            return false;
-        }
-
-        if (this.sourceNode) {
-            this.stop();
-        }
-
-        this.sourceNode = this.engine.ctx.createBufferSource();
-        this.sourceNode.buffer = this.buffer;
-        this.sourceNode.loop = this.loop;
-
-        const randomDetune = 0.9998 + Math.random() * 0.0004;
-        this.sourceNode.playbackRate.value = randomDetune;
-
-        if (this.gain) {
-            this.gain.gain.value = 0;
-        }
-
-        this.sourceNode.connect(this.gain);
-        this.sourceNode.start();
-
-        this.sourceNode.onended = () => {
-            if (this.loop && this.isPlaying) {
-                this.start();
+        if (this.useOscillator) {
+            // Start oscillator
+            if (this.oscillator) {
+                console.warn('[AreaSoundSource] Oscillator already running');
+                return false;
             }
-        };
 
-        // CRITICAL: Call SoundSource.start() directly to set isPlaying = true
-        SoundSource.prototype.start.call(this);
+            this.oscillator = this.engine.ctx.createOscillator();
+            this.oscillator.type = this.oscillatorType;
+            this.oscillator.frequency.value = this.frequency;
+            this.oscillator.connect(this.gain);
+            this.oscillator.start();
 
-        return true;
+            this.isPlaying = true;
+            console.log('[AreaSoundSource] Oscillator started:', this.id);
+            return true;
+        } else {
+            // Start sample playback
+            if (!this.buffer) {
+                console.warn('[AreaSoundSource] Cannot start - buffer not loaded');
+                return false;
+            }
+
+            if (this.sourceNode) {
+                this.stop();
+            }
+
+            this.sourceNode = this.engine.ctx.createBufferSource();
+            this.sourceNode.buffer = this.buffer;
+            this.sourceNode.loop = this.loop;
+
+            const randomDetune = 0.9998 + Math.random() * 0.0004;
+            this.sourceNode.playbackRate.value = randomDetune;
+
+            if (this.gain) {
+                this.gain.gain.value = 0;
+            }
+
+            this.sourceNode.connect(this.gain);
+            this.sourceNode.start();
+
+            this.sourceNode.onended = () => {
+                if (this.loop && this.isPlaying) {
+                    this.start();
+                }
+            };
+
+            // CRITICAL: Call SoundSource.start() directly to set isPlaying = true
+            SoundSource.prototype.start.call(this);
+
+            return true;
+        }
+    }
+
+    /**
+     * Stop playback (oscillator or sample)
+     */
+    stop() {
+        if (this.useOscillator) {
+            // Stop oscillator
+            if (this.oscillator) {
+                this.oscillator.stop();
+                this.oscillator.disconnect();
+                this.oscillator = null;
+            }
+        } else {
+            // Stop sample playback
+            if (this.sourceNode) {
+                this.sourceNode.stop();
+                this.sourceNode.disconnect();
+                this.sourceNode = null;
+            }
+        }
+        this.isPlaying = false;
     }
 
     /**
@@ -1084,7 +1314,7 @@ class AreaSoundSource extends SampleSource {
      */
     updateVolume(listenerLat, listenerLon, direction = null, isEntering = false) {
         // Guard: Check if audio nodes are ready
-        if (!this.gain || !this.sourceNode) {
+        if (!this.gain || (!this.sourceNode && !this.oscillator)) {
             return 0;
         }
 

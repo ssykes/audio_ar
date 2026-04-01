@@ -2,10 +2,11 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 2.8 (Feature 14: Distance-Based Audio Filtering / Air Absorption)
- * @depends spatial_audio.js v5.1+
+ * @version 3.0 (Martinez Intersection Crossfade)
+ * @depends spatial_audio.js v6.0+
  *
  * Changelog:
+ * - v3.0: Added Martinez intersection-based crossfade for overlapping polygon areas
  * - v2.8: Added distance-based low-pass filter (simulates air absorption)
  * - v2.7: Added hysteresis to disposal logic (prevents cycling at zone boundaries)
  * - v2.6: Fixed preloaded sounds not starting when entering active zone
@@ -18,6 +19,7 @@
  * - UI callbacks for position/state updates
  * - FEATURE 13: Lazy loading with 3-zone system (active/preload/hysteresis)
  * - FEATURE 14: Air absorption simulation (low-pass filter based on distance)
+ * - FEATURE 17: Martinez intersection crossfade (equal-power crossfade in overlap zones)
  *
  * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m hysteresis)
  * =================================================
@@ -2161,75 +2163,146 @@ class AreaManager {
             }
         }
 
-        // === MIX MODE: Direction-aware crossfade with constant total volume ===
-        // Key principle: Total volume across all areas = 100% (constant)
-        // Each area gets a share based on direction of travel
+        // === MIX MODE: Martinez intersection-based crossfade ===
+        // For 2 overlapping areas: use geometric intersection + equal-power crossfade
+        // For 3+ areas: fall back to equal distribution (Martinez limitation)
         if (mixAreas.length > 0) {
             const t = this.engine.ctx.currentTime;
-            const numAreas = mixAreas.length;
 
-            // Calculate direction weight for each area
-            // Areas we're moving toward get higher weight, areas behind get lower weight
-            const weights = mixAreas.map(area => {
-                const center = this._calculateAreaCenter(area.polygon);
-                const dirToCenter = this._calculateDirection(
-                    this.listener.lat,
-                    this.listener.lon,
-                    center.lat,
-                    center.lon
-                );
-                const angleDiff = Math.abs(this._normalizeAngle(travelDirection - dirToCenter));
-                // Weight based on alignment with travel direction
-                // 0° = directly ahead (weight = 1), 180° = directly behind (weight = 0)
-                return Math.max(0, Math.cos(angleDiff * Math.PI / 180));
-            });
+            if (mixAreas.length === 2) {
+                // === TWO-AREA INTERSECTION CROSSFADE ===
+                const area1 = mixAreas[0];
+                const area2 = mixAreas[1];
 
-            // Normalize weights so they sum to 1.0 (constant total volume)
-            const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-            const normalizedWeights = totalWeight > 0
-                ? weights.map(w => w / totalWeight)
-                : weights.map(() => 1 / numAreas);  // Equal share if no direction
+                // Step 1: Compute intersection polygon using Martinez
+                const intersection = GPSUtils.martinezIntersection(area1.polygon, area2.polygon);
 
-            // Apply crossfaded volumes: each area gets its share of 100% total
-            // Step 1: Calculate base volume for each area (from fade zone)
-            // Step 2: Apply crossfade weight to base volume
-            for (let i = 0; i < mixAreas.length; i++) {
-                const area = mixAreas[i];
-                if (area.gain) {
-                    // Calculate base volume from distance to edge (fade zone effect)
-                    const distanceToEdge = GPSUtils.distanceToEdge(
+                if (intersection) {
+                    // Step 2: Get listener position in intersection (0=entry, 1=exit)
+                    const crossfadePos = GPSUtils.getCrossfadePosition(
                         this.listener.lat,
                         this.listener.lon,
-                        area.polygon
+                        intersection,
+                        travelDirection
                     );
 
-                    let fadeVolume = 1.0;
-                    if (distanceToEdge < area.fadeZoneWidth) {
-                        // In fade zone - interpolate volume
-                        fadeVolume = distanceToEdge / area.fadeZoneWidth;
-                        fadeVolume = Math.pow(fadeVolume, 0.5);  // Square root for smoother transition
-                    }
+                    // Step 3: Determine origin vs destination area
+                    // Origin = behind listener, Destination = ahead
+                    const dirToArea1 = this._calculateDirection(
+                        this.listener.lat,
+                        this.listener.lon,
+                        this._calculateAreaCenter(area1.polygon).lat,
+                        this._calculateAreaCenter(area1.polygon).lon
+                    );
+                    const dirToArea2 = this._calculateDirection(
+                        this.listener.lat,
+                        this.listener.lon,
+                        this._calculateAreaCenter(area2.polygon).lat,
+                        this._calculateAreaCenter(area2.polygon).lon
+                    );
 
-                    // Apply crossfade weight (ensures constant total volume)
-                    const crossfadedVolume = fadeVolume * area.options.gain * normalizedWeights[i];
-                    area.gain.gain.cancelScheduledValues(t);
-                    area.gain.gain.setTargetAtTime(crossfadedVolume, t, 0.05);
+                    const angleDiff1 = Math.abs(this._normalizeAngle(travelDirection - dirToArea1));
+                    const angleDiff2 = Math.abs(this._normalizeAngle(travelDirection - dirToArea2));
+
+                    // Area behind (angle > 90°) = Origin, Area ahead = Destination
+                    const originArea = angleDiff1 > 90 ? area1 : area2;
+                    const destArea = angleDiff1 > 90 ? area2 : area1;
+
+                    // Step 4: Apply equal-power crossfade (cos/sin curves)
+                    // Entry (pos=0): origin=100%, dest=0%
+                    // Middle (pos=0.5): origin=71%, dest=71% (constant power)
+                    // Exit (pos=1): origin=0%, dest=100%
+                    const originWeight = Math.cos(crossfadePos * Math.PI / 2);
+                    const destWeight = Math.sin(crossfadePos * Math.PI / 2);
+
+                    // Step 5: Apply volumes with fade zone consideration
+                    const applyVolume = (area, weight) => {
+                        if (!area.gain) return;
+
+                        // Calculate base volume from distance to edge (fade zone effect)
+                        const distanceToEdge = GPSUtils.distanceToEdge(
+                            this.listener.lat,
+                            this.listener.lon,
+                            area.polygon
+                        );
+
+                        let fadeVolume = 1.0;
+                        if (distanceToEdge < area.fadeZoneWidth) {
+                            fadeVolume = distanceToEdge / area.fadeZoneWidth;
+                            fadeVolume = Math.pow(fadeVolume, 0.5);
+                        }
+
+                        // Apply crossfade weight + fade zone + max volume setting
+                        const finalVolume = fadeVolume * area.options.gain * weight;
+                        area.gain.gain.cancelScheduledValues(t);
+                        area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
+                    };
+
+                    applyVolume(originArea, originWeight);
+                    applyVolume(destArea, destWeight);
+
+                    // Debug logging (throttled to 5%)
+                    if (Math.random() < 0.05) {
+                        console.log(`[Crossfade] pos=${crossfadePos.toFixed(2)}, ` +
+                            `origin=${(originWeight * 100).toFixed(0)}%, ` +
+                            `dest=${(destWeight * 100).toFixed(0)}%`);
+                    }
+                } else {
+                    // Fallback: no intersection (shouldn't happen) - use equal distribution
+                    this._applyEqualDistribution(mixAreas, t);
                 }
+            } else {
+                // Fallback: 3+ areas = equal distribution (1/N per area)
+                // Martinez doesn't handle multi-way intersection elegantly
+                this._applyEqualDistribution(mixAreas, t);
             }
 
-            // Debug logging
-            if (Math.random() < 0.1) {
-                const debugInfo = mixAreas.map((a, i) =>
-                    `${a.areaId}:${(normalizedWeights[i] * 100).toFixed(0)}%`
-                ).join(' | ');
-                console.log(`[Crossfade] ${debugInfo} (total: 100%)`);
+            // Debug: Log active areas (throttled)
+            if (Math.random() < 0.05) {
+                const activeInfo = activeAreas.map(a => `${a.areaId}(${a.overlapMode}:${a.order})`).join(', ');
+                console.log(`[AreaManager] Active areas: ${activeInfo} (mix: ${mixAreas.length})`);
+            }
+        }
+    }
+
+    /**
+     * Apply equal distribution to mix areas (fallback for 3+ areas)
+     * @param {Array<AreaSoundSource>} mixAreas - Areas to mix
+     * @param {number} t - Audio context time
+     * @private
+     */
+    _applyEqualDistribution(mixAreas, t) {
+        const numAreas = mixAreas.length;
+        const equalWeight = 1.0 / numAreas;
+
+        for (let i = 0; i < mixAreas.length; i++) {
+            const area = mixAreas[i];
+            if (area.gain) {
+                // Calculate base volume from distance to edge (fade zone effect)
+                const distanceToEdge = GPSUtils.distanceToEdge(
+                    this.listener.lat,
+                    this.listener.lon,
+                    area.polygon
+                );
+
+                let fadeVolume = 1.0;
+                if (distanceToEdge < area.fadeZoneWidth) {
+                    fadeVolume = distanceToEdge / area.fadeZoneWidth;
+                    fadeVolume = Math.pow(fadeVolume, 0.5);
+                }
+
+                const finalVolume = fadeVolume * area.options.gain * equalWeight;
+                area.gain.gain.cancelScheduledValues(t);
+                area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
             }
         }
 
-        // Debug: Log active areas (throttled)
-        if (Math.random() < 0.05) {
-            const activeInfo = activeAreas.map(a => `${a.areaId}(${a.overlapMode}:${a.order})`).join(', ');
-            console.log(`[AreaManager] Active areas: ${activeInfo} (mix: ${mixAreas.length})`);
+        // Debug logging
+        if (Math.random() < 0.1) {
+            const debugInfo = mixAreas.map((a) =>
+                `${a.areaId}:${(equalWeight * 100).toFixed(0)}%`
+            ).join(' | ');
+            console.log(`[Crossfade] ${debugInfo} (equal distribution)`);
         }
     }
 
