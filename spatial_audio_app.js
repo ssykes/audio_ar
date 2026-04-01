@@ -171,8 +171,9 @@ class Listener {
  */
 class Sound {
     constructor(config) {
-        if (!config.url) {
-            throw new Error('Sound config must have url');
+        // For oscillators, url is optional (not required)
+        if (!config.url && config.type !== 'oscillator') {
+            throw new Error('Sound config must have url (unless type is oscillator)');
         }
 
         // Accept either lat/lon OR distance/direction (direction will be converted by SpatialAudioApp)
@@ -182,7 +183,7 @@ class Sound {
         }
 
         this.id = config.id || `sound_${Date.now()}`;
-        this.url = config.url;
+        this.url = config.url || '';  // Empty for oscillators
         this.lat = config.lat || 0;  // Will be set by SpatialAudioApp if using distance
         this.lon = config.lon || 0;  // Will be set by SpatialAudioApp if using distance
         this.activationRadius = config.activationRadius || 30;
@@ -1429,24 +1430,23 @@ class SpatialAudioApp {
         }
 
         // === Oscillators: Instant Creation ===
-        // TODO: Implement when createOscillatorSource is added to spatial_audio.js
         if (sound.type === 'oscillator') {
             if (this.onDebugLog) {
                 this.onDebugLog(`🎹 Creating oscillator ${sound.id} (${sound.oscillatorType} ${sound.frequency}Hz)...`);
             }
 
             try {
-                // For now, treat oscillators like buffers (fallback)
-                // TODO: Replace with actual oscillator creation
                 sound.isLoading = true;
 
-                const source = await this.engine.createSampleSource(sound.id, {
-                    url: sound.url,
+                // Create actual oscillator source with properties
+                const source = this.engine.createOscillator(sound.id, {
                     lat: sound.lat,
                     lon: sound.lon,
                     loop: sound.loop,
-                    gain: sound.volume,
-                    activationRadius: sound.activationRadius
+                    gain: sound.gain !== undefined ? sound.gain : sound.volume,
+                    activationRadius: sound.activationRadius,
+                    wave: sound.oscillatorType || 'sine',
+                    freq: sound.frequency || 440
                 });
 
                 if (source && source.start()) {
@@ -1455,12 +1455,10 @@ class SpatialAudioApp {
                     sound.pannerNode = source.panner;
 
                     // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
-                    // Insert filter between gain and panner
-                    // Chain: sourceNode → gain → filter → panner → master
                     sound.filterNode = this.engine.ctx.createBiquadFilter();
                     sound.filterNode.type = 'lowpass';
-                    sound.filterNode.frequency.value = 20000;  // Start at full spectrum
-                    sound.filterNode.Q.value = 0.5;  // Smooth rolloff
+                    sound.filterNode.frequency.value = 20000;
+                    sound.filterNode.Q.value = 0.5;
 
                     // Reconnect: gain → filter → panner
                     source.gain.disconnect();
@@ -1470,11 +1468,11 @@ class SpatialAudioApp {
                     sound.isPlaying = true;
                     sound.isLoaded = true;
 
-                    // CRITICAL: Immediately apply distance-based gain (handles fade zone)
+                    // Apply distance-based gain
                     this._applyDistanceGain(sound);
 
                     if (this.onDebugLog) {
-                        this.onDebugLog(`✅ ${sound.id} loaded + started (oscillator fallback + filter)`);
+                        this.onDebugLog(`✅ ${sound.id} oscillator started (${sound.oscillatorType} ${sound.frequency}Hz)`);
                     }
                 }
             } catch (error) {
@@ -1486,6 +1484,11 @@ class SpatialAudioApp {
                 sound.isLoading = false;
             }
             return;
+        }
+
+        // Debug: log sound type for non-oscillator sounds
+        if (this.onDebugLog) {
+            this.onDebugLog(`📥 Loading ${sound.type} sound ${sound.id} (url: ${sound.url || '(none)'})...`);
         }
 
         // === Buffers + Streams: Network Loading ===
@@ -1805,15 +1808,32 @@ class SpatialAudioApp {
         console.log('[SpatialAudioApp] Starting soundscape:', soundscape.name);
 
         // Convert waypointData to sound configs
-        const soundConfigs = soundscape.waypointData.map(wp => ({
-            id: wp.id,
-            url: wp.soundUrl,
-            lat: wp.lat,
-            lon: wp.lon,
-            activationRadius: wp.activationRadius,
-            volume: wp.volume,
-            loop: wp.loop
-        }));
+        const soundConfigs = soundscape.waypointData.map(wp => {
+            const config = {
+                id: wp.id,
+                url: wp.type === 'oscillator' ? '' : wp.soundUrl,  // Ignore soundUrl for oscillators
+                lat: wp.lat,
+                lon: wp.lon,
+                activationRadius: wp.activationRadius,
+                volume: wp.volume,
+                loop: wp.loop,
+                type: wp.type || 'file',
+                // Oscillator properties
+                oscillatorType: wp.waveform || 'sine',
+                frequency: wp.frequency || 440,
+                detune: wp.detune || 0,
+                gain: wp.gain !== undefined ? wp.gain : wp.volume
+            };
+            console.log('[SpatialAudioApp] Waypoint sound config:', {
+                id: wp.id,
+                name: wp.name,
+                type: config.type,
+                url: config.url,
+                oscillatorType: config.oscillatorType,
+                frequency: config.frequency
+            });
+            return config;
+        });
 
         // Start the app with these configs
         this.soundConfigs = soundConfigs;
@@ -2024,26 +2044,46 @@ class AreaManager {
      */
     async loadAreas(areaConfigs) {
         console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
+        console.log('[AreaManager] Listener position:', { lat: this.listener.lat, lon: this.listener.lon });
 
         for (const areaConfig of areaConfigs) {
             try {
+                console.log('[AreaManager] Area config:', {
+                    id: areaConfig.id,
+                    name: areaConfig.name,
+                    type: areaConfig.type,
+                    waveform: areaConfig.waveform,
+                    frequency: areaConfig.frequency,
+                    detune: areaConfig.detune,
+                    gain: areaConfig.gain
+                });
                 const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
                     soundUrl: areaConfig.soundUrl,
+                    type: areaConfig.type || 'file',
                     volume: areaConfig.volume || 0.8,
                     loop: areaConfig.loop !== false,
                     fadeZoneWidth: areaConfig.fadeZoneWidth || 5.0,
                     overlapMode: areaConfig.overlapMode || 'mix',
                     order: areaConfig.order || 0,
-                    gain: areaConfig.volume || 0.8
+                    gain: areaConfig.gain !== undefined ? areaConfig.gain : areaConfig.volume || 0.8,
+                    // Oscillator properties
+                    oscillatorType: areaConfig.waveform || 'sine',
+                    frequency: areaConfig.frequency || 440,
+                    detune: areaConfig.detune || 0
                 });
 
                 areaSource.init();
                 const loaded = await areaSource.load();
                 if (loaded) {
                     areaSource.start();
+                    console.log('[AreaManager] Calling updateVolume with listener pos:', { lat: this.listener.lat, lon: this.listener.lon });
                     areaSource.updateVolume(this.listener.lat, this.listener.lon);
+                    
+                    // Debug: Check if listener is inside this area
+                    const isInside = GPSUtils.pointInPolygon(this.listener.lat, this.listener.lon, areaConfig.polygon);
+                    console.log('[AreaManager] Area', areaConfig.id, 'listener inside:', isInside);
                 }
                 this.areas.set(areaConfig.id, areaSource);
             } catch (error) {
@@ -2077,6 +2117,11 @@ class AreaManager {
             if (isActive) {
                 activeAreas.push(areaSource);
                 this.activeAreas.add(areaId);
+                
+                // Debug: Log when entering an area
+                if (!wasActive) {
+                    console.log('[AreaManager] ✅ ENTERED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
+                }
 
                 // For non-mix areas (opaque), update volume immediately
                 // For mix areas, volume will be set by _mixAreas()
@@ -2085,6 +2130,11 @@ class AreaManager {
                 }
             } else {
                 this.activeAreas.delete(areaId);
+                
+                // Debug: Log when exiting an area
+                if (wasActive) {
+                    console.log('[AreaManager] ❌ EXITED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
+                }
 
                 // Fade out smoothly when exiting area
                 if (areaSource.gain) {
