@@ -2045,22 +2045,52 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.value = waypoint.type || 'file';
         renderTypeFields(waypoint.type || 'file');
 
-        // Query type-specific fields AFTER rendering (they are created dynamically)
-        const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
-
         // Debug: log waypoint data
         addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundUrl=${waypoint.soundUrl || '(empty)'}`);
 
-        // Populate type-specific fields
+        // Populate type-specific fields based on type
         if (waypoint.type === 'file') {
+            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
             if (slideoutSoundUrl) {
                 slideoutSoundUrl.value = waypoint.soundUrl || '';
                 addDebugLog(`🎵 Waypoint soundUrl loaded: ${waypoint.soundUrl || '(empty)'}`);
             } else {
                 addDebugLog(`❌ slideoutSoundUrl element not found`);
             }
-        } else {
-            addDebugLog(`⚠️ Waypoint type is not 'file': ${waypoint.type}`);
+        } else if (waypoint.type === 'oscillator') {
+            const slideoutWaveform = document.getElementById('slideoutWaveform');
+            const slideoutFrequency = document.getElementById('slideoutFrequency');
+            const slideoutDetune = document.getElementById('slideoutDetune');
+            const slideoutGain = document.getElementById('slideoutGain');
+            const slideoutGainValue = document.getElementById('slideoutGainValue');
+
+            if (slideoutWaveform) slideoutWaveform.value = waypoint.waveform || 'sine';
+            if (slideoutFrequency) slideoutFrequency.value = waypoint.frequency || 440;
+            if (slideoutDetune) slideoutDetune.value = waypoint.detune || 0;
+            if (slideoutGain) {
+                slideoutGain.value = waypoint.gain !== undefined ? waypoint.gain : 0.5;
+                if (slideoutGainValue) {
+                    slideoutGainValue.textContent = `${Math.round((waypoint.gain !== undefined ? waypoint.gain : 0.5) * 100)}%`;
+                }
+            }
+            addDebugLog(`🎹 Waypoint oscillator loaded: wave=${waypoint.waveform}, freq=${waypoint.frequency}Hz`);
+        } else if (waypoint.type === 'streaming') {
+            const slideoutStreamUrl = document.getElementById('slideoutStreamUrl');
+            const slideoutStreamType = document.getElementById('slideoutStreamType');
+            const slideoutBufferTime = document.getElementById('slideoutBufferTime');
+            const slideoutBufferTimeValue = document.getElementById('slideoutBufferTimeValue');
+            const slideoutAutoReconnect = document.getElementById('slideoutAutoReconnect');
+
+            if (slideoutStreamUrl) slideoutStreamUrl.value = waypoint.streamUrl || '';
+            if (slideoutStreamType) slideoutStreamType.value = waypoint.streamType || 'mp3';
+            if (slideoutBufferTime) {
+                slideoutBufferTime.value = waypoint.bufferTime || 5;
+                if (slideoutBufferTimeValue) {
+                    slideoutBufferTimeValue.textContent = `${waypoint.bufferTime || 5}s`;
+                }
+            }
+            if (slideoutAutoReconnect) slideoutAutoReconnect.checked = waypoint.autoReconnect !== false;
+            addDebugLog(`📡 Waypoint streaming loaded: url=${waypoint.streamUrl || '(empty)'}`);
         }
 
     } else if (type === 'Area') {
@@ -2093,22 +2123,52 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.value = area.type || 'file';
         renderTypeFields(area.type || 'file');
 
-        // Query type-specific fields AFTER rendering (they are created dynamically)
-        const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
-
         // Debug: log area data
         addDebugLog(`🔍 Area data: type=${area.type}, soundUrl=${area.soundUrl || '(empty)'}`);
 
-        // Populate type-specific fields
+        // Populate type-specific fields based on type
         if (area.type === 'file') {
+            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
             if (slideoutSoundUrl) {
                 slideoutSoundUrl.value = area.soundUrl || '';
                 addDebugLog(`🎵 Area soundUrl loaded: ${area.soundUrl || '(empty)'}`);
             } else {
                 addDebugLog(`❌ slideoutSoundUrl element not found`);
             }
-        } else {
-            addDebugLog(`⚠️ Area type is not 'file': ${area.type}`);
+        } else if (area.type === 'oscillator') {
+            const slideoutWaveform = document.getElementById('slideoutWaveform');
+            const slideoutFrequency = document.getElementById('slideoutFrequency');
+            const slideoutDetune = document.getElementById('slideoutDetune');
+            const slideoutGain = document.getElementById('slideoutGain');
+            const slideoutGainValue = document.getElementById('slideoutGainValue');
+
+            if (slideoutWaveform) slideoutWaveform.value = area.waveform || 'sine';
+            if (slideoutFrequency) slideoutFrequency.value = area.frequency || 440;
+            if (slideoutDetune) slideoutDetune.value = area.detune || 0;
+            if (slideoutGain) {
+                slideoutGain.value = area.gain !== undefined ? area.gain : 0.5;
+                if (slideoutGainValue) {
+                    slideoutGainValue.textContent = `${Math.round((area.gain !== undefined ? area.gain : 0.5) * 100)}%`;
+                }
+            }
+            addDebugLog(`🎹 Area oscillator loaded: wave=${area.waveform}, freq=${area.frequency}Hz`);
+        } else if (area.type === 'streaming') {
+            const slideoutStreamUrl = document.getElementById('slideoutStreamUrl');
+            const slideoutStreamType = document.getElementById('slideoutStreamType');
+            const slideoutBufferTime = document.getElementById('slideoutBufferTime');
+            const slideoutBufferTimeValue = document.getElementById('slideoutBufferTimeValue');
+            const slideoutAutoReconnect = document.getElementById('slideoutAutoReconnect');
+
+            if (slideoutStreamUrl) slideoutStreamUrl.value = area.streamUrl || '';
+            if (slideoutStreamType) slideoutStreamType.value = area.streamType || 'mp3';
+            if (slideoutBufferTime) {
+                slideoutBufferTime.value = area.bufferTime || 5;
+                if (slideoutBufferTimeValue) {
+                    slideoutBufferTimeValue.textContent = `${area.bufferTime || 5}s`;
+                }
+            }
+            if (slideoutAutoReconnect) slideoutAutoReconnect.checked = area.autoReconnect !== false;
+            addDebugLog(`📡 Area streaming loaded: url=${area.streamUrl || '(empty)'}`);
         }
     }
 

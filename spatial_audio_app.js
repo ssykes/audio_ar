@@ -932,12 +932,7 @@ class SpatialAudioApp {
         // Fade zone handles smooth transitions (no abrupt stops)
         this.sounds.forEach(sound => {
             const source = this.engine.getSource(sound.id);
-            
-            // Debug: Log source info for oscillators
-            if (sound.type === 'oscillator') {
-                console.log(`[AudioApp] Oscillator ${sound.id}: source=${source ? source.constructor.name : 'null'}, has updateGainByDistance=${!!source?.updateGainByDistance}, isLoaded=${sound.isLoaded}`);
-            }
-            
+
             if (source && source.updateGainByDistance) {
                 // Skip gain update for disposed or unloaded sounds
                 // This prevents "ghost playback" after disposal
@@ -2049,6 +2044,36 @@ class AreaManager {
         console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
         console.log('[AreaManager] Listener position:', { lat: this.listener.lat, lon: this.listener.lon });
 
+        // Debug: Log all polygon data for inspection (static, no dragging needed)
+        console.group('[AreaManager] === STATIC POLYGON DATA ===');
+        areaConfigs.forEach((config, idx) => {
+            console.groupCollapsed(`Area ${idx + 1}/${areaConfigs.length}: "${config.name}" (${config.id})`);
+            
+            console.log('Polygon vertices:', config.polygon ? config.polygon.length : 0);
+            if (config.polygon) {
+                config.polygon.forEach((p, i) => {
+                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
+                });
+                
+                // Calculate bounds and size
+                const bounds = GPSUtils.polygonBounds(config.polygon);
+                const area = Math.abs(GPSUtils.polygonSignedArea(config.polygon));
+                const sizeLat = (bounds.maxLat - bounds.minLat) * 111000;
+                const sizeLng = (bounds.maxLng - bounds.minLng) * 111000 * Math.cos(bounds.minLat * Math.PI / 180);
+                
+                console.log(`  Area: ${area.toFixed(8)} deg²`);
+                console.log(`  Bounds: lat[${bounds.minLat.toFixed(6)} to ${bounds.maxLat.toFixed(6)}], lng[${bounds.minLng.toFixed(6)} to ${bounds.maxLng.toFixed(6)}]`);
+                console.log(`  Size: ${sizeLat.toFixed(1)}m × ${sizeLng.toFixed(1)}m`);
+                console.log(`  Overlap mode: ${config.overlapMode || 'mix'}`);
+                console.log(`  Order: ${config.order || 0}`);
+            } else {
+                console.warn('  ⚠️ NO POLYGON DATA!');
+            }
+            
+            console.groupEnd();
+        });
+        console.groupEnd();
+
         for (const areaConfig of areaConfigs) {
             try {
                 console.log('[AreaManager] Area config:', {
@@ -2095,6 +2120,57 @@ class AreaManager {
         }
 
         console.log('[AreaManager] Total areas loaded:', this.areas.size);
+        
+        // Debug: Export helper for console
+        console.log('[AreaManager] 💡 To export polygons as GeoJSON, run: app.areaManager.exportPolygons()');
+    }
+    
+    /**
+     * Export polygon data as GeoJSON (for debugging)
+     * Run from console: app.areaManager.exportPolygons()
+     * @returns {string} GeoJSON string
+     */
+    exportPolygons() {
+        const features = [];
+        this.areas.forEach((area, id) => {
+            const coords = area.polygon.map(p => [p.lng, p.lat]);
+            coords.push(coords[0]); // Close the ring
+            features.push({
+                type: 'Feature',
+                properties: {
+                    id: id,
+                    name: area.areaId,
+                    overlapMode: area.overlapMode,
+                    order: area.order
+                },
+                geometry: {
+                    type: 'Polygon',
+                    coordinates: [coords]
+                }
+            });
+        });
+        
+        const geojson = {
+            type: 'FeatureCollection',
+            features: features
+        };
+        
+        const jsonStr = JSON.stringify(geojson, null, 2);
+        console.log('=== POLYGON GEOJSON EXPORT ===');
+        console.log(jsonStr);
+        console.log('=== END EXPORT ===');
+        console.log('💡 Copy the JSON above or download:');
+        
+        // Create downloadable blob
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `polygons_${new Date().toISOString().slice(0,19)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        return jsonStr;
     }
 
     /**
@@ -2307,11 +2383,12 @@ class AreaManager {
                     applyVolume(originArea, originWeight);
                     applyVolume(destArea, destWeight);
 
-                    // Debug logging (throttled to 5%)
-                    if (Math.random() < 0.05) {
-                        console.log(`[Crossfade] pos=${crossfadePos.toFixed(2)}, ` +
-                            `origin=${(originWeight * 100).toFixed(0)}%, ` +
-                            `dest=${(destWeight * 100).toFixed(0)}%`);
+                    // Debug logging: Only when inside intersection (crossfade active)
+                    // crossfadePos is 0-1 when inside, <0 or >1 when outside
+                    if (crossfadePos >= 0 && crossfadePos <= 1) {
+                        console.log(`[Crossfade] pos=${crossfadePos.toFixed(2)} | ` +
+                            `${originArea.areaId}: ${(originWeight * 100).toFixed(0)}% vol | ` +
+                            `${destArea.areaId}: ${(destWeight * 100).toFixed(0)}% vol`);
                     }
                 } else {
                     // Fallback: no intersection (shouldn't happen) - use equal distribution
@@ -2321,12 +2398,6 @@ class AreaManager {
                 // Fallback: 3+ areas = equal distribution (1/N per area)
                 // Martinez doesn't handle multi-way intersection elegantly
                 this._applyEqualDistribution(mixAreas, t);
-            }
-
-            // Debug: Log active areas (throttled)
-            if (Math.random() < 0.05) {
-                const activeInfo = activeAreas.map(a => `${a.areaId}(${a.overlapMode}:${a.order})`).join(', ');
-                console.log(`[AreaManager] Active areas: ${activeInfo} (mix: ${mixAreas.length})`);
             }
         }
     }
@@ -2376,10 +2447,11 @@ class AreaManager {
             }
         }
 
-        // Debug logging
-        if (Math.random() < 0.1) {
-            const debugInfo = mixAreas.map((a) =>
-                `${a.areaId}:${(equalWeight * 100).toFixed(0)}%`
+        // Debug logging: Only if areas have audible volume (> 0)
+        const activeAreas = mixAreas.filter(a => a.gain && a.gain.gain.value > 0);
+        if (activeAreas.length > 0) {
+            const debugInfo = activeAreas.map((a) =>
+                `${a.areaId}:${(a.gain.gain.value * 100).toFixed(0)}%`
             ).join(' | ');
             console.log(`[Crossfade] ${debugInfo} (equal distribution)`);
         }

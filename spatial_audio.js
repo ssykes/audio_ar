@@ -195,6 +195,38 @@ const GPSUtils = {
     },
 
     /**
+     * Calculate signed area of polygon (shoelace formula)
+     * Positive = counter-clockwise, Negative = clockwise
+     * @param {Array<{lat: number, lng: number}>} polygon - Polygon vertices
+     * @returns {number} Signed area
+     */
+    polygonSignedArea(polygon) {
+        if (!polygon || polygon.length < 3) return 0;
+        
+        let area = 0;
+        const n = polygon.length;
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            area += (polygon[j].lng - polygon[i].lng) * (polygon[j].lat + polygon[i].lat);
+        }
+        return area;
+    },
+
+    /**
+     * Ensure polygon has counter-clockwise winding (positive signed area)
+     * @param {Array<{lat: number, lng: number}>} polygon - Polygon vertices
+     * @returns {Array<{lat: number, lng: number}>} Polygon with CCW winding
+     */
+    ensureCCW(polygon) {
+        const area = this.polygonSignedArea(polygon);
+        if (area < 0) {
+            // Clockwise - reverse it
+            return [...polygon].reverse();
+        }
+        return polygon;
+    },
+
+    /**
      * Compute intersection polygon using Martinez algorithm
      * @param {Array<{lat: number, lng: number}>} subjectPolygon - First polygon
      * @param {Array<{lat: number, lng: number}>} clipPolygon - Second polygon
@@ -208,34 +240,82 @@ const GPSUtils = {
         }
 
         try {
+            // Debug: Log polygon details (throttled)
+            if (Math.random() < 0.1) {
+                console.groupCollapsed('[Martinez] Polygon Debug');
+                
+                // Log subject polygon
+                console.log('Subject Polygon:', subjectPolygon.length, 'vertices');
+                subjectPolygon.forEach((p, i) => {
+                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
+                });
+                const subjectArea = Math.abs(this.polygonSignedArea(subjectPolygon));
+                const subjectBounds = this.polygonBounds(subjectPolygon);
+                console.log(`  Area: ${subjectArea.toFixed(8)} deg²`);
+                console.log(`  Bounds: lat[${subjectBounds.minLat.toFixed(6)} to ${subjectBounds.maxLat.toFixed(6)}], lng[${subjectBounds.minLng.toFixed(6)} to ${subjectBounds.maxLng.toFixed(6)}]`);
+                const subjectSizeLat = (subjectBounds.maxLat - subjectBounds.minLat) * 111000;
+                const subjectSizeLng = (subjectBounds.maxLng - subjectBounds.minLng) * 111000 * Math.cos(subjectBounds.minLat * Math.PI / 180);
+                console.log(`  Size: ${subjectSizeLat.toFixed(1)}m × ${subjectSizeLng.toFixed(1)}m`);
+                
+                // Log clip polygon
+                console.log('Clip Polygon:', clipPolygon.length, 'vertices');
+                clipPolygon.forEach((p, i) => {
+                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
+                });
+                const clipArea = Math.abs(this.polygonSignedArea(clipPolygon));
+                const clipBounds = this.polygonBounds(clipPolygon);
+                console.log(`  Area: ${clipArea.toFixed(8)} deg²`);
+                console.log(`  Bounds: lat[${clipBounds.minLat.toFixed(6)} to ${clipBounds.maxLat.toFixed(6)}], lng[${clipBounds.minLng.toFixed(6)} to ${clipBounds.maxLng.toFixed(6)}]`);
+                const clipSizeLat = (clipBounds.maxLat - clipBounds.minLat) * 111000;
+                const clipSizeLng = (clipBounds.maxLng - clipBounds.minLng) * 111000 * Math.cos(clipBounds.minLat * Math.PI / 180);
+                console.log(`  Size: ${clipSizeLat.toFixed(1)}m × ${clipSizeLng.toFixed(1)}m`);
+                
+                console.groupEnd();
+            }
+            
+            // Normalize winding order to counter-clockwise (Martinez requirement)
+            const subjectCCW = this.ensureCCW(subjectPolygon);
+            const clipCCW = this.ensureCCW(clipPolygon);
+
+            // Debug: Log winding order (throttled)
+            if (Math.random() < 0.05) {
+                const subjectArea = this.polygonSignedArea(subjectPolygon);
+                const clipArea = this.polygonSignedArea(clipPolygon);
+                console.log(`[Martinez] Subject winding: ${subjectArea > 0 ? 'CCW' : 'CW'} (area=${subjectArea.toFixed(8)})`);
+                console.log(`[Martinez] Clip winding: ${clipArea > 0 ? 'CCW' : 'CW'} (area=${clipArea.toFixed(8)})`);
+            }
+
             // Convert {lat, lng} → [lng, lat] (Martinez format)
             // Martinez expects: [[[lng, lat], ...]] (array of polygons, each polygon is array of points)
-            const subjectMartinez = [subjectPolygon.map(p => [p.lng, p.lat])];
-            const clipMartinez = [clipPolygon.map(p => [p.lng, p.lat])];
+            const subjectMartinez = [subjectCCW.map(p => [p.lng, p.lat])];
+            const clipMartinez = [clipCCW.map(p => [p.lng, p.lat])];
 
             // Compute intersection
             // Martinez returns: [[[ [lng,lat], [lng,lat], ... ]]] (multi-polygon with rings)
             // Structure: [ polygon[ ring[ point ] ] ]
             const intersection = martinez.intersection(subjectMartinez, clipMartinez);
 
-            // Debug: Log raw Martinez output
-            if (Math.random() < 0.1) {
-                console.log('[Martinez] Raw intersection:', JSON.stringify(intersection));
-            }
-
             // Extract exterior ring from first polygon
             // Martinez format: [polygon[ring[point]]]
             // intersection[0] = first polygon (array of rings)
             // intersection[0][0] = exterior ring (array of points)
-            if (intersection && 
-                intersection.length > 0 && 
-                intersection[0] && 
+            if (intersection &&
+                intersection.length > 0 &&
+                intersection[0] &&
                 intersection[0].length > 0 &&
                 Array.isArray(intersection[0][0])) {
-                
+
                 const exteriorRing = intersection[0][0];
+                
+                // Guard: Degenerate intersection (line or point, not a polygon)
+                // Need at least 4 points for a valid polygon (3 unique + closing point)
+                const uniquePoints = new Set(exteriorRing.map(p => p.join(',')));
+                if (uniquePoints.size < 3) {
+                    console.log('[GPSUtils] Degenerate intersection detected (< 3 unique points), falling back to equal distribution');
+                    return null;
+                }
+                
                 const result = exteriorRing.map(([lng, lat]) => ({ lat, lng }));
-                console.log('[GPSUtils] Martinez intersection computed:', result.length, 'vertices');
                 return result;
             }
 
@@ -308,10 +388,6 @@ const GPSUtils = {
                 lng: rayOrigin.lng + dLng,
                 distance: distance
             };
-        }
-
-        if (Math.random() < 0.1) {
-            console.log(`[RayCast] No hit: t=${t.toFixed(2)} (need >0.5), u=${u.toFixed(2)} (need 0-1)`);
         }
 
         return null;

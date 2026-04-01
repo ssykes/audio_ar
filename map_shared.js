@@ -245,7 +245,7 @@ class MapAppShared {
             }, (err) => {
                 console.log('[MapShared] GPS/WiFi unavailable (' + err.message + ') - will use soundscape position or default');
                 resolve(false);
-            }, { enableHighAccuracy: true, timeout: 5000 });
+            }, { enableHighAccuracy: true, timeout: 3000, maximumAge: 10000 });
         });
     }
 
@@ -1265,15 +1265,32 @@ class MapAppShared {
         console.log('[MapShared] 🔊 Starting simulation audio...');
         this.debugLog('🔊 Starting simulation audio engine...');
 
-        const soundConfigs = this.waypoints.map(wp => ({
-            id: wp.id,
-            url: wp.soundUrl || this.soundConfig.soundUrl,
-            lat: wp.lat,
-            lon: wp.lon,
-            activationRadius: wp.activationRadius,
-            volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
-            loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
-        }));
+        const soundConfigs = this.waypoints.map(wp => {
+            const config = {
+                id: wp.id,
+                url: wp.type === 'oscillator' ? '' : (wp.soundUrl || this.soundConfig.soundUrl),
+                lat: wp.lat,
+                lon: wp.lon,
+                activationRadius: wp.activationRadius,
+                volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
+                loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop,
+                type: wp.type || 'file',
+                // Oscillator properties
+                oscillatorType: wp.waveform || 'sine',
+                frequency: wp.frequency || 440,
+                detune: wp.detune || 0,
+                gain: wp.gain !== undefined ? wp.gain : (wp.volume !== undefined ? wp.volume : this.soundConfig.volume)
+            };
+            console.log('[MapShared] Waypoint sound config:', {
+                id: wp.id,
+                name: wp.name,
+                type: config.type,
+                url: config.url,
+                oscillatorType: config.oscillatorType,
+                frequency: config.frequency
+            });
+            return config;
+        });
 
         this.debugLog(`🎵 Creating ${soundConfigs.length} sound sources...`);
 

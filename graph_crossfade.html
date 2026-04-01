@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Martinez Cross-Fade Volume Graph</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #00d9ff;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .graph-wrapper {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .graph-title {
+            font-size: 16px;
+            color: #00d9ff;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        canvas {
+            width: 100%;
+            height: 400px;
+            background: #0f3460;
+            border-radius: 4px;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #00d9ff;
+        }
+
+        .stat-unit {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .formula {
+            background: #0d0d1a;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            color: #00ff88;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #1a5f7a;
+        }
+
+        .data-table th {
+            background: #0f3460;
+            color: #00d9ff;
+            font-weight: 600;
+        }
+
+        .data-table tr:hover {
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .zone-marker {
+            position: relative;
+        }
+
+        .zone-label {
+            position: absolute;
+            font-size: 11px;
+            color: #888;
+            transform: translateX(-50%);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎚️ Martinez Intersection Cross-Fade</h1>
+        <p class="subtitle">Equal-Power Volume Curve for Overlapping Sound Areas</p>
+
+        <!-- Main Graph -->
+        <div class="graph-wrapper">
+            <div class="graph-title">Volume vs. Position in Intersection</div>
+            <canvas id="mainGraph"></canvas>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>Origin Area (cos curve)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d9ff;"></div>
+                    <span>Destination Area (sin curve)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00ff88;"></div>
+                    <span>Total Power (√(origin² + dest²))</span>
+                </div>
+            </div>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-label">Entry Volume</div>
+                    <div class="stat-value">100<span class="stat-unit">%</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Middle Volume (both)</div>
+                    <div class="stat-value">70.7<span class="stat-unit">%</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Exit Volume</div>
+                    <div class="stat-value">100<span class="stat-unit">%</span></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Power</div>
+                    <div class="stat-value">100<span class="stat-unit">%</span></div>
+                </div>
+            </div>
+
+            <div class="formula">
+                <strong>Formula:</strong><br>
+                originWeight = cos(position × π/2)<br>
+                destWeight = sin(position × π/2)<br>
+                totalPower = √(origin² + dest²) = 1.0 (constant!)
+            </div>
+        </div>
+
+        <!-- Your Actual Data -->
+        <div class="graph-wrapper">
+            <div class="graph-title">Your Actual Log Data (from console)</div>
+            <canvas id="dataGraph"></canvas>
+            
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Position</th>
+                        <th>Origin %</th>
+                        <th>Dest %</th>
+                        <th>Total %</th>
+                        <th>Expected Origin %</th>
+                        <th>Expected Dest %</th>
+                    </tr>
+                </thead>
+                <tbody id="dataTableBody">
+                    <!-- Populated by JS -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Comparison Graph -->
+        <div class="graph-wrapper">
+            <div class="graph-title">Linear vs. Equal-Power Cross-Fade</div>
+            <canvas id="comparisonGraph"></canvas>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b6b;"></div>
+                    <span>Equal-Power (cos/sin)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f39c12; border-style: dashed;"></div>
+                    <span>Linear (for comparison)</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== YOUR ACTUAL LOG DATA =====
+        const yourData = [
+            { pos: 0.04, origin: 100, dest: 6 },
+            { pos: 0.25, origin: 92, dest: 38 },
+            { pos: 0.50, origin: 71, dest: 71 },
+            { pos: 0.75, origin: 38, dest: 92 },
+            { pos: 0.97, origin: 4, dest: 100 },
+            { pos: 1.00, origin: 0, dest: 100 },
+        ];
+
+        // ===== THEORETICAL CURVES =====
+        function generateTheoreticalData(points = 100) {
+            const data = [];
+            for (let i = 0; i <= points; i++) {
+                const pos = i / points;
+                const origin = Math.cos(pos * Math.PI / 2) * 100;
+                const dest = Math.sin(pos * Math.PI / 2) * 100;
+                const total = Math.sqrt(origin * origin + dest * dest);
+                data.push({ pos, origin, dest, total });
+            }
+            return data;
+        }
+
+        const theoreticalData = generateTheoreticalData();
+
+        // ===== DRAW GRAPHS =====
+        function drawGraph(canvasId, data, options = {}) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas size
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * window.devicePixelRatio;
+            canvas.height = rect.height * window.devicePixelRatio;
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+            
+            const width = rect.width;
+            const height = rect.height;
+            const padding = { top: 30, right: 30, bottom: 50, left: 60 };
+            const graphWidth = width - padding.left - padding.right;
+            const graphHeight = height - padding.top - padding.bottom;
+
+            // Clear canvas
+            ctx.fillStyle = '#0f3460';
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw grid
+            ctx.strokeStyle = '#1a5f7a';
+            ctx.lineWidth = 1;
+            
+            // Horizontal grid lines (volume)
+            for (let i = 0; i <= 10; i++) {
+                const y = padding.top + (graphHeight * i / 10);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(width - padding.right, y);
+                ctx.stroke();
+                
+                // Y-axis labels
+                ctx.fillStyle = '#888';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(`${100 - i * 10}%`, padding.left - 10, y + 4);
+            }
+
+            // Vertical grid lines (position)
+            for (let i = 0; i <= 10; i++) {
+                const x = padding.left + (graphWidth * i / 10);
+                ctx.beginPath();
+                ctx.moveTo(x, padding.top);
+                ctx.lineTo(x, height - padding.bottom);
+                ctx.stroke();
+                
+                // X-axis labels
+                ctx.fillStyle = '#888';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText((i / 10).toFixed(1), x, height - padding.bottom + 20);
+            }
+
+            // Axis labels
+            ctx.fillStyle = '#00d9ff';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Position in Intersection (0=Entry, 1=Exit)', width / 2, height - 10);
+            
+            ctx.save();
+            ctx.translate(15, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('Volume %', 0, 0);
+            ctx.restore();
+
+            // Draw data lines
+            if (options.showYourData) {
+                // Draw your actual data points
+                ctx.strokeStyle = '#ff6b6b';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                data.forEach((point, i) => {
+                    const x = padding.left + (point.pos * graphWidth);
+                    const y = padding.top + ((100 - point.origin) * graphHeight / 100);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                ctx.strokeStyle = '#00d9ff';
+                ctx.beginPath();
+                data.forEach((point, i) => {
+                    const x = padding.left + (point.pos * graphWidth);
+                    const y = padding.top + ((100 - point.dest) * graphHeight / 100);
+                    if (i === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+
+                // Draw data points
+                data.forEach(point => {
+                    // Origin points
+                    ctx.fillStyle = '#ff6b6b';
+                    ctx.beginPath();
+                    ctx.arc(
+                        padding.left + (point.pos * graphWidth),
+                        padding.top + ((100 - point.origin) * graphHeight / 100),
+                        5, 0, Math.PI * 2
+                    );
+                    ctx.fill();
+
+                    // Dest points
+                    ctx.fillStyle = '#00d9ff';
+                    ctx.beginPath();
+                    ctx.arc(
+                        padding.left + (point.pos * graphWidth),
+                        padding.top + ((100 - point.dest) * graphHeight / 100),
+                        5, 0, Math.PI * 2
+                    );
+                    ctx.fill();
+                });
+            } else {
+                // Draw theoretical curves
+                const drawCurve = (key, color, dashed = false) => {
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 3;
+                    if (dashed) ctx.setLineDash([10, 5]);
+                    else ctx.setLineDash([]);
+                    
+                    ctx.beginPath();
+                    data.forEach((point, i) => {
+                        const x = padding.left + (point.pos * graphWidth);
+                        const y = padding.top + ((100 - point[key]) * graphHeight / 100);
+                        if (i === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                };
+
+                drawCurve('origin', '#ff6b6b');
+                drawCurve('dest', '#00d9ff');
+                drawCurve('total', '#00ff88');
+            }
+
+            // Draw zone markers
+            const zones = [
+                { pos: 0, label: 'Entry' },
+                { pos: 0.5, label: 'Middle' },
+                { pos: 1, label: 'Exit' }
+            ];
+
+            zones.forEach(zone => {
+                const x = padding.left + (zone.pos * graphWidth);
+                ctx.fillStyle = '#00ff88';
+                ctx.beginPath();
+                ctx.arc(x, padding.top - 10, 4, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // Draw all graphs
+        drawGraph('mainGraph', theoreticalData);
+        drawGraph('dataGraph', yourData, { showYourData: true });
+
+        // Comparison graph (Equal-Power vs Linear)
+        const linearData = theoreticalData.map(d => ({
+            pos: d.pos,
+            origin: (1 - d.pos) * 100,
+            dest: d.pos * 100,
+            total: Math.sqrt(Math.pow((1 - d.pos) * 100, 2) + Math.pow(d.pos * 100, 2))
+        }));
+        drawGraph('comparisonGraph', linearData);
+
+        // Populate data table
+        const tableBody = document.getElementById('dataTableBody');
+        yourData.forEach(point => {
+            const expectedOrigin = Math.cos(point.pos * Math.PI / 2) * 100;
+            const expectedDest = Math.sin(point.pos * Math.PI / 2) * 100;
+            const total = Math.sqrt(point.origin * point.origin + point.dest * point.dest);
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${point.pos.toFixed(2)}</td>
+                <td style="color: #ff6b6b;">${point.origin}%</td>
+                <td style="color: #00d9ff;">${point.dest}%</td>
+                <td style="color: #00ff88;">${total.toFixed(1)}%</td>
+                <td>${expectedOrigin.toFixed(1)}%</td>
+                <td>${expectedDest.toFixed(1)}%</td>
+            `;
+            tableBody.appendChild(row);
+        });
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            drawGraph('mainGraph', theoreticalData);
+            drawGraph('dataGraph', yourData, { showYourData: true });
+            drawGraph('comparisonGraph', linearData);
+        });
+    </script>
+</body>
+</html>
