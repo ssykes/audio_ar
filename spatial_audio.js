@@ -500,6 +500,8 @@ class OscillatorSource extends SoundSource {
     constructor(engine, id, options = {}) {
         super(engine, id, options);
         this.oscillator = null;
+        // FEATURE 14: Support activation radius for distance-based fading
+        this.activationRadius = options.activationRadius || 20;
     }
 
     init() {
@@ -531,7 +533,9 @@ class OscillatorSource extends SoundSource {
         if (this.oscillator && !this.isPlaying) {
             this.oscillator.start();
             super.start();
+            return true;
         }
+        return false;
     }
 
     stop() {
@@ -544,6 +548,103 @@ class OscillatorSource extends SoundSource {
     setFrequency(freq) {
         if (this.oscillator) {
             this.oscillator.frequency.setValueAtTime(freq, this.engine.ctx.currentTime);
+        }
+    }
+
+    /**
+     * FEATURE 14: Update gain based on distance (fade zone handling)
+     * Same implementation as GpsSoundSource for consistent behavior
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @param {number} targetGain - Target gain at close range
+     * @returns {boolean} True if within activation radius
+     */
+    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
+        // Guard: Check if gain node exists
+        if (!this.gain) {
+            console.warn(`[OscillatorSource] ${this.id}: gain node missing, skipping update`);
+            return false;
+        }
+
+        // Calculate distance using GPS coordinates
+        const dist = GPSUtils.distance(
+            this.options.lat || 0,
+            this.options.lon || 0,
+            listenerLat,
+            listenerLon
+        );
+
+        console.log(`[OscillatorSource] ${this.id}: distance=${dist.toFixed(1)}m, activationRadius=${this.activationRadius}m, targetGain=${targetGain}`);
+
+        // Apply 2-meter floor: never calculate gain for closer than 2 meters
+        const gainDistance = Math.max(dist, 2);
+
+        // === HYBRID FADE ZONE (20m transition) ===
+        const fadeZone = 20; // meters
+        const fadeStart = Math.max(0, this.activationRadius - fadeZone);
+
+        if (gainDistance < fadeStart) {
+            // Full volume zone (inside activation radius, away from edge)
+            const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
+            this.gain.gain.value = targetGain * distanceBoost;
+
+            // Apply distance-based reverb wet mix
+            this._updateReverbWetMix(dist);
+
+            // Debug: Log gain changes (throttled to avoid spam)
+            if (Math.random() < 0.05) {
+                console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
+            }
+            console.log(`[OscillatorSource] ${this.id}: FULL volume zone, gain=${(targetGain * distanceBoost).toFixed(3)}`);
+        } else {
+            // FADE ZONE: Smooth transition from fadeStart to activationRadius+fadeZone
+            const totalFadeDistance = fadeZone * 2;
+            const distFromFadeStart = Math.max(0, dist - fadeStart);
+            const fadeProgress = Math.min(1, distFromFadeStart / totalFadeDistance);
+
+            // Smooth exponential fade: 100% → 0% over 40m
+            const exponentialFade = Math.pow(1 - fadeProgress, 2);  // Quadratic falloff
+
+            const currentGain = targetGain * exponentialFade;
+            this.gain.gain.value = currentGain;
+
+            // Apply distance-based reverb wet mix
+            this._updateReverbWetMix(dist);
+
+            // Beyond fade zone: silent
+            if (dist >= this.activationRadius + fadeZone) {
+                this.gain.gain.value = 0;
+                this.wetGain.gain.value = 0;
+                this.dryGain.gain.value = 0;
+                console.log(`[OscillatorSource] ${this.id}: OUTSIDE fade zone (${dist.toFixed(1)}m >= ${this.activationRadius + fadeZone}m), gain=0`);
+            } else {
+                console.log(`[OscillatorSource] ${this.id}: IN fade zone, gain=${currentGain.toFixed(3)}`);
+            }
+        }
+
+        return dist < this.activationRadius;
+    }
+
+    /**
+     * Update reverb wet/dry mix based on distance and environment
+     * Uses psychoacoustic principle: more reverb = perceived as farther
+     * @param {number} distance - Distance in meters
+     * @private
+     */
+    _updateReverbWetMix(distance) {
+        if (!this.dryGain || !this.wetGain) return;
+
+        // Get reverb settings for current distance and environment
+        const reverb = getReverbForDistance(distance);
+
+        // Apply wet/dry mix (equal power compensation)
+        this.wetGain.gain.value = reverb.wet;
+        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
+        this.currentWetValue = reverb.wet;
+
+        // Debug: Log environment/zone changes (throttled)
+        if (Math.random() < 0.05) {
+            console.log(`[Reverb] ${distance.toFixed(1)}m, env=${reverb.environment}, zone=${reverb.zone}, wet=${(reverb.wet * 100).toFixed(1)}%`);
         }
     }
 }
@@ -1157,10 +1258,12 @@ class AreaSoundSource extends SampleSource {
         this.order = options.order || 0;  // Placement order for opaque priority
         this.areaId = options.areaId || id;  // Reference to Area data
 
-        // Oscillator support (for testing without audio files)
-        this.useOscillator = !options.soundUrl;  // Use oscillator if no soundUrl
+        // Oscillator support - use oscillator if type is 'oscillator' OR no soundUrl
+        this.type = options.type || 'file';
+        this.useOscillator = (this.type === 'oscillator') || !options.soundUrl;
         this.oscillatorType = options.oscillatorType || 'sine';
         this.frequency = options.frequency || 440;
+        this.detune = options.detune || 0;
 
         // No panning for areas - disable panner
         this.fixed = false;  // Not a fixed point source
@@ -1332,6 +1435,12 @@ class AreaSoundSource extends SampleSource {
 
         // Inside polygon - calculate distance to nearest edge
         const distanceToEdge = GPSUtils.distanceToEdge(listenerLat, listenerLon, this.polygon);
+
+        // Guard: Handle invalid distances (Infinity, NaN)
+        if (!isFinite(distanceToEdge)) {
+            this.gain.gain.value = 0;
+            return 0;
+        }
 
         // Calculate volume based on fade zone
         let volume = 1.0;

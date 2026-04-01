@@ -932,13 +932,19 @@ class SpatialAudioApp {
         // Fade zone handles smooth transitions (no abrupt stops)
         this.sounds.forEach(sound => {
             const source = this.engine.getSource(sound.id);
+            
+            // Debug: Log source info for oscillators
+            if (sound.type === 'oscillator') {
+                console.log(`[AudioApp] Oscillator ${sound.id}: source=${source ? source.constructor.name : 'null'}, has updateGainByDistance=${!!source?.updateGainByDistance}, isLoaded=${sound.isLoaded}`);
+            }
+            
             if (source && source.updateGainByDistance) {
                 // Skip gain update for disposed or unloaded sounds
                 // This prevents "ghost playback" after disposal
                 if (!sound.isLoaded || sound.isDisposed) {
                     return;
                 }
-                
+
                 const distance = GPSUtils.distance(
                     this.listener.lat,
                     this.listener.lon,
@@ -946,14 +952,8 @@ class SpatialAudioApp {
                     sound.lon
                 );
 
-                // Skip gain update if well outside activation radius + fade zone
-                // This ensures sound stops when user exits the area
-                const fadeZone = 20;  // Match spatial_audio.js fade zone (line 339)
-                if (distance > sound.activationRadius + fadeZone) {
-                    return;  // Too far outside, skip gain update
-                }
-
                 // Update gain based on distance (fade zone handles smooth transitions)
+                // CRITICAL: Must call this even when outside fade zone to mute the sound
                 source.updateGainByDistance(
                     this.listener.lat,
                     this.listener.lon,
@@ -962,7 +962,10 @@ class SpatialAudioApp {
 
                 // Debug: Log gain after update (throttled)
                 if (source.gain && Math.random() < 0.05) {
-                    console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m`);
+                    const fadeZone = 20;
+                    const inFadeZone = distance > sound.activationRadius && distance <= (sound.activationRadius + fadeZone);
+                    const zone = distance < sound.activationRadius ? '🔊 ACTIVE' : (inFadeZone ? '🌗 FADE' : '❌ OUTSIDE');
+                    console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m (${zone})`);
                 }
             }
             
@@ -2276,6 +2279,12 @@ class AreaManager {
                             area.polygon
                         );
 
+                        // Guard: Handle invalid distances (Infinity, NaN)
+                        if (!isFinite(distanceToEdge)) {
+                            area.gain.gain.value = 0;
+                            return;
+                        }
+
                         let fadeVolume = 1.0;
                         if (distanceToEdge < area.fadeZoneWidth) {
                             fadeVolume = distanceToEdge / area.fadeZoneWidth;
@@ -2284,6 +2293,13 @@ class AreaManager {
 
                         // Apply crossfade weight + fade zone + max volume setting
                         const finalVolume = fadeVolume * area.options.gain * weight;
+                        
+                        // Guard: Ensure final volume is finite
+                        if (!isFinite(finalVolume)) {
+                            area.gain.gain.value = 0;
+                            return;
+                        }
+                        
                         area.gain.gain.cancelScheduledValues(t);
                         area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
                     };
@@ -2335,6 +2351,12 @@ class AreaManager {
                     area.polygon
                 );
 
+                // Guard: Handle invalid distances (Infinity, NaN)
+                if (!isFinite(distanceToEdge)) {
+                    area.gain.gain.value = 0;
+                    continue;
+                }
+
                 let fadeVolume = 1.0;
                 if (distanceToEdge < area.fadeZoneWidth) {
                     fadeVolume = distanceToEdge / area.fadeZoneWidth;
@@ -2342,6 +2364,13 @@ class AreaManager {
                 }
 
                 const finalVolume = fadeVolume * area.options.gain * equalWeight;
+                
+                // Guard: Ensure final volume is finite
+                if (!isFinite(finalVolume)) {
+                    area.gain.gain.value = 0;
+                    continue;
+                }
+                
                 area.gain.gain.cancelScheduledValues(t);
                 area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
             }
