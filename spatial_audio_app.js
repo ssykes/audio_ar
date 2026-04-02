@@ -2048,31 +2048,76 @@ class AreaManager {
         console.group('[AreaManager] === STATIC POLYGON DATA ===');
         areaConfigs.forEach((config, idx) => {
             console.groupCollapsed(`Area ${idx + 1}/${areaConfigs.length}: "${config.name}" (${config.id})`);
-            
+
             console.log('Polygon vertices:', config.polygon ? config.polygon.length : 0);
             if (config.polygon) {
                 config.polygon.forEach((p, i) => {
                     console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
                 });
-                
+
                 // Calculate bounds and size
                 const bounds = GPSUtils.polygonBounds(config.polygon);
                 const area = Math.abs(GPSUtils.polygonSignedArea(config.polygon));
                 const sizeLat = (bounds.maxLat - bounds.minLat) * 111000;
                 const sizeLng = (bounds.maxLng - bounds.minLng) * 111000 * Math.cos(bounds.minLat * Math.PI / 180);
-                
+
                 console.log(`  Area: ${area.toFixed(8)} deg²`);
                 console.log(`  Bounds: lat[${bounds.minLat.toFixed(6)} to ${bounds.maxLat.toFixed(6)}], lng[${bounds.minLng.toFixed(6)} to ${bounds.maxLng.toFixed(6)}]`);
                 console.log(`  Size: ${sizeLat.toFixed(1)}m × ${sizeLng.toFixed(1)}m`);
                 console.log(`  Overlap mode: ${config.overlapMode || 'mix'}`);
                 console.log(`  Order: ${config.order || 0}`);
+
+                // === POLYGON VALIDATION ===
+                const validation = GPSUtils.validatePolygon(config.polygon);
+                if (!validation.valid) {
+                    if (validation.errors.length > 0) {
+                        console.error(`  ❌ VALIDATION ERRORS (${validation.errors.length}):`);
+                        validation.errors.forEach(err => {
+                            console.error(`    ❌ ${err.message}`);
+                        });
+                    }
+                    if (validation.warnings.length > 0) {
+                        console.warn(`  ⚠️ VALIDATION WARNINGS (${validation.warnings.length}):`);
+                        validation.warnings.forEach(warn => {
+                            console.warn(`    ⚠️ ${warn.message}`);
+                        });
+                    }
+                } else {
+                    console.log(`  ✅ Polygon validation passed`);
+                }
             } else {
                 console.warn('  ⚠️ NO POLYGON DATA!');
             }
-            
+
             console.groupEnd();
         });
         console.groupEnd();
+
+        // Summary of validation results
+        const validationSummary = {
+            total: areaConfigs.length,
+            valid: 0,
+            withErrors: 0,
+            withWarnings: 0
+        };
+        areaConfigs.forEach(config => {
+            if (config.polygon) {
+                const v = GPSUtils.validatePolygon(config.polygon);
+                if (v.valid) validationSummary.valid++;
+                else if (v.errors.length > 0) validationSummary.withErrors++;
+                else validationSummary.withWarnings++;
+            }
+        });
+
+        if (validationSummary.withErrors > 0 || validationSummary.withWarnings > 0) {
+            console.group('%c[AreaManager] ⚠️ POLYGON VALIDATION SUMMARY', 'color: #f39c12; font-weight: bold; font-size: 14px;');
+            console.log(`  Total areas: ${validationSummary.total}`);
+            console.log(`  ✅ Valid: ${validationSummary.valid}`);
+            console.log(`  ❌ Errors: ${validationSummary.withErrors} (Martinez intersection will fail)`);
+            console.log(`  ⚠️ Warnings: ${validationSummary.withWarnings} (may cause issues)`);
+            console.log('%c  💡 Fix: Edit or delete problematic areas in the map editor', 'color: #00d9ff;');
+            console.groupEnd();
+        }
 
         for (const areaConfig of areaConfigs) {
             try {

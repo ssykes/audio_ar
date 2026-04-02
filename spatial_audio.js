@@ -227,6 +227,99 @@ const GPSUtils = {
     },
 
     /**
+     * Check if two line segments intersect
+     * @param {{lat: number, lng: number}} p1 - Segment 1 start
+     * @param {{lat: number, lng: number}} p2 - Segment 1 end
+     * @param {{lat: number, lng: number}} p3 - Segment 2 start
+     * @param {{lat: number, lng: number}} p4 - Segment 2 end
+     * @returns {boolean} True if segments intersect (excluding shared endpoints)
+     */
+    lineSegmentsIntersect(p1, p2, p3, p4) {
+        // Convert to local coordinates for precision
+        const toLocal = (p, ref) => ({
+            x: (p.lng - ref.lng) * 111000 * Math.cos(ref.lat * Math.PI / 180),
+            z: (p.lat - ref.lat) * 111000
+        });
+
+        const ref = p1;
+        const a = toLocal(p1, ref);
+        const b = toLocal(p2, ref);
+        const c = toLocal(p3, ref);
+        const d = toLocal(p4, ref);
+
+        const det = (b.x - a.x) * (d.z - c.z) - (b.z - a.z) * (d.x - c.x);
+        if (Math.abs(det) < 1e-10) return false; // Parallel
+
+        const lambda = ((d.y - c.y) * (d.x - c.x) - (d.x - c.x) * (d.y - c.y)) / det;
+        const gamma = ((a.z - c.z) * (d.x - c.x) + (c.x - a.x) * (d.z - c.z)) / det;
+
+        // Check if intersection is within both segments (excluding endpoints)
+        return (0 < lambda && lambda < 1) && (0 < gamma && gamma < 1);
+    },
+
+    /**
+     * Check if polygon is valid for Martinez intersection
+     * @param {Array<{lat: number, lng: number}>} polygon - Polygon vertices
+     * @returns {{valid: boolean, issues?: Array}} Validation result
+     */
+    validatePolygon(polygon) {
+        const issues = [];
+
+        // Check 1: Minimum vertex count
+        if (!polygon || polygon.length < 3) {
+            issues.push({
+                type: 'INSUFFICIENT_VERTICES',
+                message: `Polygon has only ${polygon?.length || 0} vertices (need at least 3)`
+            });
+            return { valid: false, issues };
+        }
+
+        // Check 2: Duplicate vertices (consecutive duplicates only)
+        for (let i = 0; i < polygon.length; i++) {
+            const curr = polygon[i];
+            const next = polygon[(i + 1) % polygon.length];
+            if (Math.abs(curr.lat - next.lat) < 1e-10 && Math.abs(curr.lng - next.lng) < 1e-10) {
+                issues.push({
+                    type: 'DUPLICATE_VERTEX',
+                    index: i,
+                    message: `Consecutive duplicate vertices at index ${i} and ${(i + 1) % polygon.length}`
+                });
+            }
+        }
+
+        // Check 3: Minimum area (too small to be meaningful)
+        const area = Math.abs(this.polygonSignedArea(polygon));
+        const bounds = this.polygonBounds(polygon);
+        const sizeMeters = (bounds.maxLat - bounds.minLat) * 111000;
+
+        if (area < 1e-10) {
+            issues.push({
+                type: 'ZERO_AREA',
+                message: 'Polygon has zero area (collinear vertices or degenerate shape)'
+            });
+        } else if (sizeMeters < 5) {
+            issues.push({
+                type: 'TOO_SMALL',
+                size: sizeMeters,
+                message: `Polygon is too small (${sizeMeters.toFixed(1)}m) - likely an accidental click`
+            });
+        }
+
+        // Note: We do NOT check for self-intersection here because:
+        // 1. Martinez handles self-intersecting polygons gracefully (returns null)
+        // 2. Concave polygons (L-shape, J-shape, U-shape) are VALID and common
+        // 3. Self-intersection detection is complex and error-prone
+        // Martinez will simply return null if the polygon is truly invalid.
+
+        return {
+            valid: issues.length === 0,
+            issues,
+            warnings: issues.filter(i => i.type === 'DUPLICATE_VERTEX' || i.type === 'TOO_SMALL'),
+            errors: issues.filter(i => i.type === 'ZERO_AREA' || i.type === 'INSUFFICIENT_VERTICES')
+        };
+    },
+
+    /**
      * Compute intersection polygon using Martinez algorithm
      * @param {Array<{lat: number, lng: number}>} subjectPolygon - First polygon
      * @param {Array<{lat: number, lng: number}>} clipPolygon - Second polygon
@@ -240,6 +333,17 @@ const GPSUtils = {
         }
 
         try {
+            // Validate polygons before processing
+            const subjectValidation = this.validatePolygon(subjectPolygon);
+            const clipValidation = this.validatePolygon(clipPolygon);
+
+            if (!subjectValidation.valid && subjectValidation.errors.length > 0) {
+                console.warn('[GPSUtils] Subject polygon has validation errors:', subjectValidation.errors.map(e => e.type).join(', '));
+            }
+            if (!clipValidation.valid && clipValidation.errors.length > 0) {
+                console.warn('[GPSUtils] Clip polygon has validation errors:', clipValidation.errors.map(e => e.type).join(', '));
+            }
+
             // Debug: Log polygon details (throttled)
             if (Math.random() < 0.1) {
                 console.groupCollapsed('[Martinez] Polygon Debug');
@@ -257,6 +361,11 @@ const GPSUtils = {
                 const subjectSizeLng = (subjectBounds.maxLng - subjectBounds.minLng) * 111000 * Math.cos(subjectBounds.minLat * Math.PI / 180);
                 console.log(`  Size: ${subjectSizeLat.toFixed(1)}m × ${subjectSizeLng.toFixed(1)}m`);
                 
+                // Show validation result
+                if (!subjectValidation.valid) {
+                    console.warn(`  ⚠️ Validation: ${subjectValidation.errors.map(e => e.type).join(', ')}`);
+                }
+                
                 // Log clip polygon
                 console.log('Clip Polygon:', clipPolygon.length, 'vertices');
                 clipPolygon.forEach((p, i) => {
@@ -269,6 +378,11 @@ const GPSUtils = {
                 const clipSizeLat = (clipBounds.maxLat - clipBounds.minLat) * 111000;
                 const clipSizeLng = (clipBounds.maxLng - clipBounds.minLng) * 111000 * Math.cos(clipBounds.minLat * Math.PI / 180);
                 console.log(`  Size: ${clipSizeLat.toFixed(1)}m × ${clipSizeLng.toFixed(1)}m`);
+                
+                // Show validation result
+                if (!clipValidation.valid) {
+                    console.warn(`  ⚠️ Validation: ${clipValidation.errors.map(e => e.type).join(', ')}`);
+                }
                 
                 console.groupEnd();
             }
