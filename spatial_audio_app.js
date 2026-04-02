@@ -2235,13 +2235,24 @@ class AreaManager {
 
         // Update each area
         for (const [areaId, areaSource] of this.areas) {
-            const isActive = areaSource.isActive(listenerLat, listenerLon);
+            // Check if listener is inside polygon
+            const isInside = areaSource.isActive(listenerLat, listenerLon);
             const wasActive = this.previousActiveAreas.has(areaId);
 
-            if (isActive) {
+            // === HYSTERESIS: Prevent rapid enter/exit flickering at boundaries ===
+            // If we were active but now outside, check distance to edge
+            // Only deactivate if we're > 3m outside the boundary
+            let shouldActivate = isInside;
+            if (!isInside && wasActive) {
+                const distanceToEdge = GPSUtils.distanceToEdge(listenerLat, listenerLon, areaSource.polygon);
+                // Stay active if within 3m of edge (hysteresis zone)
+                shouldActivate = distanceToEdge < 3.0;
+            }
+
+            if (shouldActivate) {
                 activeAreas.push(areaSource);
                 this.activeAreas.add(areaId);
-                
+
                 // Debug: Log when entering an area
                 if (!wasActive) {
                     console.log('[AreaManager] ✅ ENTERED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
@@ -2254,13 +2265,13 @@ class AreaManager {
                 }
             } else {
                 this.activeAreas.delete(areaId);
-                
+
                 // Debug: Log when exiting an area
                 if (wasActive) {
                     console.log('[AreaManager] ❌ EXITED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
                 }
 
-                // Fade out smoothly when exiting area
+                // Fade out smoothly when exiting area (or moving beyond hysteresis zone)
                 if (areaSource.gain) {
                     const t = this.engine.ctx.currentTime;
                     areaSource.gain.gain.cancelScheduledValues(t);

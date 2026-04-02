@@ -532,28 +532,29 @@ const GPSUtils = {
             const segmentStart = intersectionPolygon[j];
             const segmentEnd = intersectionPolygon[i];
 
-            // Forward ray
+            // Forward ray - reduced minimum distance to 0.1m for better tracking
             const forwardHit = GPSUtils.raySegmentIntersection(rayOrigin, forwardDir, segmentStart, segmentEnd);
-            if (forwardHit && forwardHit.distance > 0.5 && forwardHit.distance < forwardDistance) {
+            if (forwardHit && forwardHit.distance > 0.1 && forwardHit.distance < forwardDistance) {
                 forwardDistance = forwardHit.distance;
             }
 
-            // Backward ray
+            // Backward ray - reduced minimum distance to 0.1m for better tracking
             const backwardHit = GPSUtils.raySegmentIntersection(rayOrigin, backwardDir, segmentStart, segmentEnd);
-            if (backwardHit && backwardHit.distance > 0.5 && backwardHit.distance < backwardDistance) {
+            if (backwardHit && backwardHit.distance > 0.1 && backwardHit.distance < backwardDistance) {
                 backwardDistance = backwardHit.distance;
             }
         }
 
         // Handle edge cases
         if (forwardDistance === Infinity && backwardDistance === Infinity) {
-            // No intersections found - listener may be outside polygon
+            // No intersections found - listener may be outside polygon or at edge
+            // Use distance to nearest edge to determine if we're entering or exiting
             return 0.5;
         }
 
         // Calculate position: distance_from_entry / total_distance
         const totalDistance = backwardDistance + forwardDistance;
-        if (totalDistance < 1.0) {
+        if (totalDistance < 0.5) {
             // Very small intersection - use middle
             return 0.5;
         }
