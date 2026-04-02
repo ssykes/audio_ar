@@ -1107,18 +1107,25 @@ class MapEditorApp extends MapAppShared {
             this.intersectionOverlayLayer = null;
         }
 
-        if (!app || !app.areaManager) {
+        // Use window.app (global) since this function is called from map_shared.js
+        const theApp = window.app || app;
+        
+        // areaManager is on app.app (SpatialAudioApp instance), not app (MapEditorApp)
+        const areaManager = theApp?.app?.areaManager || theApp?.areaManager;
+        
+        if (!areaManager) {
             return;
         }
 
-        const intersectionInfo = app.areaManager.getIntersectionInfo();
+        const intersectionInfo = areaManager.getIntersectionInfo();
         
-        // Debug logging
-        if (Math.random() < 0.05) {
-            console.log(`[IntersectionOverlay] Info:`, intersectionInfo);
+        // Recalculate isTooSmall dynamically (stored value may be stale)
+        const MIN_INTERSECTION_SIZE = 9.0;
+        const isTooSmall = intersectionInfo && intersectionInfo.minDimension < MIN_INTERSECTION_SIZE;
+        
+        if (!intersectionInfo || !isTooSmall) {
+            return;
         }
-        
-        if (!intersectionInfo || !intersectionInfo.isTooSmall) return;
 
         // Draw orange overlay on the intersection bounds
         const bounds = intersectionInfo.bounds;
@@ -1509,24 +1516,27 @@ class MapEditorApp extends MapAppShared {
             this.debugLog('☁️ Loading soundscape from server...');
 
             // Determine which soundscape to load
-            // Priority: 1) editor_active_soundscape_id (persisted from last session), 2) selected_soundscape_id (one-time from picker), 3) most recent
-            const persistedId = localStorage.getItem('editor_active_soundscape_id');
+            // Priority: 1) selected_soundscape_id (fresh selection from picker - one-time use)
+            //          2) editor_active_soundscape_id (persisted from last session/refresh)
+            //          3) most recent soundscape from server
             const selectedId = localStorage.getItem('selected_soundscape_id');
+            const persistedId = localStorage.getItem('editor_active_soundscape_id');
 
-            this.debugLog(`🔍 Persisted soundscape ID: ${persistedId || 'none'}`);
-            this.debugLog(`🔍 Selected soundscape ID (one-time): ${selectedId || 'none'}`);
+            this.debugLog(`🔍 Selected soundscape ID (one-time from picker): ${selectedId || 'none'}`);
+            this.debugLog(`🔍 Persisted soundscape ID (from last session): ${persistedId || 'none'}`);
 
             let targetServerId = null;
 
-            if (persistedId) {
-                targetServerId = persistedId;
-                this.debugLog(`📥 Will load persisted soundscape: ${persistedId}`);
-            } else if (selectedId) {
+            // Fresh selection from picker takes priority
+            if (selectedId) {
                 targetServerId = selectedId;
-                this.debugLog(`📥 Will load selected soundscape: ${selectedId}`);
+                this.debugLog(`📥 Will load selected soundscape from picker: ${selectedId}`);
+            } else if (persistedId) {
+                targetServerId = persistedId;
+                this.debugLog(`📥 Will load persisted soundscape from last session: ${persistedId}`);
             }
 
-            // If no persisted or selected ID, get list and use most recent
+            // If no selected or persisted ID, get list and use most recent
             if (!targetServerId) {
                 const soundscapes = await this.api.getSoundscapes();
                 if (soundscapes.length === 0) {
@@ -1592,12 +1602,12 @@ class MapEditorApp extends MapAppShared {
 
             // Center and zoom map to show all waypoints AND areas
             const bounds = [];
-            
+
             // Add waypoint positions
             this.waypoints.forEach(wp => {
                 bounds.push([wp.lat, wp.lon]);
             });
-            
+
             // Add area vertices
             areas.forEach(area => {
                 if (area.polygon && area.polygon.length > 0) {
@@ -1606,7 +1616,7 @@ class MapEditorApp extends MapAppShared {
                     });
                 }
             });
-            
+
             if (bounds.length > 0) {
                 this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
 
@@ -1616,9 +1626,15 @@ class MapEditorApp extends MapAppShared {
                 this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show ${this.waypoints.length} waypoints and ${areas.length} areas)`);
             }
 
-            // Clear one-time selection (but keep persisted ID for next refresh)
+            // Persist the loaded soundscape for page refresh
+            // This ensures that refreshing the page keeps the same soundscape
+            localStorage.setItem('editor_active_soundscape_id', targetServerId);
+            this.debugLog(`💾 Persisted editor_active_soundscape_id: ${targetServerId}`);
+
+            // Clear one-time selection from soundscape_picker (but keep persisted ID for next refresh)
             if (selectedId) {
                 localStorage.removeItem('selected_soundscape_id');
+                this.debugLog(`🧹 Cleared one-time selected_soundscape_id`);
             }
 
             this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
@@ -2227,27 +2243,6 @@ function openSlideout(type, id, name, meta, color) {
             if (slideoutAutoReconnect) slideoutAutoReconnect.checked = area.autoReconnect !== false;
             addDebugLog(`📡 Area streaming loaded: url=${area.streamUrl || '(empty)'}`);
         }
-
-        // === Show intersection warning if area has small overlap ===
-        const intersectionWarning = document.getElementById('slideoutIntersectionWarning');
-        const intersectionWarningText = document.getElementById('slideoutIntersectionWarningText');
-        
-        if (intersectionWarning && intersectionWarningText && app && app.areaManager) {
-            const intersectionInfo = app.areaManager.getIntersectionInfo();
-            
-            if (intersectionInfo && intersectionInfo.isTooSmall && 
-                (intersectionInfo.area1Id === id || intersectionInfo.area2Id === id)) {
-                // This area is part of a small intersection
-                const otherAreaId = intersectionInfo.area1Id === id ? intersectionInfo.area2Id : intersectionInfo.area1Id;
-                const otherArea = app._getAreaById(otherAreaId);
-                const otherName = otherArea?.name || otherAreaId.substring(0, 8);
-                
-                intersectionWarningText.textContent = `This area overlaps with "${otherName}" by only ${intersectionInfo.minDimension.toFixed(1)}m.`;
-                intersectionWarning.style.display = 'block';
-            } else {
-                intersectionWarning.style.display = 'none';
-            }
-        }
     }
 
     // Show panel
@@ -2595,4 +2590,5 @@ console.log('[map_editor_v2.js] Loaded');
 // =====================================================================
 
 const app = new MapEditorApp();
+window.app = app;  // Expose globally for intersection overlay
 app.init();

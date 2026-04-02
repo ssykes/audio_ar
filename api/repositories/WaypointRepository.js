@@ -53,7 +53,7 @@ class WaypointRepository extends BaseRepository {
    */
   async insertBatch(soundscapeId, waypoints) {
     const inserted = [];
-    
+
     for (let i = 0; i < waypoints.length; i++) {
       const wp = waypoints[i];
       const row = this._toRow({
@@ -67,13 +67,19 @@ class WaypointRepository extends BaseRepository {
         activationRadius: wp.activationRadius || 20,
         icon: wp.icon || '•',
         color: wp.color || '#00d9ff',
-        sortOrder: i
+        sortOrder: i,
+        type: wp.type || 'file',
+        // Oscillator properties
+        waveform: wp.waveform ?? 'sine',
+        frequency: wp.frequency ?? 440,
+        detune: wp.detune ?? 0,
+        gain: wp.gain ?? 0.5
       });
-      
+
       const result = await this.insert(row);
       inserted.push(this._toEntity(result));
     }
-    
+
     return inserted;
   }
 }

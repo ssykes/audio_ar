@@ -22,7 +22,12 @@ class Waypoint {
         icon = '•',
         color = '#00d9ff',
         sortOrder = 0,
-        type = 'file'
+        type = 'file',
+        // Oscillator properties
+        waveform = 'sine',
+        frequency = 440,
+        detune = 0,
+        gain = 0.5
     ) {
         this.id = id;
         this.soundscapeId = soundscapeId;
@@ -37,6 +42,11 @@ class Waypoint {
         this.color = color;
         this.sortOrder = sortOrder;
         this.type = type;
+        // Oscillator properties
+        this.waveform = waveform;
+        this.frequency = frequency;
+        this.detune = detune;
+        this.gain = gain;
     }
 
     /**
@@ -58,7 +68,12 @@ class Waypoint {
             row.icon || '•',
             row.color || '#00d9ff',
             row.sort_order ?? 0,
-            row.type || 'file'
+            row.type || 'file',
+            // Oscillator properties
+            row.waveform ?? 'sine',
+            row.frequency ?? 440,
+            row.detune ?? 0,
+            row.gain ?? 0.5
         );
     }
 
@@ -81,7 +96,12 @@ class Waypoint {
             json.icon || '•',
             json.color || '#00d9ff',
             json.sortOrder ?? 0,
-            json.type || 'file'
+            json.type || 'file',
+            // Oscillator properties
+            json.waveform ?? 'sine',
+            json.frequency ?? 440,
+            json.detune ?? 0,
+            json.gain ?? 0.5
         );
     }
 
@@ -103,7 +123,12 @@ class Waypoint {
             icon: this.icon,
             color: this.color,
             sort_order: this.sortOrder,
-            type: this.type
+            type: this.type,
+            // Oscillator properties
+            waveform: this.waveform,
+            frequency: this.frequency,
+            detune: this.detune,
+            gain: this.gain
         };
     }
 
@@ -125,7 +150,12 @@ class Waypoint {
             icon: this.icon,
             color: this.color,
             sortOrder: this.sortOrder,
-            type: this.type
+            type: this.type,
+            // Oscillator properties
+            waveform: this.waveform,
+            frequency: this.frequency,
+            detune: this.detune,
+            gain: this.gain
         };
     }
 }

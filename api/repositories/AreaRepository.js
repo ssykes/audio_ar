@@ -81,7 +81,13 @@ class AreaRepository extends BaseRepository {
         order: i,
         icon: area.icon || '◈',
         color: area.color || '#ff6b6b',
-        sortOrder: i
+        sortOrder: i,
+        type: area.type || 'file',
+        // Oscillator properties
+        waveform: area.waveform ?? 'sine',
+        frequency: area.frequency ?? 440,
+        detune: area.detune ?? 0,
+        gain: area.gain ?? 0.5
       });
 
       const result = await this.insert(row);

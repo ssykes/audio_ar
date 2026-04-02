@@ -1,0 +1,118 @@
+AFTER reading this prompt read MARTINEZ_DEPLOYMENT_CHECKLIST.md and MARTINEZ_INTEGRATION_SUMMARY.md. Then provide a detailed implementation plan. 
+
+I’m building an audio AR app with overlapping polygon sound areas on a Leaflet map.
+When a listener walks through the intersection of two areas, I want smooth audio crossfade.
+
+Current state:
+
+Polygons use {lat, lng} format
+Areas load in spatial_audio_app.js → AreaManager._mixAreas()
+Currently using equal distribution (50/50 in overlap)
+Want: Crossfade based on position within intersection
+Task:
+Integrate martinez-polygon-clipping to compute actual intersection polygons,
+then crossfade based on listener’s position from entry edge to exit edge.
+
+Files to modify:
+
+spatial_audio.js - Add polygonIntersection() using Martinez
+spatial_audio_app.js - Update _mixAreas() to use intersection for crossfade
+map_player.html / map_editor_v2.html - Add martinez.min.js script tag
+deploy.ps1 - Add martinez.min.js to deployment
+Library: martinez-polygon-clipping (8 KB, floating-point coordinates)
+
+You will use martinez-polygon-clipping library to coupute the intersection polygon. Martinez is already installed and configured in deploy.ps1 and cloudflare worker. You will need to determine the listener's position in the polygon intersection by using the listener's gps location in relation to the intersection polygon's edges. You will also need to determine the direction the listener is traveling in order to adjust the crossfade as the listener traverses the intersection.
+
+Terminology for our discussions: 
+Origin area: The area polygon the listener is traveling from. The origin area is behind the listener as the listener travels through the intersection.
+
+Destination area: The area polygon  the listener is traveling to. The destination is in front of the listener as the listener travels through the intersection.
+
+You will implement a Smooth crossfade based on position. Upon entering the intersection, the origin Area current volume is the origin's max area volume as set in map_editor_v2. The destination (in front) Area current sound is 0%. Upon leaving the intersection the destination area sound is destination's max area volume as set in map_editor_v2 and the origin (behind) Area current volume is 0%.
+
+Assuming both the origin and destination area volume is set to 80% - 
+Upon entering intersection destination current volume = 0%, origin current volume = 80%
+Crossing intersection: destination area fades IN 0%→80%, origin area fades OUT 80%→0%
+Upon leaving intersection: destination current volume = 80%, origin current volume = 0%
+
+
+You will use martinez-polygon-clipping library:
+Computes the actual geometric intersection of two overlapping polygons
+Returns the intersection polygon vertices (the overlap zone)
+Note: Martinez provides [[[lng, lat], [lng, lat], ...]]  (array of arrays of rings)
+The outer array is for multipolygons, and the inner array is for the exterior ring + holes.
+
+What the rest of the code does:
+Checks if listener is inside the intersection
+Calculates listener’s position and direction within intersection (0=entry, 1=exit)
+Determines which area is behind vs ahead
+
+
+-------------------------------------------------------
+# Martinez Intersection Crossfade - Implementation
+
+I'm building an audio AR app with overlapping polygon sound areas on a Leaflet map. I need to implement intersection-based audio crossfade using the martinez-polygon-clipping library.
+
+## Context
+
+**Project:** Audio AR with GPS-triggered polygon sound areas  
+**Library:** martinez-polygon-clipping (8 KB, already in codebase)  
+**Reference Doc:** `MARTINEZ_IMPLEMENTATION_PLAN.md` (detailed implementation plan)
+
+## Current State
+
+**IMPORTANT:** The documentation claims Martinez integration is complete, but the code doesn't match:
+
+| File | Documentation Says | Actual State |
+|------|-------------------|--------------|
+| `spatial_audio.js` | v6.0 with Martinez methods | v5.1, **no Martinez methods** |
+| `spatial_audio_app.js` | v3.0 with intersection crossfade | v2.8, uses direction-based weighting |
+| `martinez.min.js` | ✅ Deployed | ✅ Exists in codebase |
+
+## What I Need
+
+Implement position-based crossfade when listener walks through intersection of two polygon areas:
+
+**Crossfade Behavior (assuming 80% max volume):**
+- **Entry:** Origin=80%, Destination=0%
+- **Middle:** Origin=57%, Destination=57% (equal-power curve)
+- **Exit:** Origin=0%, Destination=80%
+
+## Files to Modify
+
+1. **`spatial_audio.js`** - Add to `GPSUtils`:
+   - `martinezIntersection(subjectPolygon, clipPolygon)` - Compute intersection polygon
+   - `getCrossfadePosition(lat, lng, intersectionPolygon, direction)` - Calculate position 0→1
+   - `raySegmentIntersection()` - Helper for ray casting
+
+2. **`spatial_audio_app.js`** - Update `AreaManager._mixAreas()`:
+   - Replace direction-to-center weighting with intersection-based crossfade
+   - Apply equal-power crossfade (cos/sin curves)
+   - Handle 2 areas with Martinez, 3+ areas with equal distribution
+
+## Key Algorithm Details
+
+**Martinez Format Conversion:**
+```javascript
+// Input: [{lat, lng}, ...]
+// Martinez expects: [[lng, lat], ...]
+// Martinez returns: [[[lng, lat], ...]] (multipolygon)
+// Convert back: intersection.map(([lng, lat]) => ({lat, lng}))
+Crossfade Position (ray-casting):
+
+Ray-cast forward from listener → find exit point
+Ray-cast backward → find entry point
+Position = distance_from_entry / total_distance
+Equal-Power Crossfade:
+
+originWeight = Math.cos(position * Math.PI / 2)
+destWeight = Math.sin(position * Math.PI / 2)
+Terminology
+Origin Area: Area listener is traveling FROM (behind listener)
+Destination Area: Area listener is traveling TO (ahead of listener)
+Next Steps
+Read MARTINEZ_IMPLEMENTATION_PLAN.md for full details
+Implement Martinez methods in spatial_audio.js
+Update _mixAreas() in spatial_audio_app.js
+Verify HTML files include martinez.min.js script tag
+Test implementation

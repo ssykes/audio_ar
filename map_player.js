@@ -64,11 +64,11 @@ class MapPlayerApp extends MapAppShared {
 
         this._initMap();
         this._setupEventListeners();
-        
+
         // === CAPTURE ALL CONSOLE.LOG TO DEBUG WINDOW (for mobile debugging) ===
         // This MUST be before _initDebugConsole() so capture is active for its logs
         this._initDebugConsole();
-        
+
         // Set up console.log capture immediately after debug console is ready
         const originalConsoleLog = console.log;
         const self = this;
@@ -92,7 +92,13 @@ class MapPlayerApp extends MapAppShared {
         };
         // =======================================================================
 
-        await this._getInitialGPS();
+        // Get GPS in background (non-blocking - don't wait for it)
+        // Waypoints/areas don't need GPS, so load them immediately
+        this._getInitialGPS().then(() => {
+            this.debugLog('📍 GPS initialized (background)');
+        }).catch((err) => {
+            this.debugLog('⚠️ GPS init failed (will retry on start): ' + err.message);
+        });
 
         // Apply player restrictions (hide edit controls)
         this._applyPlayerRestrictions();
@@ -678,7 +684,7 @@ class MapPlayerApp extends MapAppShared {
     _initDebugConsole() {
         this.debugModal = document.getElementById('debugModal');
         this.debugModalContent = document.getElementById('debugModalContent');
-        
+
         if (this.debugModalContent) {
             // Log version info for troubleshooting
             this.debugLog('🎧 Map Player ready');
@@ -840,7 +846,7 @@ class MapPlayerApp extends MapAppShared {
                         console.warn('[MapPlayer] ⚠️ GPS timeout - using fallback');
                         resolve({ lat: 0, lon: 0 });
                     }
-                }, 12000);
+                }, 5000);
 
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
@@ -855,7 +861,7 @@ class MapPlayerApp extends MapAppShared {
                         console.warn(`[MapPlayer] 📍 GPS ERROR ❌: ${err.message}`);
                         resolve({ lat: 0, lon: 0 });
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
                 );
             });
 
@@ -967,7 +973,35 @@ class MapPlayerApp extends MapAppShared {
             // This ensures AreaManager exists and listener position is initialized
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
                 console.log('[MapPlayer] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (post-start)...');
+                
+                // === FIX: Wait for valid GPS position before loading areas ===
+                // Areas use point-in-polygon checks which fail if listener is at (0, 0)
+                // This can happen on phones if GPS hasn't locked yet
+                const maxWaitTime = 10000;  // Max 10 seconds
+                const checkInterval = 500;  // Check every 500ms
+                let waited = 0;
+                
+                while (waited < maxWaitTime) {
+                    const listenerLat = this.app.listener?.lat || 0;
+                    const listenerLon = this.app.listener?.lon || 0;
+                    const hasValidGPS = Math.abs(listenerLat) > 0.001 && Math.abs(listenerLon) > 0.001;
+                    
+                    if (hasValidGPS) {
+                        this.debugLog(`✅ GPS valid: ${listenerLat.toFixed(6)}, ${listenerLon.toFixed(6)}`);
+                        break;
+                    }
+                    
+                    this.debugLog('⏳ Waiting for GPS before loading areas... (' + (waited / 1000).toFixed(1) + 's)');
+                    await new Promise(resolve => setTimeout(resolve, checkInterval));
+                    waited += checkInterval;
+                }
+                
+                if (waited >= maxWaitTime) {
+                    this.debugLog('⚠️ GPS timeout - loading areas with current position (may not work correctly)');
+                }
+                
                 await this.app.loadAreas(soundscape.areas);
+                this.debugLog('✅ Areas loaded successfully');
             } else {
                 console.log('[MapPlayer] 🗺️ No areas in soundscape');
             }
