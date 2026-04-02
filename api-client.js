@@ -247,6 +247,11 @@ class ApiClient {
     async loadSoundscape(id) {
         const data = await this.getSoundscape(id);
 
+        // Guard against missing data
+        if (!data || !data.soundscape) {
+            throw new Error('Invalid soundscape data from server');
+        }
+
         // Use _toEntity for automatic snake_case → camelCase conversion
         return {
             soundscape: {
@@ -256,7 +261,7 @@ class ApiClient {
                 isPublic: data.soundscape.isPublic,
                 soundIds: data.waypoints.map(wp => wp.id),
                 waypointData: data.waypoints.map(wp => this._toEntity(wp)),
-                behaviors: data.behaviors.map(b => ({
+                behaviors: (data.behaviors || []).map(b => ({
                     type: b.type,
                     memberIds: b.memberIds || b.member_ids,
                     config: b.configJson || b.config_json

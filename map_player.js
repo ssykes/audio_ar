@@ -484,6 +484,7 @@ class MapPlayerApp extends MapAppShared {
             this.debugLog('🎼 SoundScape.fromJSON created:');
             this.debugLog('   - soundscape.id: ' + soundscape.id);
             this.debugLog('   - soundscape.name: ' + soundscape.name);
+            this.debugLog('   - soundscape.behaviors: ' + (soundscape.behaviors ? soundscape.behaviors.length + ' items' : 'NO'));
             this.debugLog('   - soundscape.areas: ' + (soundscape.areas ? soundscape.areas.length + ' items' : 'NO'));
             this.debugLog('   - soundscape.waypointData: ' + (soundscape.waypointData ? soundscape.waypointData.length + ' items' : 'NO'));
 
@@ -614,10 +615,26 @@ class MapPlayerApp extends MapAppShared {
             this.markers.forEach(marker => marker.remove());
             this.markers.clear();
 
-            // Create soundscape from cached data
-            const soundscape = new SoundScape(cachedData.id, cachedData.name);
+            // Create soundscape from cached data (include behaviors for proper playback)
+            const soundscape = SoundScape.fromJSON({
+                id: cachedData.id,
+                name: cachedData.name,
+                description: cachedData.description || '',
+                isPublic: cachedData.isPublic ?? true,
+                soundIds: (cachedData.waypoints || []).map(wp => wp.id),
+                behaviors: cachedData.behaviors || [],
+                waypointData: cachedData.waypoints || [],
+                areas: cachedData.areas || []
+            });
             this.soundscapes.set(soundscape.id, soundscape);
             this.activeSoundscapeId = soundscape.id;
+
+            this.debugLog('🎼 SoundScape.fromJSON created from cache:');
+            this.debugLog('   - soundscape.id: ' + soundscape.id);
+            this.debugLog('   - soundscape.name: ' + soundscape.name);
+            this.debugLog('   - soundscape.behaviors: ' + (soundscape.behaviors ? soundscape.behaviors.length + ' items' : 'NO'));
+            this.debugLog('   - soundscape.areas: ' + (soundscape.areas ? soundscape.areas.length + ' items' : 'NO'));
+            this.debugLog('   - soundscape.waypointData: ' + (soundscape.waypointData ? soundscape.waypointData.length + ' items' : 'NO'));
 
             // Load waypoints from cached data
             this.waypoints = cachedData.waypoints || [];
@@ -958,12 +975,17 @@ class MapPlayerApp extends MapAppShared {
 
             // Use startSoundScape if we have a soundscape with behaviors, otherwise use start()
             const soundscape = this.getActiveSoundscape();
+            this.debugLog('🔍 getActiveSoundscape returned: ' + (soundscape ? 'YES' : 'NO'));
+            this.debugLog('🎭 soundscape.behaviors: ' + (soundscape ? soundscape.behaviors.length + ' items' : 'N/A'));
+            
             if (soundscape && soundscape.behaviors &&
                 soundscape.behaviors.length > 0) {
                 console.log('[MapPlayer] 🎼 Starting with behaviors:', soundscape.behaviors.length);
+                this.debugLog('🎼 Starting soundscape with ' + soundscape.behaviors.length + ' behaviors');
                 await this.app.startSoundScape(soundscape);
             } else {
                 console.log('[MapPlayer] 🎵 Starting without behaviors (default)');
+                this.debugLog('🎵 Starting soundscape WITHOUT behaviors (default - all sounds play together)');
                 await this.app.start();
             }
 
