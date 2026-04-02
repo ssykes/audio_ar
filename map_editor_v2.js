@@ -25,6 +25,9 @@ class MapEditorApp extends MapAppShared {
         this.isDrawingArea = false;
         this.isDraggingArea = false;  // Track if area is being dragged
 
+        // Intersection overlay layer (for highlighting small overlaps)
+        this.intersectionOverlayLayer = null;
+
         // Track selected item for editing
         this.selectedItem = null;
         this.selectedItemType = null;  // 'waypoint' or 'area'
@@ -1090,6 +1093,52 @@ class MapEditorApp extends MapAppShared {
         });
 
         this.debugLog(`📍 Loaded ${areas.length} Areas`);
+    }
+
+    /**
+     * Draw intersection overlay for small overlaps
+     * Called when simulation is active and areas overlap
+     * @private
+     */
+    _updateIntersectionOverlay() {
+        // Clear existing overlay
+        if (this.intersectionOverlayLayer) {
+            this.map.removeLayer(this.intersectionOverlayLayer);
+            this.intersectionOverlayLayer = null;
+        }
+
+        if (!app || !app.areaManager) return;
+
+        const intersectionInfo = app.areaManager.getIntersectionInfo();
+        if (!intersectionInfo || !intersectionInfo.isTooSmall) return;
+
+        // Draw orange overlay on the intersection bounds
+        const bounds = intersectionInfo.bounds;
+        if (!bounds) return;
+
+        const latlngs = [
+            [bounds.minLat, bounds.minLng],
+            [bounds.minLat, bounds.maxLng],
+            [bounds.maxLat, bounds.maxLng],
+            [bounds.maxLat, bounds.minLng]
+        ];
+
+        this.intersectionOverlayLayer = L.rectangle(latlngs, {
+            color: '#f39c12',
+            fillColor: '#f39c12',
+            fillOpacity: 0.3,
+            weight: 2,
+            dashArray: '5, 5'
+        }).addTo(this.map);
+
+        // Add popup with warning
+        this.intersectionOverlayLayer.bindPopup(`
+            <div style="font-size: 12px;">
+                <strong>⚠️ Small Intersection</strong><br>
+                Overlap: ${intersectionInfo.minDimension.toFixed(1)}m (min: 2m)<br>
+                <em>Cross-fade disabled - using equal distribution</em>
+            </div>
+        `).openPopup();
     }
 
     /**
@@ -2169,6 +2218,27 @@ function openSlideout(type, id, name, meta, color) {
             }
             if (slideoutAutoReconnect) slideoutAutoReconnect.checked = area.autoReconnect !== false;
             addDebugLog(`📡 Area streaming loaded: url=${area.streamUrl || '(empty)'}`);
+        }
+
+        // === Show intersection warning if area has small overlap ===
+        const intersectionWarning = document.getElementById('slideoutIntersectionWarning');
+        const intersectionWarningText = document.getElementById('slideoutIntersectionWarningText');
+        
+        if (intersectionWarning && intersectionWarningText && app && app.areaManager) {
+            const intersectionInfo = app.areaManager.getIntersectionInfo();
+            
+            if (intersectionInfo && intersectionInfo.isTooSmall && 
+                (intersectionInfo.area1Id === id || intersectionInfo.area2Id === id)) {
+                // This area is part of a small intersection
+                const otherAreaId = intersectionInfo.area1Id === id ? intersectionInfo.area2Id : intersectionInfo.area1Id;
+                const otherArea = app._getAreaById(otherAreaId);
+                const otherName = otherArea?.name || otherAreaId.substring(0, 8);
+                
+                intersectionWarningText.textContent = `This area overlaps with "${otherName}" by only ${intersectionInfo.minDimension.toFixed(1)}m.`;
+                intersectionWarning.style.display = 'block';
+            } else {
+                intersectionWarning.style.display = 'none';
+            }
         }
     }
 

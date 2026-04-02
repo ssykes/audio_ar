@@ -1383,6 +1383,11 @@ class MapAppShared {
     _updateSimDisplay() {
         if (!this.app || !this.app.listener) return;
 
+        // Update intersection overlay (highlight small overlaps in orange)
+        if (this._updateIntersectionOverlay) {
+            this._updateIntersectionOverlay();
+        }
+
         // Find nearest sound for display
         let nearestSound = null;
         let nearestDistance = Infinity;

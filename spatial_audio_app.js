@@ -2219,6 +2219,21 @@ class AreaManager {
     }
 
     /**
+     * Get last computed intersection info (for UI display)
+     * @returns {{area1Id: string, area2Id: string, minDimension: number, isTooSmall: boolean, bounds: any}|null}
+     */
+    getIntersectionInfo() {
+        return this.lastIntersectionInfo || null;
+    }
+
+    /**
+     * Clear intersection info (call when areas change)
+     */
+    clearIntersectionInfo() {
+        this.lastIntersectionInfo = null;
+    }
+
+    /**
      * Update all areas based on listener position
      * Called on every GPS/position update
      * @param {number} listenerLat - Listener latitude
@@ -2368,6 +2383,15 @@ class AreaManager {
                     const widthMeters = (bounds.maxLng - bounds.minLng) * 111000 * Math.cos(bounds.minLat * Math.PI / 180);
                     const heightMeters = (bounds.maxLat - bounds.minLat) * 111000;
                     const minDimension = Math.min(widthMeters, heightMeters);
+
+                    // Store intersection info for UI display
+                    this.lastIntersectionInfo = {
+                        area1Id: area1.areaId,
+                        area2Id: area2.areaId,
+                        minDimension: minDimension,
+                        isTooSmall: minDimension < 2.0,
+                        bounds: bounds
+                    };
 
                     if (minDimension < 2.0) {
                         // Intersection too small for smooth cross-fade
