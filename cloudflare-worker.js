@@ -23,41 +23,57 @@ addEventListener('fetch', event => {
 async function handleRequest(request) {
   const url = new URL(request.url)
 
-  // Only add security headers to HTML pages (not assets like images, CSS, etc.)
-  const isHTMLPage = url.pathname.endsWith('.html') || url.pathname === '/'
-
-  // Fetch the original response from your origin server
-  const response = await fetch(request)
-
-  // If not an HTML page, return as-is but add no-cache for JS files
-  if (!isHTMLPage) {
-    // Add no-cache headers for JavaScript files
-    if (url.pathname.endsWith('.js')) {
-      const newResponse = new Response(response.body, response)
-      newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
-      newResponse.headers.set('Pragma', 'no-cache')
-      newResponse.headers.set('Expires', '0')
-      return newResponse
-    }
-    return response
+  // Bypass cache for JavaScript files - always fetch fresh from origin
+  // This is critical for Service Worker updates and cache-busting to work
+  if (url.pathname.endsWith('.js')) {
+    const response = await fetch(request)
+    const newResponse = new Response(response.body, response)
+    newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    newResponse.headers.set('Pragma', 'no-cache')
+    newResponse.headers.set('Expires', '0')
+    newResponse.headers.set('CF-Cache-Status', 'DYNAMIC')
+    return newResponse
   }
-  
-  // Create a new response with modified headers
+
+  // Bypass cache for HTML files - always fetch fresh from origin
+  const isHTMLPage = url.pathname.endsWith('.html') || url.pathname === '/'
+  if (isHTMLPage) {
+    const response = await fetch(request)
+    const newResponse = new Response(response.body, response)
+    newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    newResponse.headers.set('Pragma', 'no-cache')
+    newResponse.headers.set('Expires', '0')
+    return newResponse
+  }
+
+  // For CSS files, also bypass cache
+  if (url.pathname.endsWith('.css')) {
+    const response = await fetch(request)
+    const newResponse = new Response(response.body, response)
+    newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    newResponse.headers.set('Pragma', 'no-cache')
+    newResponse.headers.set('Expires', '0')
+    return newResponse
+  }
+
+  // For other assets (images, fonts, etc.), use normal Cloudflare caching
+  // But still add security headers
+  const response = await fetch(request)
   const newResponse = new Response(response.body, response)
   
   // Copy over all original headers except the ones we're replacing
   response.headers.forEach((value, key) => {
     // Skip headers that Cloudflare manages or that we're overriding
-    if (!['content-security-policy', 'strict-transport-security', 'x-content-type-options', 
-          'x-frame-options', 'referrer-policy', 'cross-origin-opener-policy', 
+    if (!['content-security-policy', 'strict-transport-security', 'x-content-type-options',
+          'x-frame-options', 'referrer-policy', 'cross-origin-opener-policy',
           'cross-origin-embedder-policy', 'cross-origin-resource-policy', 'permissions-policy']
         .includes(key.toLowerCase())) {
       newResponse.headers.set(key, value)
     }
   })
-  
+
   // Add Security Headers
-  
+
   // Content Security Policy (CSP)
   // Allows: same-origin scripts, CDN resources (unpkg, jsdelivr), Google Fonts,
   // data: images, blob: media, and necessary APIs
@@ -73,21 +89,21 @@ async function handleRequest(request) {
     "connect-src 'self' https://api.openstreetmap.org https://nominatim.openstreetmap.org https://spoot.wtf http://macminiwebsever:3000 https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://unpkg.com; " +
     "frame-ancestors 'self';"
   )
-  
+
   // Strict Transport Security (HSTS) - 1 year with subdomains and preload
-  newResponse.headers.set('Strict-Transport-Security', 
+  newResponse.headers.set('Strict-Transport-Security',
     'max-age=31536000; includeSubDomains; preload'
   )
-  
+
   // X-Content-Type-Options - Prevent MIME type sniffing
   newResponse.headers.set('X-Content-Type-Options', 'nosniff')
-  
+
   // X-Frame-Options - Prevent clickjacking (also covered by CSP frame-ancestors)
   newResponse.headers.set('X-Frame-Options', 'SAMEORIGIN')
-  
+
   // Referrer Policy - Control referrer information
   newResponse.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
-  
+
   // Cross-Origin Opener Policy - Isolate browsing context
   newResponse.headers.set('Cross-Origin-Opener-Policy', 'same-origin')
 
@@ -96,10 +112,10 @@ async function handleRequest(request) {
 
   // Cross-Origin Resource Policy - Restrict resource loading to same origin
   newResponse.headers.set('Cross-Origin-Resource-Policy', 'same-origin')
-  
+
   // Permissions Policy (formerly Feature-Policy)
   // Restricts powerful APIs to same-origin only
-  newResponse.headers.set('Permissions-Policy', 
+  newResponse.headers.set('Permissions-Policy',
     'geolocation=(self), ' +
     'microphone=(self), ' +
     'camera=(), ' +
@@ -109,6 +125,6 @@ async function handleRequest(request) {
     'payment=(), ' +
     'usb=()'
   )
-  
+
   return newResponse
 }

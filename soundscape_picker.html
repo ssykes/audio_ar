@@ -529,29 +529,9 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
+    <script src="sw-register.js"></script>
     <script src="soundscape.js"></script>
     <script src="download_manager.js"></script>
-
-    <!-- Service Worker Registration (for offline support - mobile only) -->
-    <!-- ⚠️ SERVICE WORKER TEMPORARILY DISABLED (2026-03-30) - causes cache issues during development -->
-    <script>
-        console.log('[soundscape_picker] ⚠️ Service Worker disabled for development');
-        console.log('[soundscape_picker] ℹ️ Offline playback unavailable until SW re-enabled');
-        
-        // Unregister any existing SW and clear caches
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then((registrations) => {
-                for (const registration of registrations) {
-                    registration.unregister();
-                }
-            });
-            caches.keys().then((names) => {
-                for (const name of names) {
-                    caches.delete(name);
-                }
-            });
-        }
-    </script>
 
     <script>
         /**
@@ -570,9 +550,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260401194401 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260402161009 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260401194401 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260402161009 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1275,7 +1255,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260401194401
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260402161009
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
@@ -1406,7 +1386,15 @@
                     console.log('[SoundscapePicker] Editor mode → map_editor_v2.html');
                     this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
 
-                    // Service Worker is already disabled on page load (no need to unregister)
+                    // Unregister Service Worker before navigating to desktop editor
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then((registrations) => {
+                            for (const registration of registrations) {
+                                registration.unregister();
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
+                            }
+                        });
+                    }
 
                     window.location.href = 'map_editor_v2.html';
                 } else {
@@ -1477,7 +1465,16 @@
                     console.log('[SoundscapePicker] 🧹 Cleared soundscape selection for new soundscape');
 
                     // Navigate to map editor with flag to prime for new soundscape
-                    // Service Worker is already disabled (no need to unregister)
+                    // Unregister Service Worker before navigating to desktop editor
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then((registrations) => {
+                            for (const registration of registrations) {
+                                registration.unregister();
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2 (new soundscape)');
+                            }
+                        });
+                    }
+
                     window.location.href = 'map_editor_v2.html?new=true';
                 });
 

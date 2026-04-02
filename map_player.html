@@ -475,25 +475,7 @@
     </script>
 
     <!-- Service Worker Registration (for offline support) -->
-    <!-- ⚠️ SERVICE WORKER TEMPORARILY DISABLED (2026-03-30) - causes cache issues during development -->
-    <script>
-        console.log('[map_player] ⚠️ Service Worker disabled for development');
-        console.log('[map_player] ℹ️ Offline playback unavailable until SW re-enabled');
-        
-        // Unregister any existing SW and clear caches
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then((registrations) => {
-                for (const registration of registrations) {
-                    registration.unregister();
-                }
-            });
-            caches.keys().then((names) => {
-                for (const name of names) {
-                    caches.delete(name);
-                }
-            });
-        }
-    </script>
+    <script src="sw-register.js"></script>
 
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>

@@ -39,19 +39,21 @@ The Audio AR app uses a **Service Worker** to enable offline playback of downloa
 
 ## What Gets Cached
 
-### 1. Service Worker Cache (`audio-ar-v1`)
+### 1. Service Worker Cache (`audio-ar-{timestamp}`)
 
 **Managed by:** `sw.js`
 
 **Contents:**
 - HTML pages (picker, player, offline)
-- JavaScript libraries
+- JavaScript libraries (including `sw-register.js`)
 - Leaflet CSS/JS (from unpkg CDN)
 - Static assets (manifest, icons)
 
 **Size:** ~500 KB
 
 **Purpose:** Enable app to load without network
+
+**Note (Updated 2026-04-02):** Cache name uses timestamp format (e.g., `audio-ar-20260402125004`) instead of `v1`. Old caches are automatically deleted on SW activate.
 
 ---
 
@@ -90,8 +92,12 @@ The Audio AR app uses a **Service Worker** to enable offline playback of downloa
 
 ```javascript
 // 1. User visits soundscape_picker.html (online)
-// 2. Service Worker registers automatically
-navigator.serviceWorker.register('sw.js?v=20260321000000')
+// 2. sw-register.js handles registration with version checking
+registerServiceWorker({
+  onReady: (reg) => console.log('✅ SW ready'),
+  onUpdate: (reg) => console.log('🔄 SW update available'),
+  onError: (err) => console.error('❌ SW error:', err)
+})
 
 // 3. Service Worker install event fires
 sw.js → 'install' event → cache.addAll(FILES_TO_CACHE)
@@ -99,10 +105,39 @@ sw.js → 'install' event → cache.addAll(FILES_TO_CACHE)
 // 4. All pages + libraries cached
 console.log('[SW] ✅ All resources cached successfully')
 
-// 5. Service Worker activates
+// 5. Service Worker activates and claims clients immediately
 sw.js → 'activate' event → self.clients.claim()
 
-// 6. Status indicator shows "✅ Ready for offline"
+// 6. BroadcastChannel notifies all tabs
+// 7. Pages auto-reload to use fresh cache (if version changed)
+```
+
+---
+
+### Auto-Reload on Deploy (Updated 2026-04-02)
+
+```javascript
+// When deploy.ps1 updates cache-busting versions:
+// 1. User loads soundscape_picker.html
+// 2. sw-register.js detects version mismatch via postMessage
+// 3. Unregisters old SW, registers new one
+// 4. BroadcastChannel sends 'SW_UPDATED' message
+// 5. All tabs auto-reload after 500ms delay
+
+// sw-register.js flow:
+navigator.serviceWorker.getRegistration()
+  .then(existing => {
+    if (existing && existing.active) {
+      getSwVersion(existing.active)  // postMessage to SW
+        .then(swVersion => {
+          if (swVersion !== CACHE_VERSION) {
+            // Version changed - force update
+            existing.unregister();
+            navigator.serviceWorker.register(`sw.js?v=${CACHE_VERSION}`);
+          }
+        });
+    }
+  });
 ```
 
 ---
@@ -241,12 +276,47 @@ if (url.hostname.includes('tile.openstreetmap.org')) {
 
 **Key Functions:**
 - `install` event - Cache all resources
-- `activate` event - Clean old caches, claim clients
-- `fetch` event - Serve from cache or network
+- `activate` event - Clean old caches, claim clients, verify cache integrity
+- `fetch` event - Serve from cache (cache-first for assets, network-first for HTML)
+- `message` handler - Respond to `CACHE_VERSION` queries
 
-**Cache Name:** `audio-ar-v1`
+**Cache Name:** `audio-ar-{timestamp}` (e.g., `audio-ar-20260402125004`)
 
-**Version:** Updated via `deploy.ps1` (query string)
+**Version:** Updated via `deploy.ps1` (query string + internal `CACHE_VERSION` constant)
+
+**Files Cached:** (Updated 2026-04-02)
+- `soundscape_picker.html`, `map_player.html`, `map_offline.html`
+- `sw-register.js` (shared registration module)
+- `api-client.js`, `soundscape.js`, `download_manager.js`
+- `martinez.min.js`, `spatial_audio.js`, `spatial_audio_app.js`
+- `wake_lock_helper.js`, `map_shared.js`, `map_player.js`
+- `manifest.json`, `icon-192.svg`
+- CDN: Leaflet CSS/JS from unpkg
+
+---
+
+### `sw-register.js` (Updated 2026-04-02)
+
+**Location:** `/sw-register.js`
+
+**Purpose:** Shared Service Worker registration module
+
+**Features:**
+- Version checking via `postMessage` to detect deploy changes
+- Auto-reload when new SW activates (500ms delay)
+- BroadcastChannel listener for multi-tab notifications
+- Manual update check: `window.checkForSWUpdate()`
+
+**Usage:**
+```html
+<script src="sw-register.js?v=20260402125004"></script>
+```
+
+**Used By:**
+- `soundscape_picker.html`
+- `map_player.html`
+
+**Note:** `map_editor_v2.html` does NOT use Service Worker (desktop mode only)
 
 ---
 
@@ -254,12 +324,7 @@ if (url.hostname.includes('tile.openstreetmap.org')) {
 
 **Service Worker Registration:**
 ```html
-<script>
-  navigator.serviceWorker.register('sw.js?v=20260321000000')
-    .then((registration) => {
-      console.log('✅ Service Worker registered');
-    });
-</script>
+<script src="sw-register.js?v=20260402125004"></script>
 ```
 
 **Status Indicator:** Shows SW state in top-right corner
@@ -273,7 +338,10 @@ if (url.hostname.includes('tile.openstreetmap.org')) {
 
 ### `map_player.html`
 
-**Service Worker Registration:** Same as picker
+**Service Worker Registration:**
+```html
+<script src="sw-register.js?v=20260402125004"></script>
+```
 
 **Offline Behavior:**
 - Loads from Service Worker cache
@@ -402,7 +470,10 @@ sed -i.bak 's/\(src="\|href="\)\([^"]*\)\?v=[0-9]\{14\}"/\1\2"/g' "$file"
 
 **Symptom:** Old version of page shows after update
 
-**Fix:**
+**Fix (Updated 2026-04-02):**
+
+With `sw-register.js`, stale content should auto-resolve. If not:
+
 ```javascript
 // Force Service Worker update
 navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -412,6 +483,32 @@ location.reload();
 ```
 
 Or: DevTools → Application → Service Workers → Unregister
+
+**If still stale, check Cloudflare cache:**
+
+```powershell
+# Check Cloudflare cache status
+powershell -Command "$h = (Invoke-WebRequest -Uri 'https://ssykes.net/sw.js' -UseBasicParsing).Headers; $h.GetEnumerator() | Where-Object {$_.Key -eq 'CF-Cache-Status'} | ForEach-Object { Write-Host $_.Key ':' $_.Value }"
+```
+
+**Expected:** `CF-Cache-Status: DYNAMIC`
+
+**If `HIT`:** Cloudflare is caching. See `SW_CACHE_FIX_DEPLOY.md` for fix.
+
+---
+
+### Cloudflare Cache Issues (Updated 2026-04-02)
+
+**Symptom:** `CF-Cache-Status: HIT` for `.js` files
+
+**Cause:** Cloudflare Worker not configured to bypass cache
+
+**Fix:**
+1. Deploy updated `cloudflare-worker.js` to Cloudflare Workers
+2. Wait 1-2 minutes for propagation
+3. Verify: `CF-Cache-Status: DYNAMIC`
+
+**Reference:** `SW_CACHE_FIX_DEPLOY.md`
 
 ---
 

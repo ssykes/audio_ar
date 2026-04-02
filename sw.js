@@ -17,14 +17,26 @@
 const CACHE_VERSION = 'v1';  // Updated for map_editor_v2 cache-busting
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
-// Files to cache (same-origin) - HTML pages only for offline support
-// JS/CSS files have cache-busting query strings, don't cache them here
+// Files to cache (same-origin) - HTML, JS, CSS for offline support
+// Note: JS files have cache-busting in HTML, but we cache them here for offline mode
 const FILES_TO_CACHE = [
   'soundscape_picker.html',
   'map_player.html',
   'map_offline.html',
   'manifest.json',
   'icon-192.svg',
+  // JavaScript files required for offline playback
+  'sw-register.js',
+  'api-client.js',
+  'soundscape.js',
+  'download_manager.js',
+  'martinez.min.js',
+  'spatial_audio.js',
+  'spatial_audio_app.js',
+  'wake_lock_helper.js',
+  'map_shared.js',
+  'map_player.js',
+  // CSS (Leaflet - CDN version cached separately)
 ];
 
 // CDN resources to cache (cross-origin)
@@ -284,7 +296,7 @@ self.addEventListener('fetch', (event) => {
 
   // HTML files - network-first with cache fallback (ensures fresh code on deploy)
   if (url.pathname.endsWith('.html') || url.pathname === '/') {
-    console.log('[SW] 🌐 HTML request (network-first):', url.pathname);
+    console.log('[SW] 🌐 HTML request (network-first):', url.pathname, url.search);
     event.respondWith(
       (async () => {
         try {
@@ -305,10 +317,26 @@ self.addEventListener('fetch', (event) => {
         } catch (error) {
           // Network failed - serve from cache
           console.log('[SW] 📦 Network failed, serving from cache:', url.pathname);
-          const cachedResponse = await caches.match(event.request);
+          
+          // Try exact match first
+          let cachedResponse = await caches.match(event.request);
+          
+          // If no match and URL has query string, try without query string
+          if (!cachedResponse && url.search) {
+            const basePath = url.origin + url.pathname;
+            const baseRequest = new Request(basePath);
+            console.log('[SW] 🔄 Trying base URL without query string:', basePath);
+            cachedResponse = await caches.match(baseRequest);
+            
+            if (cachedResponse) {
+              console.log('[SW] ✅ Found cached HTML (without query string)');
+            }
+          }
+          
           if (cachedResponse) {
             return cachedResponse;
           }
+          
           // No cache either - return offline page
           return new Response('Offline - page not cached', {
             status: 503,
