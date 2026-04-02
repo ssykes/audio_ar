@@ -1107,9 +1107,17 @@ class MapEditorApp extends MapAppShared {
             this.intersectionOverlayLayer = null;
         }
 
-        if (!app || !app.areaManager) return;
+        if (!app || !app.areaManager) {
+            return;
+        }
 
         const intersectionInfo = app.areaManager.getIntersectionInfo();
+        
+        // Debug logging
+        if (Math.random() < 0.05) {
+            console.log(`[IntersectionOverlay] Info:`, intersectionInfo);
+        }
+        
         if (!intersectionInfo || !intersectionInfo.isTooSmall) return;
 
         // Draw orange overlay on the intersection bounds
@@ -1135,7 +1143,7 @@ class MapEditorApp extends MapAppShared {
         this.intersectionOverlayLayer.bindPopup(`
             <div style="font-size: 12px;">
                 <strong>⚠️ Small Intersection</strong><br>
-                Overlap: ${intersectionInfo.minDimension.toFixed(1)}m (min: 2m)<br>
+                Overlap: ${intersectionInfo.minDimension.toFixed(1)}m (min: 9m)<br>
                 <em>Cross-fade disabled - using equal distribution</em>
             </div>
         `).openPopup();

@@ -2374,8 +2374,17 @@ class AreaManager {
                 const area1 = mixAreas[0];
                 const area2 = mixAreas[1];
 
+                // Debug: Log that we're attempting intersection
+                if (Math.random() < 0.1) {
+                    console.log(`[MixAreas] 2 areas detected: ${area1.areaId.substring(0,8)} & ${area2.areaId.substring(0,8)}`);
+                }
+
                 // Step 1: Compute intersection polygon using Martinez
                 const intersection = GPSUtils.martinezIntersection(area1.polygon, area2.polygon);
+
+                if (Math.random() < 0.1) {
+                    console.log(`[MixAreas] Intersection result:`, intersection ? 'VALID' : 'NULL');
+                }
 
                 if (intersection) {
                     // === VALIDATION: Check minimum intersection size ===
@@ -2393,11 +2402,16 @@ class AreaManager {
                         bounds: bounds
                     };
 
-                    if (minDimension < 2.0) {
+                    // Debug: Log intersection size
+                    if (Math.random() < 0.1) {
+                        console.log(`[Intersection] Size: ${minDimension.toFixed(1)}m, Too small: ${minDimension < 9.0}`);
+                    }
+
+                    if (minDimension < 9.0) {
                         // Intersection too small for smooth cross-fade
                         if (Math.random() < 0.05) {
                             console.warn(`[Crossfade] ⚠️ Intersection too small (${minDimension.toFixed(1)}m) - using equal distribution`);
-                            console.warn(`[Crossfade] 💡 Expand area overlap to >2m for smoother cross-fade`);
+                            console.warn(`[Crossfade] 💡 Expand area overlap to >9m for smoother cross-fade`);
                         }
                         this._applyEqualDistribution(mixAreas, t);
                         return;
