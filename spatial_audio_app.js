@@ -2363,6 +2363,22 @@ class AreaManager {
                 const intersection = GPSUtils.martinezIntersection(area1.polygon, area2.polygon);
 
                 if (intersection) {
+                    // === VALIDATION: Check minimum intersection size ===
+                    const bounds = GPSUtils.polygonBounds(intersection);
+                    const widthMeters = (bounds.maxLng - bounds.minLng) * 111000 * Math.cos(bounds.minLat * Math.PI / 180);
+                    const heightMeters = (bounds.maxLat - bounds.minLat) * 111000;
+                    const minDimension = Math.min(widthMeters, heightMeters);
+
+                    if (minDimension < 2.0) {
+                        // Intersection too small for smooth cross-fade
+                        if (Math.random() < 0.05) {
+                            console.warn(`[Crossfade] ⚠️ Intersection too small (${minDimension.toFixed(1)}m) - using equal distribution`);
+                            console.warn(`[Crossfade] 💡 Expand area overlap to >2m for smoother cross-fade`);
+                        }
+                        this._applyEqualDistribution(mixAreas, t);
+                        return;
+                    }
+
                     // Step 2: Get listener position in intersection (0=entry, 1=exit)
                     const crossfadePos = GPSUtils.getCrossfadePosition(
                         this.listener.lat,
@@ -2425,13 +2441,13 @@ class AreaManager {
 
                         // Apply crossfade weight + fade zone + max volume setting
                         const finalVolume = fadeVolume * area.options.gain * weight;
-                        
+
                         // Guard: Ensure final volume is finite
                         if (!isFinite(finalVolume)) {
                             area.gain.gain.value = 0;
                             return;
                         }
-                        
+
                         area.gain.gain.cancelScheduledValues(t);
                         area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
                     };
