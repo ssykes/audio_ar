@@ -1361,7 +1361,12 @@ class CachedSampleSource extends SampleSource {
             name.startsWith(CACHED_SAMPLE_SOURCE_CACHE_PREFIX)
         );
 
+        console.log('[CachedSampleSource] 🔍 Checking caches for:', this.url);
+        console.log('[CachedSampleSource] 📦 Available caches:', cacheNames);
+        console.log('[CachedSampleSource] 🗂️ Soundscape caches:', soundscapeCaches);
+
         if (soundscapeCaches.length === 0) {
+            console.log('[CachedSampleSource] ⚠️ No soundscape caches found');
             return null;
         }
 
@@ -1369,7 +1374,15 @@ class CachedSampleSource extends SampleSource {
         const checkPromises = soundscapeCaches.map(async (cacheName) => {
             const cache = await caches.open(cacheName);
             const response = await cache.match(this.url);
+            
+            // Log what's in this cache
+            const keys = await cache.keys();
+            console.log(`[CachedSampleSource] 🔎 ${cacheName} contains ${keys.length} items:`
+                + keys.slice(0, 3).map(k => new URL(k.url).pathname).join(', ')
+                + (keys.length > 3 ? '...' : ''));
+            
             if (!response) {
+                console.log(`[CachedSampleSource] ❌ Not found in ${cacheName}`);
                 throw new Error('Not found in ' + cacheName);
             }
             console.log(`[CachedSampleSource] ✅ Found in ${cacheName}`);
@@ -1487,6 +1500,7 @@ class AreaSoundSource extends SampleSource {
 
     /**
      * Load audio buffer or prepare oscillator for area sound
+     * Uses cache-first strategy for offline support (same as CachedSampleSource)
      * @returns {Promise<boolean>} True if loaded successfully
      */
     async load() {
@@ -1503,16 +1517,113 @@ class AreaSoundSource extends SampleSource {
 
         try {
             console.log('[AreaSoundSource] Loading:', this.options.soundUrl);
+            
+            // === STEP 1: Check Cache API (offline support) ===
+            const cachedResponse = await this._getCachedResponse();
+            
+            if (cachedResponse) {
+                console.log('[AreaSoundSource] ✅ Found in cache:', this.options.soundUrl);
+                return this._playFromResponse(cachedResponse);
+            }
+            
+            // === STEP 2: Fallback to network ===
+            console.log('[AreaSoundSource] 🌐 Not cached - fetching from network:', this.options.soundUrl);
             const response = await fetch(this.options.soundUrl);
+            
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
+            
+            // Note: We don't cache here - OfflineDownloadManager handles caching
+            return this._playFromResponse(response);
+            
+        } catch (error) {
+            console.error('[AreaSoundSource] Load failed:', this.id);
+            console.error('[AreaSoundSource] Error type:', error.name);
+            console.error('[AreaSoundSource] Error message:', error.message);
+            console.error('[AreaSoundSource] Error details:', error);
+            console.error('[AreaSoundSource] URL that failed:', this.options.soundUrl);
+            return false;
+        }
+    }
+
+    /**
+     * Check all soundscapes caches for this URL
+     * @returns {Promise<Response|null>} Cached response or null
+     * @private
+     */
+    async _getCachedResponse() {
+        const cacheNames = await caches.keys();
+        const soundscapeCaches = cacheNames.filter(name =>
+            name.startsWith('soundscape-')
+        );
+
+        console.log('[AreaSoundSource] 🔍 Checking caches for:', this.options.soundUrl);
+        console.log('[AreaSoundSource] 📦 All caches:', cacheNames);
+        console.log('[AreaSoundSource] 🗂️ Soundscape caches:', soundscapeCaches);
+
+        if (soundscapeCaches.length === 0) {
+            console.warn('[AreaSoundSource] ⚠️ No soundscape caches found');
+            return null;
+        }
+
+        // Check all caches in parallel for early exit
+        const checkPromises = soundscapeCaches.map(async (cacheName) => {
+            const cache = await caches.open(cacheName);
+            const keys = await cache.keys();
+            console.log(`[AreaSoundSource] 🔎 ${cacheName} contains ${keys.length} items:`
+                + keys.slice(0, 3).map(k => new URL(k.url).pathname).join(', ')
+                + (keys.length > 3 ? '...' : ''));
+
+            const response = await cache.match(this.options.soundUrl);
+            
+            if (!response) {
+                console.log(`[AreaSoundSource] ❌ Not found in ${cacheName}`);
+                throw new Error('Not found in ' + cacheName);
+            }
+            
+            console.log(`[AreaSoundSource] ✅ Found in ${cacheName}`);
+            return response;
+        });
+
+        // Use Promise.any() for early exit (iOS Safari 14.5+)
+        if (typeof Promise.any !== 'undefined') {
+            try {
+                return await Promise.any(checkPromises);
+            } catch (err) {
+                console.log('[AreaSoundSource] ❌ Not found in any soundscape cache');
+                return null;
+            }
+        }
+
+        // Fallback: Promise.all() for older browsers
+        try {
+            const results = await Promise.all(checkPromises);
+            const found = results.find(r => r !== null) || null;
+            if (!found) {
+                console.log('[AreaSoundSource] ❌ Not found in any soundscape cache (Promise.all fallback)');
+            }
+            return found;
+        } catch (err) {
+            console.log('[AreaSoundSource] ❌ Not found in any soundscape cache (Promise.all fallback error)');
+            return null;
+        }
+    }
+
+    /**
+     * Decode and play from response
+     * @param {Response} response
+     * @returns {Promise<boolean>}
+     * @private
+     */
+    async _playFromResponse(response) {
+        try {
             const arrayBuffer = await response.arrayBuffer();
             this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
             console.log('[AreaSoundSource] Loaded:', this.id, 'Duration:', this.buffer.duration.toFixed(2) + 's');
             return true;
         } catch (error) {
-            console.error('[AreaSoundSource] Load failed:', this.id, error);
+            console.error('[AreaSoundSource] Decode failed:', this.id, error);
             return false;
         }
     }

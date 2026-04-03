@@ -14,7 +14,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = 'v1';  // Updated for map_editor_v2 cache-busting
+const CACHE_VERSION = '20260402204705';  // Updated for map_editor_v2 cache-busting
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin) - HTML, JS, CSS for offline support
@@ -269,10 +269,50 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip audio file requests - let CachedSampleSource handle them directly
-  // Audio files are managed by OfflineDownloadManager in separate caches
+  // Audio file requests - cache-first strategy for offline support
+  // AreaSoundSource and CachedSampleSource use Cache API directly, but SW must intercept when offline
   if (url.pathname.match(new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})($|\\?)`, 'i'))) {
-    console.log('[SW] ⏭️ Skipping audio file (handled by CachedSampleSource):', url.pathname);
+    console.log('[SW] 🎵 Audio file request:', url.pathname);
+    event.respondWith(
+      (async () => {
+        // Check all soundscape caches first
+        const cacheNames = await caches.keys();
+        const soundscapeCaches = cacheNames.filter(name => name.startsWith('soundscape-'));
+
+        for (const cacheName of soundscapeCaches) {
+          const cache = await caches.open(cacheName);
+          const cachedResponse = await cache.match(event.request);
+          if (cachedResponse) {
+            console.log('[SW] 🎵 ✅ CACHE HIT:', url.pathname, 'from', cacheName);
+            return cachedResponse;
+          }
+        }
+
+        // Not in soundscape caches - check main cache
+        const mainCache = await caches.open(CACHE_NAME);
+        const mainCachedResponse = await mainCache.match(event.request);
+        if (mainCachedResponse) {
+          console.log('[SW] 🎵 ✅ CACHE HIT (main):', url.pathname);
+          return mainCachedResponse;
+        }
+
+        // Not cached - try network if online
+        if (navigator.onLine) {
+          console.log('[SW] 🎵 🌐 Not cached, fetching from network:', url.pathname);
+          try {
+            const networkResponse = await fetch(event.request);
+            return networkResponse;
+          } catch (error) {
+            console.error('[SW] 🎵 ❌ Network fetch failed:', url.pathname, error);
+            return new Response('', { status: 404 });
+          }
+        }
+
+        // Offline and not cached
+        console.error('[SW] 🎵 ❌ Audio file not cached and offline:', url.pathname);
+        return new Response('', { status: 404 });
+      })()
+    );
     return;
   }
 
@@ -294,11 +334,49 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML files - network-first with cache fallback (ensures fresh code on deploy)
+  // HTML files - smart strategy: cache-first when offline, network-first when online
   if (url.pathname.endsWith('.html') || url.pathname === '/') {
-    console.log('[SW] 🌐 HTML request (network-first):', url.pathname, url.search);
+    console.log('[SW] 🌐 HTML request:', url.pathname, url.search);
     event.respondWith(
       (async () => {
+        // Check if we're online
+        const isOnline = navigator.onLine;
+        console.log('[SW] 🌐 Online status:', isOnline);
+
+        // OFFLINE: Use cache-first (immediate response, no network delay)
+        if (!isOnline) {
+          console.log('[SW] 📴 Offline mode - using cache-first for HTML');
+          
+          // Try exact match first
+          let cachedResponse = await caches.match(event.request);
+
+          // If no match and URL has query string, try without query string
+          if (!cachedResponse && url.search) {
+            const basePath = url.origin + url.pathname;
+            const baseRequest = new Request(basePath);
+            console.log('[SW] 🔄 Trying base URL without query string:', basePath);
+            cachedResponse = await caches.match(baseRequest);
+
+            if (cachedResponse) {
+              console.log('[SW] ✅ Found cached HTML (without query string)');
+            }
+          }
+
+          if (cachedResponse) {
+            console.log('[SW] ✅ Serving cached HTML:', url.pathname);
+            return cachedResponse;
+          }
+
+          // No cache - return offline page
+          console.log('[SW] ⚠️ No cache available for:', url.pathname);
+          return new Response('Offline - page not cached', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' }
+          });
+        }
+
+        // ONLINE: Use network-first with 3-second timeout (ensures fresh code on deploy)
+        console.log('[SW] 🌐 Online - using network-first for HTML');
         try {
           // Try network first with 3-second timeout
           const controller = new AbortController();
@@ -317,26 +395,26 @@ self.addEventListener('fetch', (event) => {
         } catch (error) {
           // Network failed - serve from cache
           console.log('[SW] 📦 Network failed, serving from cache:', url.pathname);
-          
+
           // Try exact match first
           let cachedResponse = await caches.match(event.request);
-          
+
           // If no match and URL has query string, try without query string
           if (!cachedResponse && url.search) {
             const basePath = url.origin + url.pathname;
             const baseRequest = new Request(basePath);
             console.log('[SW] 🔄 Trying base URL without query string:', basePath);
             cachedResponse = await caches.match(baseRequest);
-            
+
             if (cachedResponse) {
               console.log('[SW] ✅ Found cached HTML (without query string)');
             }
           }
-          
+
           if (cachedResponse) {
             return cachedResponse;
           }
-          
+
           // No cache either - return offline page
           return new Response('Offline - page not cached', {
             status: 503,

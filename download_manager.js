@@ -123,14 +123,19 @@ class OfflineDownloadManager {
                 soundscape: soundscapeData?.soundscape || null,
                 downloadedAt: new Date().toISOString()
             };
-            
+
             console.log(`[OfflineDownload] 💾 Structured data before storing:`, {
                 id: structuredData.id,
                 name: structuredData.name,
                 waypointCount: structuredData.waypoints?.length || 0,
                 areaCount: structuredData.areas?.length || 0,
                 behaviorCount: structuredData.behaviors?.length || 0,
-                areas: structuredData.areas
+                areas: structuredData.areas.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    soundUrl: a.soundUrl || 'MISSING!',
+                    type: a.type
+                }))
             });
             
             await this._storeSoundscapeData(soundscapeId, structuredData);

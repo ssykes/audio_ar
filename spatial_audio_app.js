@@ -2125,11 +2125,13 @@ class AreaManager {
                     id: areaConfig.id,
                     name: areaConfig.name,
                     type: areaConfig.type,
+                    soundUrl: areaConfig.soundUrl,  // ← Add this to see if it exists
                     waveform: areaConfig.waveform,
                     frequency: areaConfig.frequency,
                     detune: areaConfig.detune,
                     gain: areaConfig.gain
                 });
+                console.log('[AreaManager] Full area config keys:', Object.keys(areaConfig));
                 const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
