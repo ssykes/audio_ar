@@ -74,7 +74,16 @@
         navigator.serviceWorker.getRegistration()
             .then((existingRegistration) => {
                 if (existingRegistration && existingRegistration.active) {
-                    // SW already active - check if version changed via postMessage
+                    // OFFLINE: Skip version check - just use existing SW
+                    // This prevents unregistering SW while offline (which breaks the page)
+                    if (!navigator.onLine) {
+                        console.log('[SW] 📴 Offline - using existing SW (no version check)');
+                        options.onReady?.(existingRegistration);
+                        return existingRegistration;
+                    }
+
+                    // ONLINE: Check if version changed via postMessage
+                    console.log('[SW] 🌐 Online - checking SW version...');
                     return getSwVersion(existingRegistration.active)
                         .then((swVersion) => {
                             if (swVersion !== CACHE_VERSION) {
@@ -186,5 +195,18 @@
             });
     };
 
-    console.log('[sw-register.js] Loaded v1.2');
+    // Auto-register SW immediately (before any network requests)
+    // This ensures SW is controlling the page as early as possible
+    console.log('[sw-register.js] 🚀 Auto-registering SW immediately...');
+    registerServiceWorker({
+        onReady: (registration) => {
+            console.log('[sw-register.js] ✅ SW ready and controlling page');
+        },
+        onError: (error) => {
+            console.error('[sw-register.js] ❌ SW registration failed:', error);
+            console.warn('[sw-register.js] ⚠️ Offline mode may not work');
+        }
+    });
+
+    console.log('[sw-register.js] Loaded v1.3');
 })();

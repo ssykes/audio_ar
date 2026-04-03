@@ -529,7 +529,8 @@
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
-    <script src="sw-register.js"></script>
+    <!-- Service Worker Registration (DISABLED for testing - re-enable for offline support) -->
+    <!-- <script src="sw-register.js"></script> -->
     <script src="soundscape.js"></script>
     <script src="download_manager.js"></script>
 
@@ -550,9 +551,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260402161009 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260403131157 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260402161009 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260403131157 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1255,7 +1256,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260402161009
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260403131157
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }

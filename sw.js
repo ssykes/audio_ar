@@ -14,7 +14,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = '20260402204705';  // Updated for map_editor_v2 cache-busting
+const CACHE_VERSION = 'v1';  // Updated for map_editor_v2 cache-busting
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin) - HTML, JS, CSS for offline support
