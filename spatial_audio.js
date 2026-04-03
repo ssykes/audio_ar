@@ -2,14 +2,16 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 6.0 (Martinez Intersection Crossfade)
+ * @version 6.2 (Area Debug Cleanup)
  * @changelog
+ *   v6.2 - Removed non-essential debug logging from AreaSoundSource
+ *   v6.1 - Added depth-weighted crossfade for overlapping areas (AreaSoundSource.calculateMaxDepth)
  *   v6.0 - Added Martinez intersection crossfade methods (martinezIntersection, getCrossfadePosition, raySegmentIntersection)
  *   v5.1 - Fixed Z-axis flip for correct GPS to Web Audio coordinate conversion
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v5.1...');
+console.log('[spatial_audio.js] Loading v6.1...');
 
 /**
  * GPS Utility Functions
@@ -1462,6 +1464,9 @@ class AreaSoundSource extends SampleSource {
         this.order = options.order || 0;  // Placement order for opaque priority
         this.areaId = options.areaId || id;  // Reference to Area data
 
+        // Depth-weighted crossfade (calculated at load time)
+        this.maxDepth = 0;  // Max distance from edge to deepest interior point
+
         // Oscillator support - use oscillator if type is 'oscillator' OR no soundUrl
         this.type = options.type || 'file';
         this.useOscillator = (this.type === 'oscillator') || !options.soundUrl;
@@ -1471,6 +1476,50 @@ class AreaSoundSource extends SampleSource {
 
         // No panning for areas - disable panner
         this.fixed = false;  // Not a fixed point source
+    }
+
+    /**
+     * Calculate maxDepth: deepest point inside polygon from any edge
+     * Uses grid sampling for reliability (works with any polygon shape)
+     * Called once at load time, cached for performance
+     */
+    calculateMaxDepth() {
+        if (this.polygon.length < 3) {
+            this.maxDepth = 10;  // Fallback for invalid polygon
+            return;
+        }
+
+        // Get bounding box
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLng = Infinity, maxLng = -Infinity;
+        for (const p of this.polygon) {
+            minLat = Math.min(minLat, p.lat);
+            maxLat = Math.max(maxLat, p.lat);
+            minLng = Math.min(minLng, p.lng);
+            maxLng = Math.max(maxLng, p.lng);
+        }
+
+        // Sample grid points inside polygon
+        const gridSize = 10;  // 10x10 grid (100 samples, fast enough)
+        let maxDist = 0;
+        const latRange = maxLat - minLat;
+        const lngRange = maxLng - minLng;
+
+        for (let i = 1; i < gridSize; i++) {
+            for (let j = 1; j < gridSize; j++) {
+                const lat = minLat + (latRange * i) / gridSize;
+                const lng = minLng + (lngRange * j) / gridSize;
+
+                if (GPSUtils.pointInPolygon(lat, lng, this.polygon)) {
+                    const dist = GPSUtils.distanceToEdge(lat, lng, this.polygon);
+                    if (isFinite(dist) && dist > maxDist) {
+                        maxDist = dist;
+                    }
+                }
+            }
+        }
+
+        this.maxDepth = maxDist > 0 ? maxDist : 10;  // Fallback if no interior points found
     }
 
     /**
@@ -1506,7 +1555,6 @@ class AreaSoundSource extends SampleSource {
     async load() {
         // If no soundUrl, use oscillator (for testing)
         if (this.useOscillator) {
-            console.log('[AreaSoundSource] Using oscillator:', this.id, `type=${this.oscillatorType}, freq=${this.frequency}Hz`);
             return true;
         }
 
@@ -1516,33 +1564,24 @@ class AreaSoundSource extends SampleSource {
         }
 
         try {
-            console.log('[AreaSoundSource] Loading:', this.options.soundUrl);
-            
             // === STEP 1: Check Cache API (offline support) ===
             const cachedResponse = await this._getCachedResponse();
-            
+
             if (cachedResponse) {
-                console.log('[AreaSoundSource] ✅ Found in cache:', this.options.soundUrl);
                 return this._playFromResponse(cachedResponse);
             }
-            
+
             // === STEP 2: Fallback to network ===
-            console.log('[AreaSoundSource] 🌐 Not cached - fetching from network:', this.options.soundUrl);
             const response = await fetch(this.options.soundUrl);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
-            
-            // Note: We don't cache here - OfflineDownloadManager handles caching
+
             return this._playFromResponse(response);
-            
+
         } catch (error) {
-            console.error('[AreaSoundSource] Load failed:', this.id);
-            console.error('[AreaSoundSource] Error type:', error.name);
-            console.error('[AreaSoundSource] Error message:', error.message);
-            console.error('[AreaSoundSource] Error details:', error);
-            console.error('[AreaSoundSource] URL that failed:', this.options.soundUrl);
+            console.error('[AreaSoundSource] Load failed:', this.id, error);
             return false;
         }
     }
@@ -1558,32 +1597,16 @@ class AreaSoundSource extends SampleSource {
             name.startsWith('soundscape-')
         );
 
-        console.log('[AreaSoundSource] 🔍 Checking caches for:', this.options.soundUrl);
-        console.log('[AreaSoundSource] 📦 All caches:', cacheNames);
-        console.log('[AreaSoundSource] 🗂️ Soundscape caches:', soundscapeCaches);
-
         if (soundscapeCaches.length === 0) {
-            console.warn('[AreaSoundSource] ⚠️ No soundscape caches found');
             return null;
         }
 
         // Check all caches in parallel for early exit
         const checkPromises = soundscapeCaches.map(async (cacheName) => {
             const cache = await caches.open(cacheName);
-            const keys = await cache.keys();
-            console.log(`[AreaSoundSource] 🔎 ${cacheName} contains ${keys.length} items:`
-                + keys.slice(0, 3).map(k => new URL(k.url).pathname).join(', ')
-                + (keys.length > 3 ? '...' : ''));
-
             const response = await cache.match(this.options.soundUrl);
-            
-            if (!response) {
-                console.log(`[AreaSoundSource] ❌ Not found in ${cacheName}`);
-                throw new Error('Not found in ' + cacheName);
-            }
-            
-            console.log(`[AreaSoundSource] ✅ Found in ${cacheName}`);
-            return response;
+            if (response) return response;
+            return null;
         });
 
         // Use Promise.any() for early exit (iOS Safari 14.5+)
@@ -1591,7 +1614,6 @@ class AreaSoundSource extends SampleSource {
             try {
                 return await Promise.any(checkPromises);
             } catch (err) {
-                console.log('[AreaSoundSource] ❌ Not found in any soundscape cache');
                 return null;
             }
         }
@@ -1599,13 +1621,8 @@ class AreaSoundSource extends SampleSource {
         // Fallback: Promise.all() for older browsers
         try {
             const results = await Promise.all(checkPromises);
-            const found = results.find(r => r !== null) || null;
-            if (!found) {
-                console.log('[AreaSoundSource] ❌ Not found in any soundscape cache (Promise.all fallback)');
-            }
-            return found;
+            return results.find(r => r !== null) || null;
         } catch (err) {
-            console.log('[AreaSoundSource] ❌ Not found in any soundscape cache (Promise.all fallback error)');
             return null;
         }
     }
@@ -1620,7 +1637,6 @@ class AreaSoundSource extends SampleSource {
         try {
             const arrayBuffer = await response.arrayBuffer();
             this.buffer = await this.engine.ctx.decodeAudioData(arrayBuffer);
-            console.log('[AreaSoundSource] Loaded:', this.id, 'Duration:', this.buffer.duration.toFixed(2) + 's');
             return true;
         } catch (error) {
             console.error('[AreaSoundSource] Decode failed:', this.id, error);
@@ -1634,9 +1650,7 @@ class AreaSoundSource extends SampleSource {
      */
     start() {
         if (this.useOscillator) {
-            // Start oscillator
             if (this.oscillator) {
-                console.warn('[AreaSoundSource] Oscillator already running');
                 return false;
             }
 
@@ -1647,12 +1661,9 @@ class AreaSoundSource extends SampleSource {
             this.oscillator.start();
 
             this.isPlaying = true;
-            console.log('[AreaSoundSource] Oscillator started:', this.id);
             return true;
         } else {
-            // Start sample playback
             if (!this.buffer) {
-                console.warn('[AreaSoundSource] Cannot start - buffer not loaded');
                 return false;
             }
 
@@ -1680,7 +1691,6 @@ class AreaSoundSource extends SampleSource {
                 }
             };
 
-            // CRITICAL: Call SoundSource.start() directly to set isPlaying = true
             SoundSource.prototype.start.call(this);
 
             return true;
@@ -1761,11 +1771,6 @@ class AreaSoundSource extends SampleSource {
 
         // Apply distance-based reverb (same as GpsSoundSource)
         this._updateReverbWetMix(distanceToEdge);
-
-        // Debug: Log volume changes (throttled)
-        if (Math.random() < 0.05) {
-            console.log(`[Area] ${this.id}: ${distanceToEdge.toFixed(1)}m from edge, volume: ${(volume * 100).toFixed(0)}%`);
-        }
 
         return volume;
     }
@@ -2829,7 +2834,7 @@ if (typeof module !== 'undefined' && module.exports) {
     window.setReverbEnvironment = setReverbEnvironment;
     window.getReverbForDistance = getReverbForDistance;
     window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
-    console.log('[spatial_audio.js] v5.1+ (Feature 15: Offline Cache Support + Sound Areas) loaded');
+    console.log('[spatial_audio.js] v6.2 (Area Debug Cleanup) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');

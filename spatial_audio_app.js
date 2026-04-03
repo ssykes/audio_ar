@@ -2,10 +2,12 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.0 (Martinez Intersection Crossfade)
- * @depends spatial_audio.js v6.0+
+ * @version 3.2 (Area Debug Cleanup)
+ * @depends spatial_audio.js v6.2+
  *
  * Changelog:
+ * - v3.2: Removed non-essential debug logging from AreaManager
+ * - v3.1: Replaced 1/N area mixing with depth-weighted crossfade (distanceToEdge/maxDepth)
  * - v3.0: Added Martinez intersection-based crossfade for overlapping polygon areas
  * - v2.8: Added distance-based low-pass filter (simulates air absorption)
  * - v2.7: Added hysteresis to disposal logic (prevents cycling at zone boundaries)
@@ -642,6 +644,17 @@ class SpatialAudioApp {
             sound.lat,
             sound.lon
         );
+    }
+
+    /**
+     * Get current gain value for a sound
+     * @param {string} soundId - Sound ID
+     * @returns {number|null} Current gain (0-1), or null if sound not found
+     */
+    getSoundGain(soundId) {
+        const source = this.engine.getSource(soundId);
+        if (!source || !source.gain) return null;
+        return source.gain.gain.value;
     }
 
     /**
@@ -2043,96 +2056,9 @@ class AreaManager {
      */
     async loadAreas(areaConfigs) {
         console.log('[AreaManager] Loading', areaConfigs.length, 'areas...');
-        console.log('[AreaManager] Listener position:', { lat: this.listener.lat, lon: this.listener.lon });
-
-        // Debug: Log all polygon data for inspection (static, no dragging needed)
-        console.group('[AreaManager] === STATIC POLYGON DATA ===');
-        areaConfigs.forEach((config, idx) => {
-            console.groupCollapsed(`Area ${idx + 1}/${areaConfigs.length}: "${config.name}" (${config.id})`);
-
-            console.log('Polygon vertices:', config.polygon ? config.polygon.length : 0);
-            if (config.polygon) {
-                config.polygon.forEach((p, i) => {
-                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
-                });
-
-                // Calculate bounds and size
-                const bounds = GPSUtils.polygonBounds(config.polygon);
-                const area = Math.abs(GPSUtils.polygonSignedArea(config.polygon));
-                const sizeLat = (bounds.maxLat - bounds.minLat) * 111000;
-                const sizeLng = (bounds.maxLng - bounds.minLng) * 111000 * Math.cos(bounds.minLat * Math.PI / 180);
-
-                console.log(`  Area: ${area.toFixed(8)} deg²`);
-                console.log(`  Bounds: lat[${bounds.minLat.toFixed(6)} to ${bounds.maxLat.toFixed(6)}], lng[${bounds.minLng.toFixed(6)} to ${bounds.maxLng.toFixed(6)}]`);
-                console.log(`  Size: ${sizeLat.toFixed(1)}m × ${sizeLng.toFixed(1)}m`);
-                console.log(`  Overlap mode: ${config.overlapMode || 'mix'}`);
-                console.log(`  Order: ${config.order || 0}`);
-
-                // === POLYGON VALIDATION ===
-                const validation = GPSUtils.validatePolygon(config.polygon);
-                if (!validation.valid) {
-                    if (validation.errors.length > 0) {
-                        console.error(`  ❌ VALIDATION ERRORS (${validation.errors.length}):`);
-                        validation.errors.forEach(err => {
-                            console.error(`    ❌ ${err.message}`);
-                        });
-                    }
-                    if (validation.warnings.length > 0) {
-                        console.warn(`  ⚠️ VALIDATION WARNINGS (${validation.warnings.length}):`);
-                        validation.warnings.forEach(warn => {
-                            console.warn(`    ⚠️ ${warn.message}`);
-                        });
-                    }
-                } else {
-                    console.log(`  ✅ Polygon validation passed`);
-                }
-            } else {
-                console.warn('  ⚠️ NO POLYGON DATA!');
-            }
-
-            console.groupEnd();
-        });
-        console.groupEnd();
-
-        // Summary of validation results
-        const validationSummary = {
-            total: areaConfigs.length,
-            valid: 0,
-            withErrors: 0,
-            withWarnings: 0
-        };
-        areaConfigs.forEach(config => {
-            if (config.polygon) {
-                const v = GPSUtils.validatePolygon(config.polygon);
-                if (v.valid) validationSummary.valid++;
-                else if (v.errors.length > 0) validationSummary.withErrors++;
-                else validationSummary.withWarnings++;
-            }
-        });
-
-        if (validationSummary.withErrors > 0 || validationSummary.withWarnings > 0) {
-            console.group('%c[AreaManager] ⚠️ POLYGON VALIDATION SUMMARY', 'color: #f39c12; font-weight: bold; font-size: 14px;');
-            console.log(`  Total areas: ${validationSummary.total}`);
-            console.log(`  ✅ Valid: ${validationSummary.valid}`);
-            console.log(`  ❌ Errors: ${validationSummary.withErrors} (Martinez intersection will fail)`);
-            console.log(`  ⚠️ Warnings: ${validationSummary.withWarnings} (may cause issues)`);
-            console.log('%c  💡 Fix: Edit or delete problematic areas in the map editor', 'color: #00d9ff;');
-            console.groupEnd();
-        }
 
         for (const areaConfig of areaConfigs) {
             try {
-                console.log('[AreaManager] Area config:', {
-                    id: areaConfig.id,
-                    name: areaConfig.name,
-                    type: areaConfig.type,
-                    soundUrl: areaConfig.soundUrl,  // ← Add this to see if it exists
-                    waveform: areaConfig.waveform,
-                    frequency: areaConfig.frequency,
-                    detune: areaConfig.detune,
-                    gain: areaConfig.gain
-                });
-                console.log('[AreaManager] Full area config keys:', Object.keys(areaConfig));
                 const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
@@ -2144,7 +2070,6 @@ class AreaManager {
                     overlapMode: areaConfig.overlapMode || 'mix',
                     order: areaConfig.order || 0,
                     gain: areaConfig.gain !== undefined ? areaConfig.gain : areaConfig.volume || 0.8,
-                    // Oscillator properties
                     oscillatorType: areaConfig.waveform || 'sine',
                     frequency: areaConfig.frequency || 440,
                     detune: areaConfig.detune || 0
@@ -2154,12 +2079,8 @@ class AreaManager {
                 const loaded = await areaSource.load();
                 if (loaded) {
                     areaSource.start();
-                    console.log('[AreaManager] Calling updateVolume with listener pos:', { lat: this.listener.lat, lon: this.listener.lon });
+                    areaSource.calculateMaxDepth();
                     areaSource.updateVolume(this.listener.lat, this.listener.lon);
-                    
-                    // Debug: Check if listener is inside this area
-                    const isInside = GPSUtils.pointInPolygon(this.listener.lat, this.listener.lon, areaConfig.polygon);
-                    console.log('[AreaManager] Area', areaConfig.id, 'listener inside:', isInside);
                 }
                 this.areas.set(areaConfig.id, areaSource);
             } catch (error) {
@@ -2168,9 +2089,6 @@ class AreaManager {
         }
 
         console.log('[AreaManager] Total areas loaded:', this.areas.size);
-        
-        // Debug: Export helper for console
-        console.log('[AreaManager] 💡 To export polygons as GeoJSON, run: app.areaManager.exportPolygons()');
     }
     
     /**
@@ -2268,11 +2186,6 @@ class AreaManager {
                 activeAreas.push(areaSource);
                 this.activeAreas.add(areaId);
 
-                // Debug: Log when entering an area
-                if (!wasActive) {
-                    console.log('[AreaManager] ✅ ENTERED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
-                }
-
                 // For non-mix areas (opaque), update volume immediately
                 // For mix areas, volume will be set by _mixAreas()
                 if (areaSource.overlapMode !== 'mix') {
@@ -2280,11 +2193,6 @@ class AreaManager {
                 }
             } else {
                 this.activeAreas.delete(areaId);
-
-                // Debug: Log when exiting an area
-                if (wasActive) {
-                    console.log('[AreaManager] ❌ EXITED area', areaId, 'at', { lat: listenerLat, lon: listenerLon });
-                }
 
                 // Fade out smoothly when exiting area (or moving beyond hysteresis zone)
                 if (areaSource.gain) {
@@ -2307,31 +2215,26 @@ class AreaManager {
 
     /**
      * Mix volumes for overlapping areas
-     * Uses simple overlap averaging (1/N per area)
+     * Uses depth-weighted crossfade: deeper inside an area = louder it plays
      * Handles both 'mix' and 'opaque' overlap modes
      * @param {Array<AreaSoundSource>} activeAreas - Currently active areas
      * @private
      */
     _mixAreas(activeAreas) {
-        // Separate by overlap mode
         const mixAreas = activeAreas.filter(a => a.overlapMode === 'mix');
         const opaqueAreas = activeAreas.filter(a => a.overlapMode === 'opaque');
 
-        // === OPAQUE MODE ===
-        // Only the highest-order (last placed) opaque area plays
+        // === OPAQUE MODE: Highest-order area wins ===
         if (opaqueAreas.length > 0) {
-            // Sort by order (descending - highest order wins)
             opaqueAreas.sort((a, b) => b.order - a.order);
             const topOpaque = opaqueAreas[0];
 
-            // Play top opaque area at full volume
             if (topOpaque.gain) {
                 const t = this.engine.ctx.currentTime;
                 topOpaque.gain.gain.cancelScheduledValues(t);
                 topOpaque.gain.gain.setTargetAtTime(topOpaque.options.gain, t, 0.01);
             }
 
-            // Mute all other opaque areas
             for (let i = 1; i < opaqueAreas.length; i++) {
                 const area = opaqueAreas[i];
                 if (area.gain) {
@@ -2342,44 +2245,69 @@ class AreaManager {
             }
         }
 
-        // === MIX MODE: Simple Overlap Averaging ===
-        // Each area plays at 1/N volume in the overlap zone
-        // Works reliably on phone, simulator, and when stationary
+        // === MIX MODE: Depth-Weighted Crossfade ===
+        // Each area's weight = normalized depth (distanceToEdge / maxDepth)
+        // Deeper inside = louder. Natural crossfade as you move between areas.
         if (mixAreas.length > 0) {
             const t = this.engine.ctx.currentTime;
 
-            for (let i = 0; i < mixAreas.length; i++) {
-                const area = mixAreas[i];
+            // Calculate depth weight for each area
+            let totalDepth = 0;
+            const weights = [];
+
+            for (const area of mixAreas) {
+                const distanceToEdge = GPSUtils.distanceToEdge(
+                    this.listener.lat,
+                    this.listener.lon,
+                    area.polygon
+                );
+
+                if (!isFinite(distanceToEdge)) {
+                    weights.push({ area, depth: 0, weight: 0 });
+                    continue;
+                }
+
+                // Normalized depth: 0.0 (at edge) → 1.0 (deepest point)
+                const normalizedDepth = area.maxDepth > 0
+                    ? Math.min(1.0, distanceToEdge / area.maxDepth)
+                    : 1.0;
+
+                totalDepth += normalizedDepth;
+                weights.push({ area, depth: normalizedDepth, weight: 0 });
+            }
+
+            // Normalize weights so they sum to 1.0
+            if (totalDepth > 0) {
+                for (const w of weights) {
+                    w.weight = w.depth / totalDepth;
+                }
+            } else {
+                // Fallback: equal split if all depths are 0
+                const equalWeight = 1.0 / mixAreas.length;
+                for (const w of weights) {
+                    w.weight = equalWeight;
+                }
+            }
+
+            // Apply volumes: edgeFade × depthWeight × areaGain
+            for (const { area, weight } of weights) {
                 if (!area.gain) continue;
 
-                // Calculate base volume from distance to edge (fade zone effect)
                 const distanceToEdge = GPSUtils.distanceToEdge(
                     this.listener.lat,
                     this.listener.lon,
                     area.polygon
                 );
 
-                // Guard: Handle invalid distances (Infinity, NaN)
-                if (!isFinite(distanceToEdge)) {
-                    area.gain.gain.value = 0;
-                    continue;
-                }
-
-                // Calculate fade zone volume
-                let fadeVolume = 1.0;
+                // Edge fade: smooth entry from boundary
+                let edgeFade = 1.0;
                 if (distanceToEdge < area.fadeZoneWidth) {
-                    fadeVolume = distanceToEdge / area.fadeZoneWidth;
-                    fadeVolume = Math.pow(fadeVolume, 0.5);
+                    edgeFade = distanceToEdge / area.fadeZoneWidth;
+                    edgeFade = Math.pow(edgeFade, 0.5);  // Square root for smoother fade
                 }
 
-                // Calculate average volume across all mix areas
-                const numAreas = mixAreas.length;
-                const averageWeight = 1.0 / numAreas;
+                const finalVolume = edgeFade * weight * area.options.gain;
 
-                // Apply: fade zone × max volume × average weight
-                const finalVolume = fadeVolume * area.options.gain * averageWeight;
-
-                // Guard: Ensure final volume is finite
                 if (!isFinite(finalVolume)) {
                     area.gain.gain.value = 0;
                     continue;
@@ -2388,90 +2316,7 @@ class AreaManager {
                 area.gain.gain.cancelScheduledValues(t);
                 area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
             }
-
-            // Debug logging
-            const activeDebugAreas = mixAreas.filter(a => a.gain && a.gain.gain.value > 0);
-            if (activeDebugAreas.length > 0) {
-                const debugInfo = activeDebugAreas.map((a) =>
-                    `${a.areaId}:${(a.gain.gain.value * 100).toFixed(0)}%`
-                ).join(' | ');
-                console.log(`[MixAreas-Simple] ${debugInfo} (overlap averaging, ${mixAreas.length} areas)`);
-            }
         }
-    }
-
-    /**
-     * Apply equal distribution to mix areas (fallback for 3+ areas)
-     * @param {Array<AreaSoundSource>} mixAreas - Areas to mix
-     * @param {number} t - Audio context time
-     * @private
-     */
-    _applyEqualDistribution(mixAreas, t) {
-        const numAreas = mixAreas.length;
-        const equalWeight = 1.0 / numAreas;
-
-        for (let i = 0; i < mixAreas.length; i++) {
-            const area = mixAreas[i];
-            if (area.gain) {
-                // Calculate base volume from distance to edge (fade zone effect)
-                const distanceToEdge = GPSUtils.distanceToEdge(
-                    this.listener.lat,
-                    this.listener.lon,
-                    area.polygon
-                );
-
-                // Guard: Handle invalid distances (Infinity, NaN)
-                if (!isFinite(distanceToEdge)) {
-                    area.gain.gain.value = 0;
-                    continue;
-                }
-
-                let fadeVolume = 1.0;
-                if (distanceToEdge < area.fadeZoneWidth) {
-                    fadeVolume = distanceToEdge / area.fadeZoneWidth;
-                    fadeVolume = Math.pow(fadeVolume, 0.5);
-                }
-
-                const finalVolume = fadeVolume * area.options.gain * equalWeight;
-                
-                // Guard: Ensure final volume is finite
-                if (!isFinite(finalVolume)) {
-                    area.gain.gain.value = 0;
-                    continue;
-                }
-                
-                area.gain.gain.cancelScheduledValues(t);
-                area.gain.gain.setTargetAtTime(finalVolume, t, 0.05);
-            }
-        }
-
-        // Debug logging: Only if areas have audible volume (> 0)
-        const activeAreas = mixAreas.filter(a => a.gain && a.gain.gain.value > 0);
-        if (activeAreas.length > 0) {
-            const debugInfo = activeAreas.map((a) =>
-                `${a.areaId}:${(a.gain.gain.value * 100).toFixed(0)}%`
-            ).join(' | ');
-            console.log(`[Crossfade] ${debugInfo} (equal distribution)`);
-        }
-    }
-
-    /**
-     * Calculate center point of a polygon
-     * @param {Array} polygon - Array of {lat, lon} points
-     * @returns {{lat: number, lon: number}} Center coordinates
-     * @private
-     */
-    _calculateAreaCenter(polygon) {
-        if (!polygon || polygon.length === 0) return { lat: 0, lon: 0 };
-        let sumLat = 0, sumLon = 0;
-        for (const point of polygon) {
-            sumLat += point.lat;
-            sumLon += point.lon;
-        }
-        return {
-            lat: sumLat / polygon.length,
-            lon: sumLon / polygon.length
-        };
     }
 
     /**
@@ -2502,16 +2347,12 @@ class AreaManager {
      * Stop all areas and free resources
      */
     dispose() {
-        console.log('[AreaManager] Disposing all areas...');
-
         for (const [areaId, areaSource] of this.areas) {
             areaSource.stop();
             areaSource.dispose();
         }
-
         this.areas.clear();
         this.activeAreas.clear();
-        console.log('[AreaManager] Disposed');
     }
 
     /**

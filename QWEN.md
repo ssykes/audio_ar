@@ -47,8 +47,9 @@ Source code (implementation)
 | `map_editor_mockup.js` | v1.0 | 2026-03-25 (Feature 17B) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
-| `spatial_audio.js` | v5.1+ | 2026-03-20 (Feature 15) |
-| `spatial_audio_app.js` | v2.8 | 2026-03-18 (Feature 14) |
+| `spatial_audio.js` | v6.2 | 2026-04-03 (Area Debug Cleanup) |
+| `spatial_audio_app.js` | v3.2 | 2026-04-03 (Area Debug Cleanup) |
+| `map_shared.js` | v6.9+ | 2026-04-03 (Sim waypoint zone logging) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-03-21 (Feature 16: New) |
 | `deploy.ps1` | - | 2026-03-21 (Feature 16) |

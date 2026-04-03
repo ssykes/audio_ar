@@ -1370,10 +1370,77 @@ class MapAppShared {
         // Update sound positions
         this.app._updateSoundPositions();
 
+        // === Log waypoint enter/center/exit events ===
+        this._logWaypointZoneTransitions();
+
         // === SESSION 3: Update AreaManager with simulated position ===
         if (this.app.areaManager) {
             this.app.areaManager.update(this.simListenerLat, this.simListenerLon, 0);
         }
+    }
+
+    /**
+     * Log waypoint zone transitions during simulation
+     * Tracks: entering fade zone, reaching max volume zone, passing center, exiting
+     * @private
+     */
+    _logWaypointZoneTransitions() {
+        if (!this.app || !this.app.listener) return;
+
+        const listenerLat = this.simListenerLat;
+        const listenerLon = this.simListenerLon;
+
+        this.waypoints.forEach(wp => {
+            const dist = GPSUtils.distance(wp.lat, wp.lon, listenerLat, listenerLon);
+            const activationRadius = wp.activationRadius || 20;
+            const fadeZone = 20;
+            const fadeStart = Math.max(0, activationRadius - fadeZone);
+            const fadeEnd = activationRadius + fadeZone;
+
+            // Track previous zone to detect transitions
+            const prevZone = this._wpPrevZones?.[wp.id];
+            let currentZone;
+
+            if (dist >= fadeEnd) {
+                currentZone = 'outside';
+            } else if (dist > fadeStart) {
+                currentZone = 'fade';
+            } else if (dist >= 2) {
+                currentZone = 'full_volume';
+            } else {
+                currentZone = 'center_boost';
+            }
+
+            // Log zone transitions
+            if (prevZone && prevZone !== currentZone) {
+                const zoneLabels = {
+                    outside: 'OUTSIDE (silent)',
+                    fade: 'FADE ZONE',
+                    full_volume: 'FULL VOLUME ZONE',
+                    center_boost: 'CENTER (<2m, max volume)'
+                };
+
+                const gain = this.app.getSoundGain?.(wp.id);
+                const gainStr = gain !== null && gain !== undefined ? `${(gain * 100).toFixed(0)}%` : '?';
+
+                console.log(`[Sim] 🎵 ${wp.name}: ${zoneLabels[prevZone]} → ${zoneLabels[currentZone]} | dist=${dist.toFixed(1)}m | gain=${gainStr} | radius=${activationRadius}m`);
+            }
+
+            // Throttled continuous log (every ~2m of movement)
+            if (!this._wpLastLogDist?.[wp.id] || Math.abs(dist - this._wpLastLogDist[wp.id]) >= 2) {
+                this._wpLastLogDist = this._wpLastLogDist || {};
+                this._wpLastLogDist[wp.id] = dist;
+
+                const gain = this.app.getSoundGain?.(wp.id);
+                const gainStr = gain !== null && gain !== undefined ? `${(gain * 100).toFixed(0)}%` : '?';
+
+                console.log(`[Sim] 🚶 ${wp.name}: ${dist.toFixed(1)}m away | gain=${gainStr} | zone=${dist >= fadeEnd ? 'silent' : dist > fadeStart ? 'fade' : dist >= 2 ? 'full' : 'CENTER'}`);
+            }
+
+            // Store current zone for next comparison
+            this._wpPrevZones = this._wpPrevZones || {};
+            this._wpPrevZones[wp.id] = currentZone;
+        });
     }
 
     /**

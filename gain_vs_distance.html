@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waypoint Gain vs Distance</title>
+<style>
+body { background: #1a1a2e; color: #eee; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+h1 { color: #00d9ff; text-align: center; }
+.chart-container { max-width: 900px; margin: 0 auto; background: #16213e; border-radius: 12px; padding: 20px; }
+canvas { width: 100%; height: 400px; }
+.legend { display: flex; gap: 20px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.legend-color { width: 16px; height: 16px; border-radius: 3px; }
+.info { text-align: center; margin-top: 15px; font-size: 13px; color: #888; }
+table { width: 100%; max-width: 900px; margin: 20px auto; border-collapse: collapse; font-size: 12px; }
+th, td { padding: 4px 8px; text-align: right; border-bottom: 1px solid #2a2a4a; }
+th { color: #00d9ff; position: sticky; top: 0; background: #16213e; }
+td:first-child, th:first-child { text-align: left; }
+.zone-full { color: #4ade80; }
+.zone-fade { color: #fbbf24; }
+.zone-silent { color: #ef4444; }
+</style>
+</head>
+<body>
+<h1>🎵 Waypoint Gain Over Distance (activationRadius=100m, fadeZone=20m)</h1>
+<div class="chart-container">
+  <canvas id="chart"></canvas>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#4ade80"></div> Full Volume Zone (0-80m)</div>
+    <div class="legend-item"><div class="legend-color" style="background:#fbbf24"></div> Fade Zone (80-120m)</div>
+    <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div> Silent (>120m)</div>
+    <div class="legend-item"><div class="legend-color" style="background:#00d9ff"></div> Measured Gain</div>
+  </div>
+  <div class="info">Data from simulator console log — Sound 3 (water.wav), targetGain=0.8</div>
+</div>
+<table id="dataTable"><thead><tr><th>Distance (m)</th><th>Gain (%)</th><th>Zone</th><th>Notes</th></tr></thead><tbody></tbody></table>
+
+<script>
+// Extracted from console log data (second pass, after sound loaded)
+const data = [
+  { dist: 67.4, gain: 80, zone: 'full' },
+  { dist: 69.9, gain: 80, zone: 'full' },
+  { dist: 72.5, gain: 80, zone: 'full' },
+  { dist: 76.7, gain: 80, zone: 'full' },
+  { dist: 79.8, gain: 80, zone: 'full', note: '→ FADE transition' },
+  { dist: 81.0, gain: 80, zone: 'fade' },
+  { dist: 83.2, gain: 67.5, zone: 'fade' },
+  { dist: 83.4, gain: 67, zone: 'fade' },
+  { dist: 86.2, gain: 57, zone: 'fade' },
+  { dist: 88.9, gain: 48, zone: 'fade' },
+  { dist: 91.5, gain: 41, zone: 'fade' },
+  { dist: 94.5, gain: 33, zone: 'fade' },
+  { dist: 97.7, gain: 25, zone: 'fade' },
+  { dist: 99.4, gain: 21.1, zone: 'fade' },
+  { dist: 102.9, gain: 15, zone: 'fade' },
+  { dist: 103.8, gain: 13.1, zone: 'fade' },
+  { dist: 105.5, gain: 10, zone: 'fade' },
+  { dist: 108.2, gain: 7, zone: 'fade' },
+  { dist: 110.8, gain: 4.2, zone: 'fade' },
+  { dist: 113.5, gain: 2, zone: 'fade' },
+  { dist: 116.2, gain: 1, zone: 'fade' },
+  { dist: 118.8, gain: 0, zone: 'fade' },
+  { dist: 120.7, gain: 0, zone: 'silent' },
+  { dist: 126.0, gain: 0, zone: 'silent' },
+  { dist: 132.3, gain: 0, zone: 'silent' },
+];
+
+// Theoretical curve
+function theoreticalGain(dist) {
+  const activationRadius = 100;
+  const fadeZone = 20;
+  const targetGain = 0.8;
+  const fadeStart = activationRadius - fadeZone; // 80
+  const fadeEnd = activationRadius + fadeZone;   // 120
+  
+  if (dist < fadeStart) return targetGain;
+  if (dist >= fadeEnd) return 0;
+  
+  const totalFadeDistance = fadeZone * 2; // 40
+  const fadeProgress = (dist - fadeStart) / totalFadeDistance;
+  return targetGain * Math.pow(1 - fadeProgress, 2);
+}
+
+// Draw chart
+const canvas = document.getElementById('chart');
+const ctx = canvas.getContext('2d');
+canvas.width = 860;
+canvas.height = 400;
+
+const pad = { top: 30, right: 30, bottom: 50, left: 60 };
+const w = canvas.width - pad.left - pad.right;
+const h = canvas.height - pad.top - pad.bottom;
+
+// Background zones
+function xScale(d) { return pad.left + (d / 140) * w; }
+function yScale(g) { return pad.top + h - (g / 0.8) * h; }
+
+// Zone backgrounds
+ctx.fillStyle = 'rgba(74, 222, 128, 0.08)';
+ctx.fillRect(xScale(0), pad.top, xScale(80) - xScale(0), h);
+ctx.fillStyle = 'rgba(251, 191, 36, 0.08)';
+ctx.fillRect(xScale(80), pad.top, xScale(120) - xScale(80), h);
+ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+ctx.fillRect(xScale(120), pad.top, xScale(140) - xScale(120), h);
+
+// Zone labels
+ctx.font = '11px sans-serif';
+ctx.fillStyle = '#4ade80';
+ctx.textAlign = 'center';
+ctx.fillText('FULL VOLUME', xScale(40), pad.top + 15);
+ctx.fillStyle = '#fbbf24';
+ctx.fillText('FADE ZONE', xScale(100), pad.top + 15);
+ctx.fillStyle = '#ef4444';
+ctx.fillText('SILENT', xScale(130), pad.top + 15);
+
+// Grid
+ctx.strokeStyle = '#2a2a4a';
+ctx.lineWidth = 1;
+for (let d = 0; d <= 140; d += 20) {
+  ctx.beginPath();
+  ctx.moveTo(xScale(d), pad.top);
+  ctx.lineTo(xScale(d), pad.top + h);
+  ctx.stroke();
+  ctx.fillStyle = '#888';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(d + 'm', xScale(d), pad.top + h + 20);
+}
+for (let g = 0; g <= 0.8; g += 0.2) {
+  ctx.beginPath();
+  ctx.moveTo(pad.left, yScale(g));
+  ctx.lineTo(pad.left + w, yScale(g));
+  ctx.stroke();
+  ctx.fillStyle = '#888';
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(g * 100) + '%', pad.left - 8, yScale(g) + 4);
+}
+
+// Axis labels
+ctx.fillStyle = '#aaa';
+ctx.font = '12px sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText('Distance from Waypoint Center (m)', pad.left + w / 2, canvas.height - 5);
+ctx.save();
+ctx.translate(15, pad.top + h / 2);
+ctx.rotate(-Math.PI / 2);
+ctx.fillText('Gain (%)', 0, 0);
+ctx.restore();
+
+// Theoretical curve (dashed)
+ctx.strokeStyle = '#00d9ff88';
+ctx.lineWidth = 2;
+ctx.setLineDash([6, 4]);
+ctx.beginPath();
+for (let d = 0; d <= 140; d += 1) {
+  const g = theoreticalGain(d);
+  const x = xScale(d);
+  const y = yScale(g);
+  d === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+}
+ctx.stroke();
+ctx.setLineDash([]);
+
+// Measured data points
+ctx.fillStyle = '#00d9ff';
+data.forEach(pt => {
+  const x = xScale(pt.dist);
+  const y = yScale(pt.gain / 100);
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fill();
+});
+
+// Connect measured points with line
+ctx.strokeStyle = '#00d9ff';
+ctx.lineWidth = 2;
+ctx.beginPath();
+data.forEach((pt, i) => {
+  const x = xScale(pt.dist);
+  const y = yScale(pt.gain / 100);
+  i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+});
+ctx.stroke();
+
+// Populate table
+const tbody = document.querySelector('#dataTable tbody');
+data.forEach(pt => {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${pt.dist.toFixed(1)}</td><td>${pt.gain.toFixed(1)}%</td><td class="zone-${pt.zone}">${pt.zone}</td><td>${pt.note || ''}</td>`;
+  tbody.appendChild(tr);
+});
+</script>
+</body>
+</html>
