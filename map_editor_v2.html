@@ -1244,11 +1244,7 @@
     </script>
 
     <!-- Unregister Service Worker (desktop-only, no offline support) -->
-    <!-- ⚠️ SERVICE WORKER TEMPORARILY DISABLED (2026-03-30) - causes cache issues during development -->
     <script>
-        console.log('[map_editor_v2] ⚠️ Service Worker disabled for development');
-        console.log('[map_editor_v2] ℹ️ Offline playback unavailable until SW re-enabled');
-
         // Add cache-busting timestamp, preserving existing query params (like ?new=true)
         if (window.location.search.indexOf('nocache=') === -1) {
             const params = new URLSearchParams(window.location.search);
@@ -1257,7 +1253,7 @@
             window.history.replaceState(null, '', newUrl);
         }
 
-        // Unregister any existing Service Workers
+        // Desktop editor doesn't need offline support - unregister SW
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then((registrations) => {
                 for (const registration of registrations) {

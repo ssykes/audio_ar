@@ -1,4 +1,5 @@
 /**
+ * Legacy implementation superseded by map_editor_v2.js
  * MapEditorApp - Editor-specific implementation
  * Extends MapAppShared with editor functionality
  *

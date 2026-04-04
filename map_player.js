@@ -286,7 +286,21 @@ class MapPlayerApp extends MapAppShared {
     _setupEventListeners() {
         const startBtn = document.getElementById('startBtn');
         if (startBtn) {
-            startBtn.addEventListener('click', () => this._handleStartClick());
+            startBtn.addEventListener('click', () => {
+                // CRITICAL: Create AudioContext SYNCHRONOUSLY in the user gesture handler
+                // This MUST happen before the async function returns (which loses gesture context)
+                let gestureAudioCtx = null;
+                try {
+                    gestureAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    gestureAudioCtx.resume().catch(err => {
+                        console.warn('[MapPlayer] ⚠️ AudioContext resume failed:', err.message);
+                    });
+                    console.log('[MapPlayer] 🔊 AudioContext created + resume() called in gesture handler');
+                } catch (e) {
+                    console.warn('[MapPlayer] ⚠️ AudioContext creation failed:', e.message);
+                }
+                this._handleStartClick(gestureAudioCtx);
+            });
         }
 
         // Back to picker button (Session 9)
@@ -779,7 +793,7 @@ class MapPlayerApp extends MapAppShared {
      * Handle start click - start audio experience
      * @protected
      */
-    async _handleStartClick() {
+    async _handleStartClick(gestureAudioCtx = null) {
         if (this.state === 'player') {
             // Already in player mode - stop
             await this._stopPlayerMode();
@@ -801,14 +815,24 @@ class MapPlayerApp extends MapAppShared {
             // =====================================================================
             // ⚠️ CRITICAL iOS PERMISSION ORDER - DO NOT REORDER ⚠️
             // =====================================================================
-            // 1. Compass (BEFORE any await - must be synchronous in user gesture)
-            // 2. Wake lock (in user gesture context)
-            // 3. GPS (before other awaits for iOS permission)
-            // 4. AudioContext (initialize + resume + close to satisfy iOS)
+            // 1. AudioContext (created synchronously in event handler, passed in)
+            // 2. Compass (BEFORE any await - must be synchronous in user gesture)
+            // 3. Wake lock (in user gesture context)
+            // 4. GPS (before other awaits for iOS permission)
             // =====================================================================
 
             // ---------------------------------------------------------------------
-            // STEP 1: Request compass permission (BEFORE ANY AWAIT)
+            // STEP 1: Use the AudioContext created in the gesture handler
+            // ---------------------------------------------------------------------
+            const audioCtx = gestureAudioCtx;
+            if (audioCtx) {
+                console.log('[MapPlayer] 🔊 Using gesture AudioContext, state:', audioCtx.state);
+            } else {
+                console.warn('[MapPlayer] ⚠️ No gesture AudioContext available, creating new one');
+            }
+
+            // ---------------------------------------------------------------------
+            // STEP 2: Request compass permission (BEFORE ANY AWAIT)
             // ---------------------------------------------------------------------
             console.log('[MapPlayer] 🧭 Requesting compass permission...');
             if (typeof DeviceOrientationHelper !== 'undefined') {
@@ -848,12 +872,12 @@ class MapPlayerApp extends MapAppShared {
             }
 
             // ---------------------------------------------------------------------
-            // STEP 2: Request wake lock (must be in user gesture)
+            // STEP 3: Request wake lock (must be in user gesture)
             // ---------------------------------------------------------------------
             await this._requestWakeLock();
 
             // ---------------------------------------------------------------------
-            // STEP 3: Get GPS position (before other awaits for iOS)
+            // STEP 4: Get GPS position (before other awaits for iOS)
             // ---------------------------------------------------------------------
             console.log('[MapPlayer] 📍 Requesting GPS...');
             let gpsResolved = false;
@@ -882,23 +906,11 @@ class MapPlayerApp extends MapAppShared {
                 );
             });
 
-            // ---------------------------------------------------------------------
-            // STEP 4: Initialize AudioContext (satisfy iOS gesture requirement)
-            // ---------------------------------------------------------------------
-            console.log('[MapPlayer] 🔊 Initializing audio context...');
-            const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const resumePromise = tempAudioCtx.resume();
-            const audioTimeout = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Audio resume timeout')), 3000)
-            );
-
-            try {
-                await Promise.race([resumePromise, audioTimeout]);
-                console.log('[MapPlayer] ✅ Audio context initialized');
-            } catch (audioErr) {
-                console.warn(`[MapPlayer] ⚠️ Audio context issue: ${audioErr.message} (continuing)`);
+            // Wait briefly for the gesture AudioContext resume to settle
+            if (audioCtx) {
+                await audioCtx.resume();
+                console.log('[MapPlayer] ✅ Gesture AudioContext settled, state:', audioCtx.state);
             }
-            tempAudioCtx.close();
 
             // ---------------------------------------------------------------------
             // STEP 5: Create SpatialAudioApp with waypoints as sound sources
@@ -916,12 +928,13 @@ class MapPlayerApp extends MapAppShared {
 
             console.log('[MapPlayer] 🎵 Created', soundConfigs.length, 'sound configs');
 
-            // Create app with initial GPS position
+            // Create app with initial GPS position and reused AudioContext
             this.app = new SpatialAudioApp(soundConfigs, {
                 initialPosition: initialGPS,
                 gpsSmoothing: true,
                 autoLock: true,
-                reverbEnabled: true
+                reverbEnabled: true,
+                existingContext: audioCtx  // Pass the gesture-satisfied AudioContext
             });
 
             // ---------------------------------------------------------------------

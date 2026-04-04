@@ -371,6 +371,7 @@ class SpatialAudioApp {
             gpsSmoothing: options.gpsSmoothing !== false,  // Default true
             autoLock: options.autoLock !== false,          // Default true
             initialPosition: options.initialPosition || null,  // Pre-fetched GPS position
+            existingContext: options.existingContext || null,  // Existing AudioContext
             ...options
         };
 
@@ -425,24 +426,30 @@ class SpatialAudioApp {
             this.engine = new SpatialAudioEngine({
                 keepAlive: false,  // DISABLED - causes intermodulation distortion
                 keepAliveInterval: 3000,
-                reverbEnabled: true  // ENABLED - clean reverb with short IR
+                reverbEnabled: true,  // ENABLED - clean reverb with short IR
+                existingContext: this.options.existingContext  // Pass existing context if available
             });
             await this.engine.init();
             console.log('[SpatialAudioApp] Audio initialized');
 
-            console.log('[SpatialAudioApp] Resuming audio engine...');
-            
-            // Add timeout to prevent hanging on iOS DuckDuckGo
-            const resumePromise = this.engine.resume();
-            const resumeTimeout = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Audio engine resume timeout')), 3000)
-            );
-            
-            try {
-                await Promise.race([resumePromise, resumeTimeout]);
-                console.log('[SpatialAudioApp] Audio engine resumed, state:', this.engine.getState());
-            } catch (resumeErr) {
-                console.warn('[SpatialAudioApp] Audio resume issue (contining anyway):', resumeErr.message);
+            // Only resume if we didn't get a pre-resumed context
+            if (!this.options.existingContext) {
+                console.log('[SpatialAudioApp] Resuming audio engine...');
+
+                // Add timeout to prevent hanging on iOS DuckDuckGo
+                const resumePromise = this.engine.resume();
+                const resumeTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Audio engine resume timeout')), 3000)
+                );
+
+                try {
+                    await Promise.race([resumePromise, resumeTimeout]);
+                    console.log('[SpatialAudioApp] Audio engine resumed, state:', this.engine.getState());
+                } catch (resumeErr) {
+                    console.warn('[SpatialAudioApp] Audio resume issue (contining anyway):', resumeErr.message);
+                }
+            } else {
+                console.log('[SpatialAudioApp] AudioContext already resumed (reused from gesture)');
             }
             // Keep-alive DISABLED - causes intermodulation distortion (audible ringing)
             // this.engine.enableKeepAlive(3000);

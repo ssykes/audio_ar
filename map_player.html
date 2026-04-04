@@ -474,8 +474,19 @@
         window.API_BASE_URL = '/api';
     </script>
 
-    <!-- Service Worker Registration (DISABLED for testing - re-enable for offline support) -->
-    <!-- <script src="sw-register.js"></script> -->
+    <!-- Service Worker Registration (for offline support) -->
+    <script>
+        // Register Service Worker for offline support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js?v=20260403181720?v=' + Date.now())
+                .then((registration) => {
+                    console.log('[map_player] ✅ Service Worker registered:', registration.scope);
+                })
+                .catch((error) => {
+                    console.error('[map_player] ❌ Service Worker registration failed:', error);
+                });
+        }
+    </script>
 
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>

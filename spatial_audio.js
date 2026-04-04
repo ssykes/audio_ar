@@ -1960,6 +1960,9 @@ class SpatialAudioEngine {
         this.keepAliveMs = options.keepAliveInterval || 3000;
         this.onAudioSuspended = options.onAudioSuspended || null;
 
+        // Allow passing an existing AudioContext (e.g., from user gesture)
+        this.existingContext = options.existingContext || null;
+
         // Reverb nodes (distance-based wet/dry mix)
         this.reverb = null;
         this.reverbBuffer = null;
@@ -2018,7 +2021,15 @@ class SpatialAudioEngine {
 
     async init() {
         if (this.isInitialized) return;
-        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Reuse existing AudioContext if provided (e.g., from user gesture)
+        if (this.existingContext) {
+            this.ctx = this.existingContext;
+            console.log('[SpatialAudioEngine] Reusing existing AudioContext (state:', this.ctx.state, ')');
+        } else {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            console.log('[SpatialAudioEngine] Created new AudioContext');
+        }
         
         // Master gain
         this.masterGain = this.ctx.createGain();
