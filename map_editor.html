@@ -3,313 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Map Editor - Sound Waypoint Editor</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #fff; height: 100vh; overflow: hidden; }
-        #app { display: flex; height: 100vh; }
-        #sidebar { width: 350px; background: rgba(0,0,0,0.3); padding: 20px; overflow-y: auto; border-right: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; }
-        #sidebar-header { flex-shrink: 0; }
-        #waypointList { flex: 0 0 auto; max-height: 150px; overflow-y: auto; margin-top: 10px; }
-        #debugConsole {
-            position: relative;
-            flex: 1;
-            min-height: 200px;  /* Ensure minimum height for visibility */
-            margin-top: 15px;
-            background: #0d0d1a;
-            border: 1px solid #333;
-            border-radius: 8px;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            z-index: 100;  /* Ensure it's above other elements */
-        }
-        #debugConsoleContent {
-            flex: 1;
-            min-height: 0;
-            padding: 10px;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 11px;
-            color: #00ff88;
-            overflow-y: auto;
-        }
-        .debug-copy-btn {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0, 217, 255, 0.2);
-            color: #00d9ff;
-            border: 1px solid rgba(0, 217, 255, 0.3);
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1em;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-            z-index: 1000;  /* Ensure button is above console content */
-        }
-        .debug-copy-btn:hover {
-            background: rgba(0, 217, 255, 0.3);
-            border-color: #00d9ff;
-        }
-        .debug-copy-btn:active {
-            transform: scale(0.95);
-        }
-        .debug-copy-btn::after {
-            content: 'Copy to clipboard';
-            position: absolute;
-            bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%) translateY(-5px);
-            background: rgba(0, 0, 0, 0.9);
-            color: #fff;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 0.75em;
-            font-weight: 600;
-            white-space: nowrap;
-            opacity: 0;
-            pointer-events: none;
-            transition: all 0.2s;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        }
-        .debug-copy-btn:hover::after {
-            opacity: 1;
-            transform: translateX(-50%) translateY(-8px);
-        }
-
-        /* Debug line color coding */
-        .debug-line {
-            margin: 4px 0;
-            font-size: 10px;
-            line-height: 1.4;
-        }
-
-        .debug-line.error {
-            color: #ff4757;
-        }
-
-        .debug-line.warn {
-            color: #ffa502;
-        }
-
-        .debug-line.info {
-            color: #00ff88;
-        }
-
-        #map { flex: 1; height: 100%; }
-        h1 { font-size: 1.5em; margin-bottom: 10px; color: #00d9ff; }
-        .subtitle { color: #888; font-size: 0.9em; margin-bottom: 20px; }
-        .btn { display: block; width: 100%; padding: 12px; margin: 8px 0; background: #4a4a6a; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 1em; transition: background 0.3s; }
-        .btn:hover { background: #5a5a7a; }
-        .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); }
-        .btn-primary:hover { opacity: 0.9; }
-        select.btn { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23fff' d='M6 9L1 4h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px; padding-right: 36px; }
-        select.btn option { background: #1a1a2e; color: #fff; }
-        .btn-danger { background: #e94560; }
-        .btn-danger:hover { background: #ff6b6b; }
-        .btn-success { background: #00b894; }
-        .btn-success:hover { background: #00cec9; }
-        .btn-warning { background: #f39c12; }
-        .btn-warning:hover { background: #e67e22; }
-        .sim-panel {
-            background: rgba(0, 255, 136, 0.1);
-            border: 1px solid #00ff88;
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 10px;
-            font-size: 0.85em;
-            flex-shrink: 0;  /* Don't shrink simulation panel */
-            z-index: 50;  /* Below debug console */
-            position: relative;
-        }
-        .sim-panel h3 {
-            color: #00ff88;
-            margin-bottom: 8px;
-            font-size: 1em;
-        }
-        .sim-panel .sim-stat {
-            display: flex;
-            justify-content: space-between;
-            margin: 4px 0;
-            color: #ccc;
-        }
-        .sim-panel .sim-value {
-            color: #00d9ff;
-            font-weight: bold;
-        }
-        .version { font-size: 0.7em; color: #666; }
-        .status-bar {
-            padding: 10px;
-            background: rgba(0,0,0,0.3);
-            border-top: 1px solid rgba(255,255,255,0.1);
-            font-size: 0.85em;
-            flex-shrink: 0;
-        }
-        .status-bar .status-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 4px 0;
-            color: #aaa;
-        }
-        .status-bar .status-value {
-            color: #00d9ff;
-            font-weight: bold;
-        }
-        .status-bar.gps-locked .status-value {
-            color: #00ff88;
-        }
-        .debug-info {
-            font-size: 0.75em;
-            color: #666;
-            margin-top: 8px;
-            padding: 8px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 6px;
-        }
-        .debug-info a {
-            color: #00d9ff;
-        }
-        /* Toast notification with type-based colors (Session 11) */
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-weight: bold;
-            z-index: 10000;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            opacity: 1;
-            transition: opacity 0.3s;
-        }
-        .toast.info {
-            background: #00d9ff;
-            color: #000;
-        }
-        .toast.success {
-            background: #00ff88;
-            color: #000;
-        }
-        .toast.warning {
-            background: #ffaa00;
-            color: #000;
-        }
-        .toast.error {
-            background: #e94560;
-            color: #fff;
-        }
-    </style>
-</head>
-<body>
-    <div id="app">
-        <div id="sidebar">
-            <div id="sidebar-header">
-                <h1>🗺️ Map Editor <span class="version">v6.388</span></h1>
-                <p class="subtitle">Create and edit soundscapes</p>
-
-                <!-- User Info (read-only - login via index.html) -->
-                <div id="userPanel" style="margin: 10px 0; display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin: 10px 0;">
-                        <span id="userEmail" style="color: #00ff88; font-size: 0.9em;"></span>
-                        <button id="logoutBtn" class="btn btn-danger" style="padding: 6px 12px; font-size: 0.85em;">🚪 Logout</button>
-                    </div>
-                    <div id="syncStatus" style="font-size: 0.8em; color: #888; margin: 5px 0;">
-                        🟢 Synced to server
-                    </div>
-                </div>
-
-                <!-- SoundScape Management -->
-                <div id="soundscapeControls" style="margin: 10px 0; display: none;">
-                    <select id="soundscapeSelector" class="btn" style="text-align: left; margin: 10px 0; cursor: pointer;">
-                        <option value="">Select Soundscape...</option>
-                    </select>
-                    <div style="display: flex; gap: 5px; margin: 10px 0;">
-                        <button id="newSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">➕ New</button>
-                        <button id="editSoundscapeBtn" class="btn" style="flex: 1; padding: 6px; font-size: 0.85em;">✏️ Edit</button>
-                        <button id="deleteSoundscapeBtn" class="btn btn-danger" style="flex: 1; padding: 6px; font-size: 0.85em;">🗑️</button>
-                    </div>
-                </div>
-
-                <button id="startBtn" class="btn btn-primary">▶️ Start</button>
-                <button id="syncFromServerBtn" class="btn btn-success" style="display: none;">🔄 Sync from Server</button>
-                <button id="simulateBtn" class="btn btn-warning">🎮 Simulate</button>
-                <div style="display: flex; gap: 5px;">
-                    <button id="exportBtn" class="btn" style="flex: 1;" title="Download backup file">📦 Export</button>
-                    <button id="importBtn" class="btn" style="flex: 1;" title="Restore from backup file">📥 Import</button>
-                </div>
-                <p style="font-size: 0.75em; color: #888; margin-top: 8px; text-align: center;">
-                    💡 Use <strong>Sync from Server</strong> when logged in, or <strong>Export/Import</strong> for offline sharing
-                </p>
-                <button id="clearAllBtn" class="btn btn-danger">🗑️ Clear All</button>
-            </div>
-            <div id="waypointList"></div>
-
-            <div id="simPanel" class="sim-panel" style="display: none;">
-                <h3>🎮 Simulation Mode</h3>
-                <div class="sim-stat">
-                    <span>📍 Distance:</span>
-                    <span class="sim-value" id="simDistance">--</span>
-                </div>
-                <div class="sim-stat">
-                    <span>🧭 Bearing:</span>
-                    <span class="sim-value" id="simBearing">--</span>
-                </div>
-                <div class="sim-stat">
-                    <span>🔊 Volume:</span>
-                    <span class="sim-value" id="simVolume">--</span>
-                </div>
-                <div style="margin-top: 8px; font-size: 0.9em; color: #888;">
-                    💡 Drag the avatar to preview
-                </div>
-            </div>
-
-            <div id="debugConsole">
-                <div id="debugConsoleContent">Ready - tap Start to begin...</div>
-                <button class="debug-copy-btn" id="debugCopyBtn" title="Copy to clipboard">📋</button>
-            </div>
-            <button id="copyLogsBtn">📋 Copy Logs to Clipboard</button>
-
-            <div class="debug-info">
-                📚 Using <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Audio_API" target="_blank">Web Audio API</a> with HRTF panning
-            </div>
-
-            <div class="status-bar" id="statusBar">
-                <div class="status-item">
-                    <span>📍 GPS:</span>
-                    <span class="status-value" id="gpsStatus">--</span>
-                </div>
-                <div class="status-item">
-                    <span>🧭 Heading:</span>
-                    <span class="status-value" id="headingStatus">--</span>
-                </div>
-                <div class="status-item">
-                    <span>🔊 Sounds:</span>
-                    <span class="status-value" id="soundsStatus">0</span>
-                </div>
-                <div class="status-item" id="drawingModeItem" style="display: none;">
-                    <span>✏️ Drawing:</span>
-                    <span class="status-value" id="drawingModeStatus">--</span>
-                </div>
-            </div>
-        </div>
-        <div id="map"></div>
-    </div>
-
-    <!-- Hidden file input for import -->
-    <input type="file" id="importFileInput" accept=".json,application/json" style="display: none;">
-
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Map Editor</title>
     
-    <!-- Leaflet Draw CSS & JS (Session 4: Sound Area Drawing) -->
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Leaflet Draw CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     
     <!-- Custom styles for Leaflet.Draw vertex handles -->
     <style>
@@ -327,7 +30,7 @@
             z-index: 2000 !important;
             opacity: 1 !important;
         }
-        
+
         /* Midpoint handles (for adding vertices on edges) */
         .leaflet-editing-icon-new {
             background-color: #00ff88 !important;
@@ -340,7 +43,7 @@
             opacity: 1 !important;
             z-index: 2001 !important;
         }
-        
+
         /* Highlight polygon edges when in edit mode */
         .leaflet-editing .leaflet-interactive {
             stroke: #ff6b6b !important;
@@ -348,12 +51,1224 @@
         }
     </style>
     
+    <style>
+        /* CSS Custom Properties for theming */
+        :root {
+            /* Background colors */
+            --bg-body: #1a1a2e;
+            --bg-sidebar: #16213e;
+            --bg-panel: #0f3460;
+            --bg-input: #16213e;
+            --bg-header: #0f3460;
+
+            /* Border colors */
+            --border-sidebar: #0f3460;
+            --border-input: #1a5f7a;
+            --border-panel: #1a5f7a;
+
+            /* Accent colors */
+            --accent-primary: #00d9ff;
+            --accent-success: #00ff88;
+            --accent-warning: #f39c12;
+            --accent-danger: #e94560;
+
+            /* Text colors */
+            --text-primary: #eee;
+            --text-secondary: #ccc;
+            --text-muted: #888;
+            --text-dark: #666;
+            --text-white: #fff;
+            --text-light: #aaa;
+
+            /* Accent hover colors */
+            --accent-primary-hover: #00b8d9;
+            --accent-danger-hover: #d63447;
+
+            /* Spacing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 20px;
+
+            /* Slideout positioning */
+            --slideout-top-offset: 392px;  /* Aligned with top of #areasSection */
+
+            /* Border radius */
+            --radius-sm: 4px;
+            --radius-md: 6px;
+            --radius-lg: 8px;
+
+            /* Transitions */
+            --transition-fast: 0.15s;
+            --transition-normal: 0.2s;
+            --transition-slow: 0.3s;
+
+            /* Z-index layers */
+            --z-sidebar: 10;
+            --z-slideout: 100;
+            --z-debug-console: 100;
+            --z-toast: 10000;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-body);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Left Sidebar */
+        .sidebar {
+            width: 280px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-sidebar);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .btn-icon-sm {
+            width: 28px;
+            height: 28px;
+            font-size: 14px;
+        }
+
+        .sidebar-header label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-size: 18px;
+            transition: all var(--transition-normal);
+            flex-shrink: 0;
+        }
+
+        .btn-icon:hover {
+            background: var(--border-input);
+            border-color: var(--accent-primary);
+        }
+
+        .btn-icon:active {
+            transform: scale(0.95);
+        }
+
+        /* Sidebar Header */
+        .sidebar-header-top {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-md) var(--spacing-lg);
+            border-bottom: 1px solid var(--border-sidebar);
+        }
+
+        .btn-text {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            padding: var(--spacing-xs) var(--spacing-md);
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-fast);
+        }
+
+        .btn-text:hover {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+        }
+
+        .btn-text-danger {
+            color: var(--accent-danger);
+        }
+
+        .btn-text-danger:hover {
+            background: var(--accent-danger);
+            color: #fff;
+        }
+
+        /* Edit Form */
+        .edit-form {
+            padding: var(--spacing-lg);
+            border-bottom: 1px solid var(--border-sidebar);
+            flex-shrink: 0;
+        }
+
+        /* Lists Container - takes remaining space */
+        .lists-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+            height: 100%;
+            position: relative;
+        }
+
+        /* VSCode-style Explorer */
+        .explorer {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+            height: 100%;
+            padding: 0;
+        }
+
+        .explorer-section {
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border-sidebar);
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .explorer-section:last-child {
+            flex: 1;
+            border-bottom: none;
+        }
+
+        .explorer-header {
+            padding: var(--spacing-sm) var(--spacing-lg);
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-dark);
+            background: var(--bg-header);
+            flex-shrink: 0;
+        }
+
+        .explorer-section .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow-y: auto;
+            min-height: 0;
+            flex: 1;
+        }
+
+        .item-list-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs) var(--spacing-lg) var(--spacing-xs) 24px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: none;
+            background: transparent;
+        }
+
+        .item-list-item:hover {
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .item-list-item.selected {
+            background: rgba(0, 217, 255, 0.15);
+            border-left: 3px solid var(--accent-primary);
+            padding-left: 21px;
+        }
+
+        .item-list-item.selected .item-icon {
+            color: var(--accent-primary);
+        }
+
+        .item-list-item.selected .item-name {
+            color: var(--text-white);
+            font-weight: 500;
+        }
+
+        .item-list-item.selected .item-meta {
+            color: var(--accent-primary);
+        }
+
+        .item-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
+            color: var(--text-muted);
+            transition: color var(--transition-fast);
+        }
+
+        /* Colored dot for waypoints (overrides base .item-icon styles) */
+        .waypoint-item-icon {
+            display: inline-block !important;
+            width: 8px !important;
+            height: 8px !important;
+            border-radius: 50% !important;
+            margin-right: 4px !important;
+            background-color: inherit !important;
+            /* Ensure no text/emoji shows */
+            font-size: 0 !important;
+            line-height: 0 !important;
+        }
+
+        .item-list-item:hover .item-icon {
+            color: var(--text-light);
+        }
+
+        .item-list-item.selected .item-icon {
+            color: var(--accent-primary);
+        }
+
+        .item-name {
+            flex: 1;
+            font-size: 13px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: color var(--transition-fast);
+        }
+
+        .item-list-item:hover .item-name {
+            color: var(--text-primary);
+        }
+
+        .item-list-item.selected .item-name {
+            color: var(--text-white);
+            font-weight: 500;
+        }
+
+        .item-meta {
+            font-size: 11px;
+            color: var(--text-dark);
+            flex-shrink: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .item-list-item:hover .item-meta {
+            color: var(--text-muted);
+        }
+
+        .item-list-item.selected .item-meta {
+            color: var(--accent-primary);
+        }
+
+        .form-group {
+            margin-bottom: var(--spacing-lg);
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: var(--spacing-sm) var(--spacing-md);
+            background: var(--bg-panel);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .form-group textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .form-group-checkbox {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--spacing-sm);
+        }
+
+        .form-group-checkbox-left {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+        }
+
+        .form-group-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .form-group-checkbox label {
+            margin: 0;
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 14px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-xl);
+        }
+
+        .form-actions-right {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-lg);
+            justify-content: flex-end;
+        }
+
+        .form-actions-right.compact {
+            margin-top: 0;
+        }
+
+        .btn {
+            flex: 1;
+            padding: var(--spacing-md) var(--spacing-lg);
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: var(--bg-body);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-primary-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-panel);
+            color: var(--text-primary);
+            border: 1px solid var(--border-input);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-input);
+        }
+
+        .btn-danger {
+            background: var(--accent-danger);
+            color: var(--text-white);
+        }
+
+        .btn-danger:hover {
+            background: var(--accent-danger-hover);
+        }
+
+        /* Item Lists */
+        .item-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Slideout Edit Panel (overlays map) */
+        .slideout-panel {
+            position: absolute;
+            left: 280px;
+            top: var(--slideout-top-offset);
+            bottom: 0;
+            width: 0;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border-panel);
+            border-right: 1px solid var(--border-panel);
+            overflow: hidden;
+            transition: width var(--transition-slow) ease, opacity var(--transition-slow) ease;
+            padding: 0;
+            opacity: 0;
+            z-index: var(--z-slideout);
+            box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3), 2px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .slideout-panel.active {
+            width: 280px;
+            padding: var(--spacing-md);
+            opacity: 1;
+        }
+
+        .slideout-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-md);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        .slideout-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+
+        .slideout-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+        }
+
+        .slideout-close:hover {
+            color: var(--text-primary);
+        }
+
+        .slideout-content {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+        }
+
+        .slideout-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-sm);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--border-panel);
+        }
+
+        .slideout-section:last-child {
+            border-bottom: none;
+        }
+
+        .slideout-section-header h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-primary);
+            margin: 0;
+        }
+
+        /* Collapsible Sections */
+        .slideout-collapsible {
+            border-bottom: none;
+        }
+
+        .slideout-collapsible-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .slideout-collapsible-header h4 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .slideout-collapsible-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .slideout-collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height var(--transition-slow) ease;
+        }
+
+        .slideout-collapsible.active .slideout-collapsible-content {
+            max-height: 500px;
+        }
+
+        .slideout-collapsible.active .slideout-collapsible-header h4 {
+            color: var(--text-primary);
+        }
+
+        /* Slideout Footer */
+        .slideout-footer {
+            padding-top: var(--spacing-md);
+            border-top: 1px solid var(--border-panel);
+        }
+
+        .slideout-button-group {
+            display: flex;
+            justify-content: flex-end;
+            gap: var(--spacing-md);
+        }
+
+        .slideout-button {
+            cursor: pointer;
+            user-select: none;
+            font-size: 13px;
+            color: var(--text-primary);
+            transition: all var(--transition-fast);
+        }
+
+        .slideout-button:hover {
+            opacity: 0.8;
+        }
+
+        .slideout-button.btn-text-danger {
+            color: var(--accent-danger);
+        }
+
+        .slideout-field {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .slideout-field-row {
+            display: flex;
+            gap: var(--spacing-sm);
+        }
+
+        .slideout-field-row .slideout-field {
+            flex: 1;
+        }
+
+        .slideout-field input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: var(--border-input);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .slideout-field input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slideout-field-value {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: right;
+        }
+
+        .slideout-checkbox {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .slideout-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .slideout-coords {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background: var(--bg-panel);
+            border-radius: var(--radius-sm);
+        }
+
+        .slideout-help {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .slideout-field input,
+        .slideout-field select {
+            padding: var(--spacing-xs) var(--spacing-sm);
+            background: var(--bg-input);
+            border: 1px solid var(--border-input);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+
+        .slideout-field label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+        }
+
+        .slideout-field input:focus,
+        .slideout-field select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .slideout-actions {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-sm);
+        }
+
+        .slideout-actions .btn {
+            padding: var(--spacing-sm) var(--spacing-md);
+            font-size: 12px;
+        }
+
+        .slideout-actions .btn-full {
+            width: 100%;
+        }
+
+        .slideout-field input[type="color"] {
+            height: 36px;
+            padding: 2px;
+        }
+
+        .slideout-delete {
+            margin-top: var(--spacing-sm);
+            padding-top: var(--spacing-md);
+            border-top: 1px solid var(--border-input);
+        }
+
+        /* Scrollbar Styling */
+        .item-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .item-list::-webkit-scrollbar-track {
+            background: var(--bg-panel);
+            border-radius: var(--radius-sm);
+        }
+
+        .item-list::-webkit-scrollbar-thumb {
+            background: var(--border-input);
+            border-radius: var(--radius-sm);
+        }
+
+        .item-list::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-primary);
+        }
+
+        /* Map Area Placeholder */
+        .map-area {
+            flex: 1;
+            background: var(--bg-panel);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        /* Map Area */
+        #map {
+            flex: 1;
+            height: 100%;
+            min-height: 0;  /* Prevent flex overflow */
+            background: var(--bg-panel);
+            z-index: 1;  /* Ensure map is below slideout */
+        }
+
+        /* New Soundscape Mode */
+        .new-soundscape .soundscape-name {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        /* Debug Panel */
+        .debug-panel {
+            display: flex;
+            flex-direction: column;
+            border-top: 1px solid var(--border-sidebar);
+            background: var(--bg-sidebar);
+            flex-shrink: 0;
+            transition: max-height var(--transition-slow) ease;
+            max-height: 40px;  /* Collapsed height (header only) */
+        }
+
+        .debug-panel.active {
+            max-height: 33vh;  /* Expanded height (1/3 of viewport) */
+        }
+
+        .debug-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-lg);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .debug-panel-header h4 {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .debug-panel-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .debug-panel-actions {
+            display: flex;
+            gap: var(--spacing-md);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--transition-fast) ease;
+        }
+
+        .debug-panel.active .debug-panel-actions {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .debug-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 var(--spacing-lg);
+            background: #0d0d1a;
+            max-height: 0;
+            opacity: 0;
+            transition: all var(--transition-slow) ease;
+        }
+
+        .debug-panel.active .debug-panel-body {
+            max-height: 200px;
+            opacity: 1;
+            padding: var(--spacing-sm) var(--spacing-lg);
+        }
+
+        .debug-line {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 11px;
+            color: var(--accent-success);
+            margin: 4px 0;
+        }
+
+        /* Advanced Settings (Collapsible) */
+        .advanced-settings {
+            margin-top: var(--spacing-md);
+            border-top: 1px solid var(--border-sidebar);
+        }
+
+        /* Simulation Panel */
+        .sim-panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-panel);
+            border-radius: var(--radius-md);
+            padding: var(--spacing-md);
+            margin-top: var(--spacing-md);
+            font-size: 0.85em;
+            flex-shrink: 0;
+            z-index: 50;
+            position: relative;
+            display: none;
+        }
+
+        .sim-panel.active {
+            display: block;
+        }
+
+        .sim-panel h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent-primary);
+            margin-bottom: var(--spacing-md);
+            font-weight: 600;
+        }
+
+        .sim-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+            padding-bottom: var(--spacing-xs);
+            border-bottom: 1px solid var(--border-sidebar);
+        }
+
+        .sim-stat:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .sim-stat span:first-child {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .sim-value {
+            color: var(--text-primary);
+            font-weight: 500;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .sim-help {
+            margin-top: var(--spacing-md);
+            font-size: 10px;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .advanced-settings-header {
+            padding: var(--spacing-sm) 0;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .advanced-settings-header h4 {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0;
+            transition: color var(--transition-fast);
+        }
+
+        .advanced-settings-header:hover h4 {
+            color: var(--text-primary);
+        }
+
+        .advanced-settings-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height var(--transition-slow) ease;
+        }
+
+        .advanced-settings.active .advanced-settings-content {
+            max-height: 150px;
+            padding: var(--spacing-sm) 0;
+        }
+
+        .advanced-settings-toolbar {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .advanced-settings-toolbar .btn-text-list {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs) var(--spacing-lg) var(--spacing-xs) 24px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            border: none;
+            background: transparent;
+            width: 100%;
+            text-align: left;
+            justify-content: flex-start;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .advanced-settings-toolbar .btn-text-list:hover {
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .advanced-settings-toolbar .btn-text-list:active {
+            transform: scale(0.99);
+        }
+
+        .advanced-settings-toolbar .btn-text-list-danger {
+            color: var(--accent-danger);
+        }
+
+        .advanced-settings-toolbar .btn-text-list-danger:hover {
+            background: rgba(233, 69, 96, 0.1);
+            color: var(--accent-danger);
+        }
+    </style>
+</head>
+<body>
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Left Sidebar: Edit Panel -->
+        <div class="sidebar">
+            <div class="sidebar-header-top">
+                <button class="btn-text" id="backBtn">← Back</button>
+                <button class="btn-text btn-text-danger" id="logoutBtn">↑ Logout</button>
+            </div>
+
+            <!-- Edit Form -->
+            <div class="edit-form">
+                <div class="form-group">
+                    <label for="editName">Name</label>
+                    <input type="text" id="editName" placeholder="Soundscape name">
+                </div>
+
+                <div class="form-group">
+                    <label for="editDescription">Description</label>
+                    <textarea id="editDescription" placeholder="Describe your soundscape"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <div class="form-group-checkbox">
+                        <div class="form-group-checkbox-left">
+                            <input type="checkbox" id="editPublic">
+                            <label for="editPublic">Public</label>
+                        </div>
+                        <label class="slideout-checkbox" id="btnSimulate" style="cursor: pointer; color: var(--accent-primary);">Simulate</label>
+                    </div>
+                </div>
+
+                <!-- More (Collapsible) -->
+                <div class="advanced-settings" id="advancedSettings">
+                    <div class="advanced-settings-header" onclick="toggleAdvancedSettings()">
+                        <h4 id="advancedSettingsToggle">▼ More</h4>
+                    </div>
+                    <div class="advanced-settings-content" id="advancedSettingsContent">
+                        <div class="advanced-settings-toolbar">
+                            <button class="btn-text-list" id="syncFromServerBtn">Sync from Server</button>
+                            <button class="btn-text-list" id="btnImport">Import Soundscape</button>
+                            <button class="btn-text-list" id="btnExport">Export Soundscape</button>
+                            <button class="btn-text-list" id="clearAllBtn">Clear All</button>
+                            <button class="btn-text-list btn-text-list-danger" id="deleteSoundscapeBtn">Delete Soundscape</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Simulation Panel -->
+                <div class="sim-panel" id="simPanel">
+                    <h3>Simulation Mode</h3>
+                    <div class="sim-stat">
+                        <span>Distance:</span>
+                        <span class="sim-value" id="simDistance">--</span>
+                    </div>
+                    <div class="sim-stat">
+                        <span>Bearing:</span>
+                        <span class="sim-value" id="simBearing">--</span>
+                    </div>
+                    <div class="sim-stat">
+                        <span>Volume:</span>
+                        <span class="sim-value" id="simVolume">--</span>
+                    </div>
+                    
+                    <!-- Area Overlap Debug (Session X) -->
+                    <div id="areaOverlapSection" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-sidebar); display: none;">
+                        <h4 style="font-size: 10px; text-transform: uppercase; color: var(--accent-primary); margin-bottom: 8px;">🗺️ Overlapping Areas</h4>
+                        <div id="areaOverlapList" style="font-size: 11px; font-family: 'Consolas', monospace;"></div>
+                    </div>
+                    
+                    <div class="sim-help">
+                        Drag the avatar to preview
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lists Container: VSCode-style Explorer -->
+            <div class="lists-container">
+                <div class="explorer">
+                    <!-- Areas Section -->
+                    <div class="explorer-section" id="areasSection" style="display: none;">
+                        <div class="explorer-header">Areas</div>
+                        <div class="item-list" id="areasList">
+                            <!-- Populated dynamically from soundscape data -->
+                        </div>
+                    </div>
+
+                    <!-- Waypoints Section -->
+                    <div class="explorer-section" id="waypointsSection" style="display: none;">
+                        <div class="explorer-header">Waypoints</div>
+                        <div class="item-list" id="waypointsList">
+                            <!-- Populated dynamically from soundscape data -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debug Log Panel (Collapsible) -->
+            <div class="debug-panel" id="debugPanel">
+                <div class="debug-panel-header" onclick="toggleDebugPanel()">
+                    <h4 id="debugPanelToggle">▲ Debug Log</h4>
+                    <div class="debug-panel-actions" id="debugPanelActions">
+                        <label class="slideout-checkbox" id="debugClearBtn" style="cursor: pointer; color: var(--accent-danger);">Clear</label>
+                        <label class="slideout-checkbox" id="debugCopyBtn" style="cursor: pointer; color: var(--accent-primary);">Copy</label>
+                    </div>
+                </div>
+                <div class="debug-panel-body" id="debugPanelBody">
+                    <div class="debug-line">Ready - tap Start to begin...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slideout Edit Panel (overlays map) -->
+        <div class="slideout-panel" id="slideoutPanel">
+            <div class="slideout-header">
+                <span class="slideout-title" id="slideoutTitle">Edit Item</span>
+                <button class="slideout-close" id="slideoutClose">×</button>
+            </div>
+            <div class="slideout-content">
+                <!-- Dynamic content based on item type -->
+                <div id="slideoutBody">
+                    <!-- Type Selector -->
+                    <div class="slideout-field">
+                        <label for="slideoutType">Sound Type</label>
+                        <select id="slideoutType">
+                            <option value="file">Audio File</option>
+                            <option value="oscillator">Oscillator</option>
+                            <option value="streaming">Streaming</option>
+                        </select>
+                    </div>
+                    
+                    <!-- COMMON FIELDS (all types) -->
+                    <div class="slideout-section">
+                        <div class="slideout-field">
+                            <label for="slideoutName">Name</label>
+                            <input type="text" id="slideoutName" placeholder="Sound name">
+                        </div>
+                        
+                        <div class="slideout-field-row">
+                            <div class="slideout-field">
+                                <label for="slideoutVolume">Volume</label>
+                                <input type="range" id="slideoutVolume" min="0" max="1" step="0.1" value="0.8">
+                                <span class="slideout-field-value" id="slideoutVolumeValue">80%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="slideout-field-row">
+                            <div class="slideout-field">
+                                <label for="slideoutActivationRadius">Activation Radius</label>
+                                <input type="range" id="slideoutActivationRadius" min="5" max="100" step="1" value="20">
+                                <span class="slideout-field-value" id="slideoutActivationRadiusValue">20m</span>
+                            </div>
+                        </div>
+                        
+                        <div class="slideout-field">
+                            <label class="slideout-checkbox">
+                                <input type="checkbox" id="slideoutLoop" checked>
+                                <span>Loop Sound</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- TYPE-SPECIFIC FIELDS (dynamic) -->
+                    <div class="slideout-section" id="slideoutTypeSection">
+                        <div class="slideout-section-header">
+                            <h4 id="typeSectionTitle">File Settings</h4>
+                        </div>
+                        <div id="typeFieldsContainer">
+                            <!-- Injected via JavaScript based on type -->
+                        </div>
+                    </div>
+
+                    <!-- MORE (collapsible) -->
+                    <div class="slideout-section slideout-collapsible" id="slideoutAdvanced">
+                        <div class="slideout-collapsible-header" onclick="toggleAdvancedSection()">
+                            <h4 id="slideoutAdvancedToggle">▼ More</h4>
+                        </div>
+                        <div class="slideout-collapsible-content" id="slideoutAdvancedContent">
+                            <div class="slideout-field">
+                                <label for="slideoutSortOrder">Sort Order</label>
+                                <input type="number" id="slideoutSortOrder" min="0" value="0" placeholder="0 = first">
+                                <small class="slideout-help">Determines processing/display order (0 = first)</small>
+                            </div>
+                            
+                            <div class="slideout-field">
+                                <label>Coordinates (read-only)</label>
+                                <div class="slideout-coords">
+                                    <span id="slideoutLat">--</span>, <span id="slideoutLon">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="slideout-footer">
+                    <div class="slideout-button-group">
+                        <label class="slideout-button" id="slideoutSave">Save</label>
+                        <label class="slideout-button" id="slideoutCancel">Cancel</label>
+                        <label class="slideout-button btn-text-danger" id="slideoutDelete">Delete</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Canvas -->
+        <div id="map"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Draw JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <!-- API Configuration -->
     <script>
         // Use relative URL - Cloudflare will handle HTTPS
         window.API_BASE_URL = '/api';
     </script>
+
+    <!-- Unregister Service Worker (desktop-only, no offline support) -->
+    <script>
+        // Add cache-busting timestamp, preserving existing query params (like ?new=true)
+        if (window.location.search.indexOf('nocache=') === -1) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('nocache', Date.now().toString());
+            const newUrl = window.location.pathname + '?' + params.toString() + window.location.hash;
+            window.history.replaceState(null, '', newUrl);
+        }
+
+        // Desktop editor doesn't need offline support - unregister SW
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                for (const registration of registrations) {
+                    registration.unregister();
+                }
+            });
+        }
+    </script>
+
+    <!-- Internal Scripts (with cache-busting versions) -->
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
+    <script src="martinez.min.js"></script>
     <script src="spatial_audio.js"></script>
     <script src="spatial_audio_app.js"></script>
     <script src="wake_lock_helper.js"></script>

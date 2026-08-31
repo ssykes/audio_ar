@@ -543,7 +543,7 @@
          * 2. Fetch all soundscapes from server
          * 3. Display as clickable list
          * 4. On click: store selection in localStorage
-         *    - Desktop → redirect to map_editor_v2.html
+         *    - Desktop → redirect to map_editor.html
          *    - Phone/Tablet → redirect to map_player.html
          */
         class SoundscapePickerApp {
@@ -551,9 +551,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260403181720 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260830203547 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260403181720 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260830203547 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1256,7 +1256,7 @@
                     if (statusEl) statusEl.style.display = 'flex';
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260403181720
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260830203547
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
@@ -1367,7 +1367,7 @@
                 console.log(`[SoundscapePicker] Selected: ${id}`);
                 this._debugLog(`[picker] 🎵 Selecting soundscape: ${id}`, 'info');
 
-                // Store selection for map_player.html or map_editor_v2.html
+                // Store selection for map_player.html or map_editor.html
                 localStorage.setItem('selected_soundscape_id', id);
                 this._debugLog(`[picker] 📍 Stored selected_soundscape_id: ${id}`, 'info');
 
@@ -1392,12 +1392,12 @@
                         navigator.serviceWorker.getRegistrations().then((registrations) => {
                             for (const registration of registrations) {
                                 registration.unregister();
-                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2');
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor');
                             }
                         });
                     }
 
-                    window.location.href = 'map_editor_v2.html';
+                    window.location.href = 'map_editor.html';
                 } else {
                     // Phone or Tablet Player: Go to map_player.html
                     console.log('[SoundscapePicker] Player mode → map_player.html');
@@ -1471,12 +1471,12 @@
                         navigator.serviceWorker.getRegistrations().then((registrations) => {
                             for (const registration of registrations) {
                                 registration.unregister();
-                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor_v2 (new soundscape)');
+                                console.log('[SoundscapePicker] 📴 Service Worker unregistered before navigating to map_editor (new soundscape)');
                             }
                         });
                     }
 
-                    window.location.href = 'map_editor_v2.html?new=true';
+                    window.location.href = 'map_editor.html?new=true';
                 });
 
                 // Debug toggle handler

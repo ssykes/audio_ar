@@ -263,9 +263,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip map_editor_v2.html - desktop editor mode, not for offline use
-  if (url.pathname.includes('map_editor_v2.html')) {
-    console.log('[SW] ⏭️ Skipping map_editor_v2.html (desktop mode - no offline)');
+  // Skip map_editor.html - desktop editor mode, not for offline use
+  if (url.pathname.includes('map_editor.html')) {
+    console.log('[SW] ⏭️ Skipping map_editor.html (desktop mode - no offline)');
     return;
   }
 

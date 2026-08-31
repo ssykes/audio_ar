@@ -95,7 +95,6 @@ $HTML_FILES = @(
     "index.html",
     "auto_rotate.html",
     "map_editor.html",
-    "map_editor_v2.html",
     "map_player.html",
     "soundscape_picker.html",
     "clear_sw_cache.html"
@@ -108,7 +107,6 @@ $APP_VERSION_PATTERN = 'spatial_audio_app\.js(\?v=\d+)?'
 $WAKE_LOCK_PATTERN = 'wake_lock_helper\.js(\?v=\d+)?'
 $MAP_SHARED_PATTERN = 'map_shared\.js(\?v=\d+)?'
 $MAP_EDITOR_PATTERN = 'map_editor\.js(\?v=\d+)?'
-$MAP_EDITOR_V2_PATTERN = 'map_editor_v2\.js(\?v=\d+)?'
 $MAP_PLAYER_PATTERN = 'map_player\.js(\?v=\d+)?'
 $SOUNDSCAPE_PATTERN = 'soundscape\.js(\?v=\d+)?'
 $API_CLIENT_PATTERN = 'api-client\.js(\?v=\d+)?'
@@ -162,13 +160,6 @@ foreach ($htmlFile in $HTML_FILES) {
             $content = $content -replace $MAP_EDITOR_PATTERN, "map_editor.js?v=$VERSION"
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (map_editor.js)" -ForegroundColor Green
-        }
-
-        # Update map_editor_v2.js version
-        if ($content -match $MAP_EDITOR_V2_PATTERN) {
-            $content = $content -replace $MAP_EDITOR_V2_PATTERN, "map_editor_v2.js?v=$VERSION"
-            Set-Content $filePath $content -NoNewline
-            Write-Host "  Updated: $htmlFile (map_editor_v2.js)" -ForegroundColor Green
         }
 
         # Update map_player.js version
@@ -273,7 +264,6 @@ Write-Host "Creating deployment copies with cache-busting versions..." -Foregrou
 $HTML_FILES_WITH_VERSIONS = @(
     "map_player.html",
     "map_editor.html",
-    "map_editor_v2.html",
     "index.html",
     "single_sound_v2.html",
     "soundscape_picker.html",
@@ -296,7 +286,6 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(map_shared\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_player\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_editor\.js)"', "`${1}?v=$VERSION`""
-        $content = $content -replace '(map_editor_v2\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_placer\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(debug_logger\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""
@@ -328,8 +317,6 @@ $ALL_FILES = @(
     "deploy.ps1",
     "map_editor.html",
     "map_editor.js",
-    "map_editor_v2.html",
-    "map_editor_v2.js",
     "map_player.html",
     "map_player.js",
     "map_shared.js",

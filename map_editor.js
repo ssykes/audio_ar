@@ -1,31 +1,46 @@
 /**
- * Legacy implementation superseded by map_editor_v2.js
- * MapEditorApp - Editor-specific implementation
+ * Map Editor - Modern UI Implementation
  * Extends MapAppShared with editor functionality
  *
- * @version 6.43 - Always-on area editing: Leaflet.Draw toolbar always visible
+ * @version 17B.1 - Feature 17B: Map Editor UI Refactor (Complete)
  * @author Spatial Audio AR Team
  *
  * Features:
+ * - Modern VSCode-style UI
  * - Soundscape management (create, edit, delete)
- * - Waypoint editing (add, edit, delete, clear)
+ * - Waypoint/Area editing with slideout panel
  * - Export/Import JSON
  * - Server sync
- * - Simulation mode
- * - Auto-redirect to index.html if not logged in
- * - Area drawing (Session 4): Click vertices, double-click to close
+ * - Simulation mode with live stats
+ * - Device-aware routing
+ * - Keyboard shortcuts
+ * - Area drawing with Leaflet.Draw
  */
 
-console.log('[map_editor.js] Loading v6.43...');
+console.log('[map_editor.js] Script started');
+console.log('📍 MAP_EDITOR_JS_VERSION: 20260329170500-DRAG-FIX');
+
+// =====================================================================
+// MapEditorApp Class
+// =====================================================================
 
 class MapEditorApp extends MapAppShared {
     constructor() {
         super({ mode: 'editor' });
 
-        // Area drawing using Leaflet.Draw (Session 4)
+        // Area drawing using Leaflet.Draw
         this.drawnItems = null;  // FeatureGroup for drawn areas
         this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
         this.nextAreaId = 1;
+        this.isDrawingArea = false;
+        this.isDraggingArea = false;  // Track if area is being dragged
+
+        // Intersection overlay layer (for highlighting small overlaps)
+        this.intersectionOverlayLayer = null;
+
+        // Track selected item for editing
+        this.selectedItem = null;
+        this.selectedItemType = null;  // 'waypoint' or 'area'
     }
 
     /**
@@ -33,759 +48,327 @@ class MapEditorApp extends MapAppShared {
      * @override
      */
     async init() {
-        console.log('Map Editor initializing...');
+        console.log('Map Editor v2 initializing...');
+
+        // Wait for DOM ready
         if (document.readyState === 'loading') {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
         }
 
-        // Check login status - redirect to index.html if not logged in
+        // Check for "new soundscape" mode from query parameter
+        this.isNewSoundscapeMode = this._checkNewSoundscapeMode();
+
+        // FIX: Clear persisted state IMMEDIATELY if in new soundscape mode
+        // This prevents loading an existing soundscape when creating a new one
+        if (this.isNewSoundscapeMode) {
+            this.debugLog('🆕 New soundscape mode detected - clearing persisted state');
+            localStorage.removeItem('editor_active_soundscape_id');
+            localStorage.removeItem('selected_soundscape_id');
+        }
+
+        // Initialize map (from MapAppShared._initMap())
+        this._initMap();
+
+        // Check login status first
         await this._checkLoginStatus();
 
-        this._initMap();
-        this._setupEventListeners();
+        // Initialize debug console
         this._initDebugConsole();
 
-        // Get initial GPS/WiFi position (all devices, for fallback positioning)
-        // Position will be used if no soundscapes exist
-        await this._getInitialGPS();
-
-        // Initialize Leaflet.Draw for Areas BEFORE loading soundscapes (fix: areas need drawnItems)
+        // Initialize Leaflet.Draw for areas
         this._initAreaDrawer();
 
-        // Load soundscape from server (editor requires login)
-        // This will center the map on the first soundscape's waypoints (if any exist)
-        if (this.isLoggedIn) {
+        // Setup event listeners
+        this._setupEventListeners();
+
+        // Handle new soundscape mode or load existing
+        if (this.isNewSoundscapeMode) {
+            // Prompt user to create new soundscape or cancel
+            await this._promptNewSoundscape();
+        } else if (this.isLoggedIn) {
+            // Load from server if logged in (will check for persisted soundscape)
             await this._loadSoundscapeFromServer();
-            // Skip auto-sync check - we just loaded from server, so data is fresh
-            this.debugLog('✅ Just loaded from server - skipping auto-sync check');
-        }
-
-        // If no soundscapes were loaded and we have GPS position, center on it
-        if (this.waypoints.length === 0 && this.listenerLat !== null) {
-            this.map.setView([this.listenerLat, this.listenerLon], 18);  // Closer zoom for GPS position
-            this.debugLog(`🗺️ No soundscapes - centered on GPS/WiFi position [${this.listenerLat.toFixed(4)}, ${this.listenerLon.toFixed(4)}]`);
-        }
-
-        // Check GPS hardware for Start button (all devices)
-        this.debugLog('📡 Checking for GPS hardware...');
-        const hasGPS = await this._checkGPSAvailability();
-        if (hasGPS) {
-            this.debugLog('📍 GPS detected - showing Start button');
-            const startBtn = document.getElementById('startBtn');
-            if (startBtn) startBtn.style.display = 'block';
         } else {
-            this.debugLog('⚠️ No GPS hardware (WiFi positioning only) - keeping Start button hidden');
+            // Not logged in - create a default soundscape
+            this._createDefaultSoundscape();
         }
 
-        // Initialize UI based on mode flags
-        this._initUI();
+        // Initialize UI forms from soundscape data (after soundscape is loaded)
+        this._initForms();
 
-        // Warn before closing page with unsaved changes
-        window.addEventListener('beforeunload', (e) => {
-            const soundscape = this.getActiveSoundscape();
-            if (soundscape?.isDirty) {
-                e.preventDefault();
-                e.returnValue = '';  // Browser shows "Leave site?" dialog
-                return '';
-            }
-        });
-
-        console.log('Map Editor ready');
+        console.log('Map Editor v2 ready');
     }
 
     /**
-     * Check if user is logged in - redirect to index.html if not
+     * Check if URL has ?new=true query parameter
      * @private
+     * @returns {boolean} True if in new soundscape mode
      */
-    async _checkLoginStatus() {
-        if (!this.api.isLoggedIn()) {
-            this.debugLog('🔒 Not logged in - redirecting to index.html');
-            window.location.href = 'index.html';
-            return;
-        }
-
-        // Verify token is still valid
-        const valid = await this.api.verifyToken();
-        if (!valid) {
-            this.debugLog('🔒 Token invalid - redirecting to index.html');
-            window.location.href = 'index.html';
-            return;
-        }
-
-        // User is logged in - show user panel
-        this.isLoggedIn = true;
-        const userPanel = document.getElementById('userPanel');
-        const userEmail = document.getElementById('userEmail');
-        const soundscapeControls = document.getElementById('soundscapeControls');
-        const addWaypointBtn = document.getElementById('addWaypointBtn');
-        const addAreaBtn = document.getElementById('addAreaBtn');
-
-        if (userPanel) userPanel.style.display = 'block';
-        if (userEmail) userEmail.textContent = this.api.user.email;
-        if (soundscapeControls) soundscapeControls.style.display = 'block';
-        if (addWaypointBtn) addWaypointBtn.style.display = 'block';
-        if (addAreaBtn) addAreaBtn.style.display = 'block';
-
-        this.debugLog('🔐 Logged in as ' + this.api.user.email);
-
-        // Load soundscape list
-        await this._loadSoundscapeList();
+    _checkNewSoundscapeMode() {
+        const params = new URLSearchParams(window.location.search);
+        const isNew = params.get('new') === 'true';
+        this.debugLog(`🔍 New soundscape mode: ${isNew}`);
+        return isNew;
     }
 
     /**
-     * Setup event listeners
+     * Prompt user to create a new soundscape or cancel
      * @private
      */
-    _setupEventListeners() {
-        const startBtn = document.getElementById('startBtn');
-        if (startBtn) {
-            startBtn.addEventListener('click', () => this._handleStartClick());
-        }
+    async _promptNewSoundscape() {
+        this.debugLog('🆕 New soundscape mode activated');
 
-        const simulateBtn = document.getElementById('simulateBtn');
-        if (simulateBtn) {
-            simulateBtn.addEventListener('click', () => this._handleSimulateClick());
-        }
-
-        const clearBtn = document.getElementById('clearAllBtn');
-        if (clearBtn) {
-            clearBtn.addEventListener('click', () => {
-                if (this.state !== 'editor') return;
-                this._clearAllWaypoints();
-            });
-        }
-
-        const exportBtn = document.getElementById('exportBtn');
-        if (exportBtn) {
-            exportBtn.addEventListener('click', () => this._exportSoundscape());
-        }
-
-        const importBtn = document.getElementById('importBtn');
-        if (importBtn) {
-            importBtn.addEventListener('click', () => this._triggerImport());
-        }
-
-        // SoundScape management
-        const newSoundscapeBtn = document.getElementById('newSoundscapeBtn');
-        if (newSoundscapeBtn) {
-            newSoundscapeBtn.addEventListener('click', () => this._createNewSoundscape());
-        }
-
-        const editSoundscapeBtn = document.getElementById('editSoundscapeBtn');
-        if (editSoundscapeBtn) {
-            editSoundscapeBtn.addEventListener('click', () => this._editSoundscape());
-        }
-
-        const deleteSoundscapeBtn = document.getElementById('deleteSoundscapeBtn');
-        if (deleteSoundscapeBtn) {
-            deleteSoundscapeBtn.addEventListener('click', () => this._deleteSoundscape());
-        }
-
-        // Import file input
-        const importFileInput = document.getElementById('importFileInput');
-        if (importFileInput) {
-            importFileInput.addEventListener('change', (e) => this._handleImportFile(e.target.files[0]));
-        }
-
-        // Logout handler
-        const logoutBtn = document.getElementById('logoutBtn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', () => this._handleLogout());
-        }
-
-        // Sync from server button
-        const syncFromServerBtn = document.getElementById('syncFromServerBtn');
-        if (syncFromServerBtn) {
-            syncFromServerBtn.addEventListener('click', () => this._handleSyncFromServer());
-        }
-
-        // Soundscape selector
-        const soundscapeSelector = document.getElementById('soundscapeSelector');
-        if (soundscapeSelector) {
-            soundscapeSelector.addEventListener('change', () => this._onSoundscapeChange());
-        }
-    }
-
-    /**
-     * Handle logout - redirect to index.html
-     * @private
-     */
-    async _handleLogout() {
-        const soundscape = this.getActiveSoundscape();
-        const hasUnsavedChanges = soundscape?.isDirty || false;
-
-        if (hasUnsavedChanges) {
-            const confirmed = confirm(
-                '⚠️ You have unsaved changes.\n\n' +
-                'Click OK to save before logout, or Cancel to logout without saving.'
-            );
-            if (!confirmed) {
-                // User chose to logout without saving
-                this.debugLog('⚠️ Logout without saving - changes will be lost');
-            } else {
-                // Force save before logout - wait for completion
-                this.debugLog('💾 Saving before logout...');
-                this._showToast('💾 Saving before logout...', 'info');
-
-                try {
-                    // Cancel any pending auto-save
-                    if (this.saveDebounceTimer) {
-                        clearTimeout(this.saveDebounceTimer);
-                        this.saveDebounceTimer = null;
-                    }
-                    if (this.saveAbortController) {
-                        this.saveAbortController.abort();
-                        this.saveAbortController = null;
-                    }
-
-                    // Force immediate save
-                    await this._executeAutoSaveForce();
-
-                    this.debugLog('✅ Saved before logout');
-                    this._showToast('✅ Saved - logging out', 'success');
-                } catch (error) {
-                    this.debugLog('❌ Failed to save before logout: ' + error.message);
-                    this._showToast('⚠️ Save failed - changes may be lost', 'error');
-                }
-            }
-        }
-
-        this.api.logout();
-        this.isLoggedIn = false;
-        this.serverSoundscapeIds.clear();
+        // Clear any existing soundscape data to start fresh
         this.soundscapes.clear();
         this.activeSoundscapeId = null;
-        this.waypoints = [];
-        this.nextId = 1;
+        this.serverSoundscapeIds.clear();
 
         // Clear map markers
         this.markers.forEach(marker => marker.remove());
         this.markers.clear();
-        this._updateWaypointList();
+        this.drawnItems.clearLayers();
+        this.areaMarkers.clear();
 
-        this._showToast('🚪 Logged out successfully', 'info');
-        this.debugLog('🚪 Logged out');
+        // FIX: localStorage already cleared in init(), but ensure it's clean here too
+        localStorage.removeItem('editor_active_soundscape_id');
+        localStorage.removeItem('selected_soundscape_id');
 
-        // Redirect to index.html
-        window.location.href = 'index.html';
+        this.debugLog('🧹 Cleared existing soundscape data for fresh start');
+
+        // Show prompt dialog
+        const result = await this._showCreateSoundscapeDialog();
+
+        if (result && result.name && result.name.trim()) {
+            // User confirmed with a name - create the soundscape
+            this._createNewSoundscapeFromDialog(result.name.trim(), result.description || '');
+            this.debugLog(`✅ Created new soundscape: ${result.name}`);
+        } else {
+            // User canceled - redirect back to soundscape picker
+            this.debugLog('❌ New soundscape canceled by user');
+            this._showToast('New soundscape canceled', 'info');
+            setTimeout(() => {
+                window.location.href = 'soundscape_picker.html';
+            }, 1000);
+        }
     }
 
     /**
-     * Check if GPS hardware is available (for Start button)
-     * Uses heading property to distinguish GPS from WiFi positioning
-     * @returns {Promise<boolean>} True if GPS available
+     * Show dialog to create a new soundscape
      * @private
+     * @returns {Promise<{name: string, description: string}|null>}
      */
-    async _checkGPSAvailability() {
+    _showCreateSoundscapeDialog() {
         return new Promise((resolve) => {
-            if (!navigator.geolocation) {
-                resolve(false);
-                return;
-            }
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'newSoundscapeOverlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
 
-            const timeout = setTimeout(() => resolve(false), 5000);
+            // Create dialog
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: var(--bg-panel);
+                border: 1px solid var(--border-panel);
+                border-radius: 8px;
+                padding: 24px;
+                max-width: 400px;
+                width: 90%;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            `;
 
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    clearTimeout(timeout);
-                    
-                    // Check for GPS indicators
-                    const hasHeading = typeof pos.coords.heading === 'number' && 
-                                       !isNaN(pos.coords.heading);
-                    const hasGoodAccuracy = pos.coords.accuracy < 50;
+            dialog.innerHTML = `
+                <h2 style="margin: 0 0 16px 0; color: var(--accent-primary); font-size: 18px;">
+                    🎧 Create New Soundscape
+                </h2>
+                <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 13px;">
+                    Enter a name for your new soundscape. You can add waypoints and areas after creation.
+                </p>
+                <div style="margin-bottom: 16px;">
+                    <label style="display: block; color: var(--text-muted); font-size: 11px; text-transform: uppercase; margin-bottom: 6px;">
+                        Name *
+                    </label>
+                    <input type="text" id="newSoundscapeName" placeholder="My Awesome Soundscape"
+                        style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 4px; color: var(--text-primary); font-size: 14px;"
+                        autofocus
+                    />
+                    <div id="newSoundscapeError" style="color: var(--accent-danger); font-size: 11px; margin-top: 6px; display: none;">
+                        ⚠️ Please enter a name for your soundscape
+                    </div>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; color: var(--text-muted); font-size: 11px; text-transform: uppercase; margin-bottom: 6px;">
+                        Description (optional)
+                    </label>
+                    <textarea id="newSoundscapeDescription" placeholder="Describe your soundscape..."
+                        style="width: 100%; padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border-input); border-radius: 4px; color: var(--text-primary); font-size: 13px; min-height: 60px; resize: vertical;"
+                    ></textarea>
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                    <button id="newSoundscapeCancel" style="
+                        padding: 8px 16px;
+                        background: var(--bg-panel);
+                        border: 1px solid var(--border-input);
+                        border-radius: 4px;
+                        color: var(--text-primary);
+                        cursor: pointer;
+                        font-size: 13px;
+                    ">Cancel</button>
+                    <button id="newSoundscapeCreate" style="
+                        padding: 8px 16px;
+                        background: var(--accent-primary);
+                        border: none;
+                        border-radius: 4px;
+                        color: var(--bg-body);
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: 500;
+                    ">Create Soundscape</button>
+                </div>
+            `;
 
-                    console.log(`[GPS Check] Accuracy: ${pos.coords.accuracy}m`);
-                    console.log(`[GPS Check] Heading: ${pos.coords.heading}`);
-                    console.log(`[GPS Check] Result: ${hasHeading || hasGoodAccuracy ? 'GPS likely ✅' : 'WiFi likely ⚠️'}`);
-                    
-                    // Accept if heading exists OR accuracy is good
-                    resolve(hasHeading || hasGoodAccuracy);
-                },
-                (err) => {
-                    clearTimeout(timeout);
-                    console.log(`[GPS Check] Error: ${err.message}`);
-                    resolve(false);
-                },
-                { timeout: 5000, enableHighAccuracy: true }
-            );
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            // Focus the name input
+            const nameInput = document.getElementById('newSoundscapeName');
+            if (nameInput) nameInput.focus();
+
+            // Hide error when user starts typing
+            nameInput.addEventListener('input', () => {
+                const errorEl = document.getElementById('newSoundscapeError');
+                if (errorEl) errorEl.style.display = 'none';
+            });
+
+            // Handle cancel
+            document.getElementById('newSoundscapeCancel').addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(null);
+            });
+
+            // Handle create
+            document.getElementById('newSoundscapeCreate').addEventListener('click', () => {
+                const name = document.getElementById('newSoundscapeName').value.trim();
+                const description = document.getElementById('newSoundscapeDescription').value.trim();
+                const errorEl = document.getElementById('newSoundscapeError');
+                const nameInput = document.getElementById('newSoundscapeName');
+
+                if (!name) {
+                    // Show inline error
+                    if (errorEl) errorEl.style.display = 'block';
+                    if (nameInput) nameInput.focus();
+                    return;
+                }
+
+                // Hide error if visible
+                if (errorEl) errorEl.style.display = 'none';
+
+                document.body.removeChild(overlay);
+                resolve({ name, description });
+            });
+
+            // Handle Enter key
+            nameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    document.getElementById('newSoundscapeCreate').click();
+                }
+            });
+
+            // Handle Escape key
+            const handleEscape = (e) => {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', handleEscape);
+                    document.getElementById('newSoundscapeCancel').click();
+                }
+            };
+            document.addEventListener('keydown', handleEscape);
         });
     }
 
     /**
-     * Handle sync from server
+     * Create a new soundscape from the dialog (new soundscape mode)
      * @private
+     * @param {string} name - Soundscape name
+     * @param {string} description - Soundscape description
      */
-    async _handleSyncFromServer() {
-        if (!this.isLoggedIn) {
-            this._showToast('⚠️ Please login first', 'warning');
-            return;
-        }
-
-        this.debugLog('🔄 Syncing from server...');
-        this._showToast('🔄 Syncing from server...', 'info');
-        await this._loadSoundscapeFromServer();
-        this._showToast('✅ Sync complete', 'success');
-    }
-
-    /**
-     * Load soundscape list from server
-     * @private
-     */
-    async _loadSoundscapeList() {
-        if (!this.isLoggedIn) return;
-
-        try {
-            const selector = document.getElementById('soundscapeSelector');
-            if (!selector) return;
-
-            // Clear existing options
-            selector.innerHTML = '<option value="">Select Soundscape...</option>';
-
-            // Get server soundscapes
-            const serverSoundscapes = await this.api.getSoundscapes();
-            const serverIds = new Set(serverSoundscapes.map(ss => ss.id));
-
-            // Add server soundscapes
-            serverSoundscapes.forEach(ss => {
-                const option = document.createElement('option');
-                option.value = ss.id;
-                option.textContent = ss.name;
-                // Select if this is the active one
-                const localId = Array.from(this.serverSoundscapeIds.entries())
-                    .find(([_, serverId]) => serverId === ss.id)?.[0];
-                if (localId === this.activeSoundscapeId) {
-                    option.selected = true;
-                }
-                selector.appendChild(option);
-            });
-
-            // Add local-only soundscapes
-            for (const [localId, soundscape] of this.soundscapes.entries()) {
-                const hasServer = this.serverSoundscapeIds.has(localId);
-                if (!hasServer && !serverIds.has(localId)) {
-                    const option = document.createElement('option');
-                    option.value = localId;
-                    option.textContent = soundscape.name + ' (local only)';
-                    if (localId === this.activeSoundscapeId) {
-                        option.selected = true;
-                    }
-                    selector.appendChild(option);
-                    this.debugLog(`  📁 Added local-only: ${soundscape.name}`);
-                }
-            }
-
-            this.debugLog(`📋 Soundscape selector populated (${selector.options.length - 1} soundscapes)`);
-        } catch (error) {
-            this.debugLog('❌ Failed to load soundscapes: ' + error.message);
-        }
-    }
-
-    /**
-     * Handle soundscape selector change
-     * @private
-     */
-    async _onSoundscapeChange() {
-        const selector = document.getElementById('soundscapeSelector');
-        const selectedValue = selector?.value;
-
-        if (!selectedValue) return;
-
-        // Find the local ID for this server ID
-        let localId = Array.from(this.serverSoundscapeIds.entries())
-            .find(([_, serverId]) => serverId === selectedValue)?.[0];
-
-        // If not found in mapping, check if it's a local-only soundscape
-        if (!localId && this.soundscapes.has(selectedValue)) {
-            localId = selectedValue;
-            this.debugLog('📁 Found local-only soundscape (not on server)');
-        }
-
-        if (!localId) {
-            // Not loaded yet - load from server
-            this.debugLog('🔄 Loading soundscape from server...');
-            try {
-                const data = await this.api.loadSoundscape(selectedValue);
-                // Convert server response to SoundScape instance
-                const soundscape = SoundScape.fromJSON(data.soundscape);
-                this.soundscapes.set(soundscape.id, soundscape);
-                this.activeSoundscapeId = soundscape.id;
-                this.serverSoundscapeIds.set(soundscape.id, selectedValue);
-                this.waypoints = data.waypoints;
-
-                // Restore nextId
-                if (this.waypoints.length > 0) {
-                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                    this.nextId = maxId + 1;
-                }
-
-                // Clear and render waypoints
-                this.markers.forEach(marker => marker.remove());
-                this.markers.clear();
-                this.waypoints.forEach(wp => this._createMarker(wp));
-                this._updateWaypointList();
-                this._updateSoundscapeSelector();
-
-                // Center map on the new waypoints
-                if (this.waypoints.length > 0) {
-                    const sumLat = this.waypoints.reduce((sum, wp) => sum + wp.lat, 0);
-                    const sumLon = this.waypoints.reduce((sum, wp) => sum + wp.lon, 0);
-                    const centerLat = sumLat / this.waypoints.length;
-                    const centerLon = sumLon / this.waypoints.length;
-                    this.map.setView([centerLat, centerLon], 17);
-                    this.debugLog(`🗺️ Map centered at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}]`);
-                }
-
-                this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints)`);
-            } catch (error) {
-                this.debugLog('❌ Failed to load soundscape: ' + error.message);
-                this._showToast('⚠️ Soundscape not on server', 'warning');
-            }
-        } else {
-            // Already loaded - just switch
-            this.switchSoundscape(localId);
-        }
-    }
-
-    /**
-     * Create new soundscape
-     * @private
-     */
-    async _createNewSoundscape() {
-        const name = prompt('Enter soundscape name:', 'New Soundscape');
-        if (!name) return;
-
-        // Save current soundscape first (if any)
-        this._saveSoundscapeToStorage();
-
-        // Create new empty soundscape
+    async _createNewSoundscapeFromDialog(name, description = '') {
         const id = 'soundscape_' + Date.now();
-        const soundscape = new SoundScape(id, name, [], [], []);
+        const soundscape = new SoundScape(id, name, description, true, [], [], [], []);
         this.soundscapes.set(id, soundscape);
         this.activeSoundscapeId = id;
 
-        // Clear waypoints for the new soundscape
-        this._clearAllWaypoints();
+        // Update edit form with new soundscape data
+        const nameInput = document.getElementById('editName');
+        const descInput = document.getElementById('editDescription');
+        const publicCheckbox = document.getElementById('editPublic');
+        if (nameInput) nameInput.value = name;
+        if (descInput) descInput.value = description;
+        if (publicCheckbox) publicCheckbox.checked = true;
 
+        this.debugLog(`🎼 Created soundscape: ${name} (${id})`);
+        this._showToast(`Created "${name}"`, 'success');
+
+        // Remove query parameter from URL (clean URL)
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+
+        // Create on server FIRST (if logged in) to get server ID mapping
         if (this.isLoggedIn) {
-            // Create on server FIRST, then map IDs
             try {
-                const result = await this.api.createSoundscape(name);
+                this.debugLog('☁️ Creating soundscape on server...');
+                const result = await this.api.createSoundscape(name, description, publicCheckbox.checked);
                 const serverId = result.soundscape.id;
 
-                // Map local ID to server ID BEFORE saving
+                // Map local ID to server ID BEFORE auto-save
                 this.serverSoundscapeIds.set(id, serverId);
-                this.debugLog(`🎼 Created on server: ${name} (server ID: ${serverId})`);
+                this.debugLog(`✅ Created on server: ${name} (server ID: ${serverId})`);
 
-                // Now save to server with the mapping in place
-                this._updateSoundscapeSelector();
-                this._saveSoundscapeToStorage();
-
-                // Refresh soundscape list from server
-                await this._loadSoundscapeList();
-
-                this.debugLog(`✅ Soundscape created and saved to server`);
+                // Now save waypoints/areas (empty for now) with the mapping in place
+                this._markSoundscapeDirty();
+                this._scheduleAutoSave();
             } catch (error) {
                 this.debugLog('❌ Failed to create on server: ' + error.message);
                 this._showToast('⚠️ Created locally only (server failed)', 'warning');
             }
         } else {
             // Not logged in - save locally only
-            this._updateSoundscapeSelector();
-            this._saveSoundscapeToStorage();
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
         }
-
-        this._showToast(`✅ Created: ${soundscape.name}`, 'success');
     }
 
     /**
-     * Edit current soundscape
+     * Check if user is logged in
      * @private
      */
-    async _editSoundscape() {
-        const soundscape = this.getActiveSoundscape();
-        if (!soundscape) return;
-
-        const newName = prompt('Edit soundscape name:', soundscape.name);
-        if (!newName) return;
-
-        const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
-        if (this.isLoggedIn && serverId) {
-            // Update on server
-            try {
-                await this.api.updateSoundscape(serverId, newName);
-                soundscape.name = newName;
-                this.debugLog('✏️ Soundscape updated on server');
-            } catch (error) {
-                this.debugLog('❌ Failed to update on server: ' + error.message);
-            }
-        } else {
-            soundscape.name = newName;
-        }
-
-        this._saveSoundscapeToStorage();
-        this._updateSoundscapeSelector();
-        this._showToast('✅ Soundscape updated', 'success');
-    }
-
-    /**
-     * Delete current soundscape
-     * @private
-     */
-    async _deleteSoundscape() {
-        if (!this.activeSoundscapeId) return;
-        this.deleteSoundscape(this.activeSoundscapeId);
-    }
-
-    /**
-     * Export soundscape with waypoints to JSON file
-     * @private
-     */
-    _exportSoundscape() {
-        const soundscape = this.getActiveSoundscape();
-        if (!soundscape) {
-            this._showToast('⚠️ No soundscape to export', 'warning');
+    async _checkLoginStatus() {
+        if (!this.api.isLoggedIn()) {
+            this.debugLog('🔒 Not logged in');
+            this.isLoggedIn = false;
             return;
         }
 
-        // Update soundscape with current waypoints
-        soundscape.soundIds = this.waypoints.map(wp => wp.id);
-        soundscape.waypointData = this.waypoints.map(wp => ({
-            id: wp.id,
-            name: wp.name,
-            lat: wp.lat,
-            lon: wp.lon,
-            type: wp.type,
-            icon: wp.icon,
-            color: wp.color,
-            activationRadius: wp.activationRadius,
-            soundUrl: wp.soundUrl,
-            volume: wp.volume,
-            loop: wp.loop,
-            soundConfig: wp.soundConfig
-        }));
-
-        const data = {
-            version: '3.0',
-            exportedAt: new Date().toISOString(),
-            soundscape: soundscape.toJSON(),
-            waypoints: this.waypoints
-        };
-
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `soundscape_${soundscape.id}_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        this.debugLog('[Export] Exported:', a.download);
-        this._showToast('✅ Soundscape exported', 'success');
-    }
-
-    /**
-     * Trigger file import dialog
-     * @private
-     */
-    _triggerImport() {
-        const fileInput = document.getElementById('importFileInput');
-        if (fileInput) {
-            fileInput.click();
-        }
-    }
-
-    /**
-     * Handle imported file
-     * @param {File} file
-     * @private
-     */
-    _handleImportFile(file) {
-        if (!file) return;
-
-        this.debugLog(`📥 Importing: ${file.name}`);
-
-        // Confirm before overwriting if there's existing data
-        const hasExistingData = this.waypoints.length > 0;
-        if (hasExistingData) {
-            const confirmed = confirm(
-                `⚠️ Import will overwrite your current soundscape.\n\n` +
-                `You have ${this.waypoints.length} waypoint(s) that will be replaced.\n\n` +
-                `Click OK to import, or Cancel to abort.`
-            );
-            if (!confirmed) {
-                this.debugLog('❌ Import cancelled by user');
-                return;
-            }
-        }
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const data = JSON.parse(event.target.result);
-                const soundscape = SoundScape.fromJSON(data.soundscape);
-                const waypoints = data.waypoints || [];
-
-                // Clear current data
-                this._clearAllWaypoints();
-
-                // Load imported data as new soundscape
-                this.soundscapes.set(soundscape.id, soundscape);
-                this.activeSoundscapeId = soundscape.id;
-                this.waypoints = waypoints;
-
-                // Restore nextId
-                if (this.waypoints.length > 0) {
-                    const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
-                    this.nextId = maxId + 1;
-                }
-
-                // Render waypoints
-                this.waypoints.forEach(wp => this._createMarker(wp));
-                this._updateWaypointList();
-                this._updateSoundscapeSelector();
-
-                this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints)`);
-                this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
-            } catch (error) {
-                this.debugLog('❌ Import failed: ' + error.message);
-                this._showToast('❌ Import failed: ' + (error?.message || 'Unknown error'), 'error');
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    /**
-     * Load ALL soundscapes from server
-     * @private
-     */
-    async _loadSoundscapeFromServer() {
-        if (!this.isLoggedIn) {
-            this.debugLog('⚠️ Not logged in - cannot load from server');
+        // Verify token is still valid
+        const valid = await this.api.verifyToken();
+        if (!valid) {
+            this.debugLog('🔒 Token invalid');
+            this.isLoggedIn = false;
             return;
         }
 
-        try {
-            this.debugLog('☁️ Loading soundscapes from server...');
-
-            // Get list of soundscapes
-            const soundscapes = await this.api.getSoundscapes();
-
-            if (soundscapes.length === 0) {
-                this.debugLog('📭 No soundscapes on server - creating default');
-                await this._createNewSoundscape();
-                return;
-            }
-
-            // Load ALL soundscapes into local cache
-            this.debugLog(`🎼 Loading ${soundscapes.length} soundscape(s)...`);
-            for (const ss of soundscapes) {
-                try {
-                    const data = await this.api.loadSoundscape(ss.id);
-                    const soundscape = SoundScape.fromJSON(data.soundscape);
-
-                    // IMPORTANT: Add waypointData to soundscape (from data.waypoints, not data.soundscape)
-                    soundscape.waypointData = data.waypoints;
-
-                    // Areas are already included in data.soundscape.areas (loaded by api.loadSoundscape)
-                    // and initialized by SoundScape.fromJSON() - no separate load needed
-
-                    // Add to soundscapes map
-                    this.soundscapes.set(soundscape.id, soundscape);
-                    this.serverSoundscapeIds.set(soundscape.id, ss.id);
-
-                    this.debugLog(`  ✅ Loaded: ${soundscape.name} (${data.waypoints.length} waypoints)`);
-                } catch (error) {
-                    this.debugLog(`  ⚠️ Failed to load ${ss.name}: ${error.message}`);
-                }
-            }
-
-            // Set active to most recent
-            const latest = soundscapes[0];
-            const localId = Array.from(this.serverSoundscapeIds.entries())
-                .find(([_, serverId]) => serverId === latest.id)?.[0];
-
-            if (localId) {
-                this.switchSoundscape(localId);
-            }
-
-            this.debugLog(`✅ Loaded ${soundscapes.length} soundscape(s) from server`);
-            this._updateSyncStatus(true);
-        } catch (error) {
-            this.debugLog('❌ Failed to load from server: ' + error.message);
-            this._showToast('⚠️ Server sync failed', 'error');
-            this._updateSyncStatus(false);
-        }
-    }
-
-    /**
-     * Save soundscape to server
-     * @private
-     */
-    async _saveSoundscapeToServer() {
-        const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
-        if (!this.isLoggedIn || !serverId) {
-            this.debugLog('⚠️ Cannot save to server - not logged in or no soundscape');
-            return;
-        }
-
-        try {
-            this.debugLog('☁️ Saving to server...');
-
-            const soundscape = this.getActiveSoundscape();
-            // Use soundscape.waypointData (clean objects) instead of this.waypoints (may have Leaflet refs)
-            // Strip Leaflet properties from waypoints
-            const cleanWaypoints = soundscape.waypointData.map(wp => {
-                const { circleMarker, marker, ...cleanWp } = wp;
-                return cleanWp;
-            });
-
-            // Strip Leaflet layer references from areas
-            const cleanAreas = (soundscape.areas || []).map(area => {
-                const { _leafletLayer, ...cleanArea } = area;
-                return cleanArea;
-            });
-
-            // Save waypoints, behaviors, and areas in single call
-            await this.api.saveSoundscape(
-                serverId,
-                cleanWaypoints,
-                soundscape.behaviors || [],
-                cleanAreas
-            );
-
-            this.debugLog('✅ Saved to server (waypoints + behaviors + areas)');
-            this._updateSyncStatus(true);
-        } catch (error) {
-            this.debugLog('❌ Server save failed: ' + error.message);
-            this._showToast('⚠️ Server sync failed - saved locally', 'warning');
-            this._updateSyncStatus(false);
-        }
-    }
-
-    /**
-     * Update sync status indicator
-     * @param {boolean} isSynced - Whether server is in sync
-     * @private
-     */
-    _updateSyncStatus(isSynced) {
-        const syncStatus = document.getElementById('syncStatus');
-        if (!syncStatus) return;
-
-        const soundscape = this.getActiveSoundscape();
-        const isDirty = soundscape?.isDirty || false;
-
-        if (!this.isLoggedIn) {
-            syncStatus.textContent = '🔓 Not logged in';
-            syncStatus.style.color = '#888';
-        } else if (isDirty) {
-            syncStatus.textContent = '⚠️ Unsaved changes...';
-            syncStatus.style.color = '#f39c12';
-        } else if (isSynced) {
-            syncStatus.textContent = '🟢 Synced to server';
-            syncStatus.style.color = '#00ff88';
-        } else {
-            syncStatus.textContent = '🟡 Local only';
-            syncStatus.style.color = '#f39c12';
-        }
+        // User is logged in
+        this.isLoggedIn = true;
+        this.debugLog('🔐 Logged in as ' + this.api.user.email);
     }
 
     /**
@@ -793,416 +376,42 @@ class MapEditorApp extends MapAppShared {
      * @private
      */
     _initDebugConsole() {
-        this.debugConsole = document.getElementById('debugConsole');
-        this.debugModalContent = document.getElementById('debugConsoleContent');
-        
-        if (this.debugModalContent) {
-            this.debugLog('🗺️ Map Editor v6.0 ready');
-            this.debugLog('📍 Waiting for GPS...');
-            this.debugLog('🎯 Auto-copy: 1000 lines, copies 3s after you stop');
+        this.debugConsole = document.getElementById('debugPanel');
+        this.debugModalContent = document.getElementById('debugPanelBody');
 
-            // Wire up copy button (new icon button)
-            const copyBtn = document.getElementById('debugCopyBtn');
-            if (copyBtn) {
-                copyBtn.addEventListener('click', () => this._copyLogs());
-            }
-
-            // Wire up old copy button (for backwards compatibility)
-            const oldCopyBtn = document.getElementById('copyLogsBtn');
-            if (oldCopyBtn) {
-                oldCopyBtn.addEventListener('click', () => this._copyLogs());
-            }
-
-            // Override console.log to capture audio debug logs
-            const originalLog = console.log;
-            const self = this;
-            console.log = function(...args) {
-                originalLog.apply(console, args);
-                // Capture audio/debug logs
-                const msg = args.join(' ');
-                if (msg.includes('[Audio]') || msg.includes('[GPS]') || msg.includes('[Compass]') || msg.includes('[MapShared]') || msg.includes('[MapEditor]')) {
-                    self.debugLog(msg);
-                }
-            };
-        }
-    }
-
-    /**
-     * Copy logs to clipboard
-     * @private
-     */
-    _copyLogs(isAutoCopy = false) {
-        if (!this.debugConsoleContent) return;
-
-        const text = this.debugConsoleContent.textContent;
-        navigator.clipboard.writeText(text).then(() => {
-            const btn = document.getElementById('debugCopyBtn');
-            if (btn) {
-                // Show tooltip feedback
-                const originalTitle = btn.title;
-                btn.title = '✅ Copied!';
-                setTimeout(() => {
-                    btn.title = originalTitle;
-                }, 2000);
-            }
-            if (isAutoCopy) {
-                this.debugLog('📋 Logs auto-copied to clipboard!');
-            }
-        }).catch(err => {
-            this.debugLog(`❌ Copy failed: ${err.message}`);
-        });
-    }
-
-    // =====================================================================
-    // PLAYER MODE - START (Inherited from MapAppShared with editor-specific handling)
-    // =====================================================================
-
-    /**
-     * Handle start click - switch to player mode
-     * @protected
-     */
-    async _handleStartClick() {
-        if (this.state === 'player') {
-            // Already in player mode - stop
-            await this._stopPlayerMode();
+        if (!this.debugModalContent) {
+            console.error('❌ debugPanelBody not found in DOM!');
             return;
         }
 
-        if (this.waypoints.length === 0) {
-            this._showToast('Add at least one waypoint first', 'warning');
-            return;
+        this.debugLog('🗺️ Map Editor v2 ready');
+
+        // Wire up copy button
+        const copyBtn = document.getElementById('debugCopyBtn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => this._copyLogs());
         }
 
-        const startBtn = document.getElementById('startBtn');
-        startBtn.disabled = true;
-        startBtn.textContent = 'Starting...';
-
-        try {
-            console.log('[MapEditor] 🎮 Starting Player Mode...');
-
-            // Request wake lock
-            await this._requestWakeLock();
-
-            // Get GPS position
-            console.log('[MapEditor] 📍 Requesting GPS...');
-            let gpsResolved = false;
-            let gpsGranted = false;
-            const initialGPS = await new Promise((resolve) => {
-                const timeoutId = setTimeout(() => {
-                    if (!gpsResolved) {
-                        console.warn('[MapEditor] ⚠️ GPS timeout - using fallback');
-                        resolve(null);  // No initial position - will use waypoint center
-                    }
-                }, 12000);
-
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        gpsResolved = true;
-                        gpsGranted = true;
-                        clearTimeout(timeoutId);
-                        console.log(`[MapEditor] 📍 GPS GRANTED ✅ (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}, accuracy: ${pos.coords.accuracy.toFixed(1)}m)`);
-                        resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-                    },
-                    (err) => {
-                        gpsResolved = true;
-                        clearTimeout(timeoutId);
-                        console.warn(`[MapEditor] 📍 GPS ERROR ❌: ${err.message} - will center on soundscapes`);
-                        resolve(null);  // No initial position - will use waypoint center
-                    },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-                );
+        // Wire up clear button
+        const clearBtn = document.getElementById('debugClearBtn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.debugModalContent.innerHTML = '';
+                this.debugLog('Debug logs cleared');
             });
+        }
 
-            // Initialize AudioContext
-            console.log('[MapEditor] 🔊 Initializing audio context...');
-            const tempAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const resumePromise = tempAudioCtx.resume();
-            const audioTimeout = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Audio resume timeout')), 3000)
-            );
-
-            try {
-                await Promise.race([resumePromise, audioTimeout]);
-                console.log('[MapEditor] ✅ Audio context initialized');
-            } catch (audioErr) {
-                console.warn(`[MapEditor] ⚠️ Audio context issue: ${audioErr.message} (continuing)`);
+        // Override console.log to capture audio/debug logs
+        const originalLog = console.log;
+        const self = this;
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const msg = args.join(' ');
+            if (msg.includes('[Audio]') || msg.includes('[GPS]') || msg.includes('[Compass]') || msg.includes('[MapShared]') || msg.includes('[MapEditor]')) {
+                self.debugLog(msg);
             }
-            tempAudioCtx.close();
-
-            // Create sound configs
-            console.log('[MapEditor] 🎵 Creating sound configs from waypoints...');
-            const soundConfigs = this.waypoints.map(wp => ({
-                id: wp.id,
-                url: wp.soundUrl || this.soundConfig.soundUrl,
-                lat: wp.lat,
-                lon: wp.lon,
-                activationRadius: wp.activationRadius,
-                volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
-                loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
-            }));
-
-            // Create app with initial GPS position
-            this.app = new SpatialAudioApp(soundConfigs, {
-                initialPosition: initialGPS,
-                gpsSmoothing: true,
-                autoLock: true,
-                reverbEnabled: true
-            });
-
-            // Set up callbacks
-            this.app.onPositionUpdate = (data) => {
-                this._updateWaypointDistances();
-            };
-
-            this.app.onGPSUpdate = (lat, lon, locked) => {
-                this._updateListenerMarker(lat, lon, locked);
-            };
-
-            this.app.onStateChange = (state) => {
-                console.log('[MapEditor] 📊 State changed to:', state);
-                this._updateStartButton(state);
-
-                if (state === 'running') {
-                    const audioWorks = this.app.engine && this.app.engine.getState() === 'running';
-
-                    if (!audioWorks) {
-                        this.needsAudioEnable = true;
-                        this._showToast('👆 Tap Start to enable audio', 'info');
-                    } else {
-                        this.needsAudioEnable = false;
-                        this._showToast('✅ Player mode active! Walk toward the sounds', 'success');
-                    }
-                }
-            };
-
-            this.app.onError = (error) => {
-                console.error('[MapEditor] ❌ Error:', error);
-                this._showToast('❌ ' + error.message, 'error');
-                this._updateStartButton('error');
-            };
-
-            // Start the experience
-            console.log('[MapEditor] 🚀 Starting soundscape...');
-            const soundscape = this.getActiveSoundscape();
-            if (soundscape && soundscape.behaviors && soundscape.behaviors.length > 0) {
-                console.log('[MapEditor] 🎼 Starting with behaviors:', soundscape.behaviors.length);
-                await this.app.startSoundScape(soundscape);
-            } else {
-                console.log('[MapEditor] 🎵 Starting without behaviors (default)');
-                await this.app.start();
-            }
-
-            console.log('[MapEditor] ✅ Soundscape started');
-
-            // Update state
-            this.state = 'player';
-            this._updateStartButton('starting');
-
-            // Refresh waypoint list to show distance placeholders
-            this._updateWaypointList();
-
-        } catch (error) {
-            console.error('[MapEditor] ❌ Start failed:', error);
-            this._showToast('❌ ' + error.message, 'error');
-            this._updateStartButton('error');
-        }
+        };
     }
-
-    /**
-     * Stop player mode
-     * @private
-     */
-    async _stopPlayerMode() {
-        console.log('[MapEditor] ⏹ Stopping Player Mode...');
-
-        // Stop SpatialAudioApp
-        if (this.app) {
-            this.app.stop();
-            this.app = null;
-        }
-
-        // Release wake lock
-        await this._releaseWakeLock();
-
-        // Clear GPS watch
-        if (this.gpsWatchId) {
-            navigator.geolocation.clearWatch(this.gpsWatchId);
-            this.gpsWatchId = null;
-        }
-
-        // Reset state
-        this.state = 'editor';
-        this.needsAudioEnable = false;
-        this.listenerHeading = 0;
-
-        // Update UI
-        this._updateStartButton('stopped');
-        this._showToast('⏹ Player mode stopped', 'info');
-    }
-
-    /**
-     * Request wake lock
-     * @private
-     */
-    async _requestWakeLock() {
-        try {
-            if ('wakeLock' in navigator) {
-                this.wakeLock = await navigator.wakeLock.request('screen');
-                console.log('[MapEditor] 🔒 Wake lock acquired');
-
-                this.wakeLock.addEventListener('release', () => {
-                    console.log('[MapEditor] 🔒 Wake lock released');
-                    this.wakeLock = null;
-                });
-            } else {
-                console.warn('[MapEditor] ⚠️ Wake Lock API not supported');
-            }
-        } catch (err) {
-            console.warn(`[MapEditor] ⚠️ Wake lock failed: ${err.message}`);
-        }
-    }
-
-    /**
-     * Release wake lock
-     * @private
-     */
-    async _releaseWakeLock() {
-        if (this.wakeLock) {
-            await this.wakeLock.release();
-            this.wakeLock = null;
-            console.log('[MapEditor] 🔒 Wake lock released');
-        }
-    }
-
-    /**
-     * Update start button
-     * @param {string} state
-     * @private
-     */
-    _updateStartButton(state) {
-        const startBtn = document.getElementById('startBtn');
-        if (!startBtn) return;
-
-        startBtn.disabled = false;
-
-        switch (state) {
-            case 'starting':
-                startBtn.textContent = 'Starting...';
-                startBtn.className = 'btn btn-primary';
-                break;
-            case 'running':
-                startBtn.textContent = '⏹ Stop';
-                startBtn.className = 'btn btn-danger';
-                this._initStatusBar();
-                break;
-            case 'stopped':
-                startBtn.textContent = '▶️ Start';
-                startBtn.className = 'btn btn-primary';
-                this._resetStatusBar();
-                break;
-            case 'error':
-                startBtn.textContent = '▶️ Start Over';
-                startBtn.className = 'btn btn-primary';
-                break;
-            default:
-                startBtn.textContent = '▶️ Start';
-                startBtn.className = 'btn btn-primary';
-        }
-    }
-
-    /**
-     * Initialize status bar
-     * @private
-     */
-    _initStatusBar() {
-        this._updateStatusBar();
-    }
-
-    /**
-     * Reset status bar
-     * @private
-     */
-    _resetStatusBar() {
-        const gpsStatusEl = document.getElementById('gpsStatus');
-        const headingStatusEl = document.getElementById('headingStatus');
-        const statusBarEl = document.getElementById('statusBar');
-
-        if (gpsStatusEl) gpsStatusEl.textContent = '--';
-        if (headingStatusEl) headingStatusEl.textContent = '--';
-        if (statusBarEl) statusBarEl.classList.remove('gps-locked');
-    }
-
-    /**
-     * Update waypoint distances
-     * @private
-     */
-    _updateWaypointDistances() {
-        if (!this.app) return;
-
-        this.waypoints.forEach(wp => {
-            const distanceEl = document.getElementById(`dist_${wp.id}`);
-            if (distanceEl && this.app) {
-                const distance = this.app.getSoundDistance(wp.id);
-                if (distance !== null) {
-                    distanceEl.textContent = distance.toFixed(1) + ' m';
-                }
-            }
-        });
-
-        // Update status bar
-        this._updateStatusBar();
-    }
-
-    /**
-     * Auto-sync if server data has changed since last save (Session 5E: Timestamp-based sync)
-     * Compares server timestamp with local timestamp to detect changes from other tabs/devices
-     * @private
-     */
-    async _autoSyncIfNeeded() {
-        if (!this.isLoggedIn || !this.activeSoundscapeId) return;
-
-        try {
-            // Get server timestamp
-            const serverModified = await this.api.getSoundscapeModified(this.activeSoundscapeId);
-            const localModified = localStorage.getItem('soundscape_modified_' + this.activeSoundscapeId);
-
-            if (serverModified !== localModified) {
-                this.debugLog('🔄 Timestamp mismatch (server: ' + serverModified + ', local: ' + localModified + ') - server has newer data');
-                
-                // Check if we have unsaved local changes
-                const soundscape = this.getActiveSoundscape();
-                if (soundscape && soundscape.isDirty) {
-                    // Has local changes - ask user what to do
-                    this.debugLog('⚠️ Local changes detected - prompting user');
-                    const confirmSync = confirm(
-                        'Server has newer data from another tab or device.\n\n' +
-                        'Click OK to sync from server (local changes will be lost).\n' +
-                        'Click Cancel to keep your local changes.'
-                    );
-                    
-                    if (!confirmSync) {
-                        this.debugLog('❌ User chose to keep local changes');
-                        return;
-                    }
-                }
-                
-                // Sync from server
-                this._showToast('🔄 Updating from server...', 'info');
-                await this._loadSoundscapeFromServer();
-                this._showToast('✅ Soundscape updated', 'success');
-                this.debugLog('✅ Auto-synced from server');
-            } else {
-                this.debugLog('✅ Timestamp match (' + serverModified + ') - using current data');
-            }
-        } catch (error) {
-            this.debugLog('⚠️ Auto-sync check failed: ' + error.message);
-            // Silently fail - continue with current data
-        }
-    }
-
-    // =====================================================================
-    // AREA DRAWING (Session 4: Sound Area - using Leaflet.Draw)
-    // =====================================================================
 
     /**
      * Initialize Leaflet.Draw for Area editing
@@ -1234,10 +443,10 @@ class MapEditorApp extends MapAppShared {
                     allowIntersection: true,
                     showArea: true,
                     shapeOptions: {
-                        color: '#ff6b6b',
-                        fillColor: '#ff6b6b',
-                        fillOpacity: 0.3,
-                        weight: 3
+                        color: '#00d9ff',       // Same cyan as waypoints
+                        fillColor: '#00d9ff',   // Same cyan as waypoints
+                        fillOpacity: 0.15,      // Semi-transparent fill
+                        weight: 2               // Thinner border
                     },
                     metric: true
                 },
@@ -1251,14 +460,16 @@ class MapEditorApp extends MapAppShared {
 
         this.map.addControl(this.drawControl);
 
-        // Event: Drawing started (Session 4: Prevent waypoint creation while drawing)
+        // Event: Drawing started (prevent waypoint creation while drawing)
         this.map.on(L.Draw.Event.DRAWSTART, () => {
             this.isDrawingArea = true;
+            this.debugLog('🔷 Drawing started');
         });
 
         // Event: Drawing stopped
         this.map.on(L.Draw.Event.DRAWSTOP, () => {
             this.isDrawingArea = false;
+            this.debugLog('🔷 Drawing stopped');
         });
 
         // Event: Polygon created
@@ -1268,91 +479,120 @@ class MapEditorApp extends MapAppShared {
             const layer = e.layer;
             const latlngs = layer.getLatLngs()[0];
 
-            this.debugLog(`🗺️ Polygon drawn: ${latlngs.length} vertices`);
+            this.debugLog(`🗺️ Polygon created: ${latlngs.length} vertices`);
+            this.debugLog(`   isDrawingArea flag: ${this.isDrawingArea}`);
 
-            // Auto-name area (similar to waypoints: Sound 1, Sound 2, ...)
-            const areaName = 'Sound ' + (this.areaMarkers.size + 1);
+            // IMPORTANT: Add layer to drawnItems to make it permanent
+            this.drawnItems.addLayer(layer);
+            this.debugLog(`   Layer added to drawnItems: ${this.drawnItems.hasLayer(layer)}`);
+
+            // Auto-name area
+            const soundscape = this.getActiveSoundscape();
+            const areaCount = soundscape ? soundscape.getAreas().length : 0;
+            const areaName = 'Sound ' + (areaCount + 1);
 
             // Create Area object
             const area = {
                 id: 'area' + this.nextAreaId++,
                 name: areaName,
                 polygon: latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng })),
-                soundUrl: this.soundConfig.soundUrl,
-                volume: this.soundConfig.volume,
-                loop: this.soundConfig.loop,
+                soundUrl: '',
+                volume: 0.8,
+                loop: true,
                 fadeZoneWidth: 5.0,
                 overlapMode: 'mix',
                 icon: '◈',
-                color: '#ff6b6b',
+                color: '#00d9ff',
                 sortOrder: 0,
                 _leafletLayer: layer  // Store reference
             };
 
             // Add to soundscape
-            const soundscape = this.getActiveSoundscape();
             if (soundscape) {
                 soundscape.addArea(area);
+                this.debugLog(`   Added to soundscape (soundscape.areas now has ${soundscape.areas.length} areas)`);
                 this._markSoundscapeDirty();
                 this._scheduleAutoSave();
+            } else {
+                this.debugLog('⚠️ No active soundscape - area created on map only');
             }
 
             // Store in area markers
             this.areaMarkers.set(area.id, layer);
+            this.debugLog(`   Stored in areaMarkers (count: ${this.areaMarkers.size})`);
 
-            // IMPORTANT: Explicitly add the layer to drawnItems (Leaflet.Draw doesn't auto-add)
-            this.drawnItems.addLayer(layer);
+            // Store area data on the layer itself for easy retrieval
+            layer.areaData = area;
 
-            // Bind popup
-            layer.bindPopup(this._createAreaPopupContent(area));
+            // Add to sidebar list
+            this.debugLog('   Calling _addAreaToList...');
+            this._addAreaToList(area);
 
-            // Add click handler for areas - always show popup, never add vertices on click
-            layer.on('click', (e) => {
-                // Always stop propagation so map click doesn't create waypoint
-                e.originalEvent.stopPropagation();
-            });
+            this.debugLog(`✅ Area created: ${area.name} (${area.polygon.length} vertices)`);
+            this.debugLog(`   Layer on map: ${this.map.hasLayer(layer)}`);
+            this.debugLog(`   Layer in drawnItems: ${this.drawnItems.hasLayer(layer)}`);
+            this.debugLog(`   Soundscape exists: ${!!soundscape}`);
+        });
 
-            this.debugLog(`✅ Created Area: ${area.name} (${latlngs.length} vertices)`);
-            this._showToast(`✅ Created Area: ${areaName}`, 'success');
+        // Event: Polygon edit started
+        this.map.on(L.Draw.Event.EDITSTART, () => {
+            this.isDrawingArea = true;
+        });
+
+        // Event: Polygon edit stopped
+        this.map.on(L.Draw.Event.EDITSTOP, () => {
+            this.isDrawingArea = false;
         });
 
         // Event: Polygon edited
         this.map.on(L.Draw.Event.EDITED, (e) => {
             e.layers.eachLayer((layer) => {
-                const area = this._findAreaByLayer(layer);
-                if (area) {
-                    // Update polygon data
+                // Get area data stored on layer
+                if (layer.areaData) {
                     const latlngs = layer.getLatLngs()[0];
-                    area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+                    layer.areaData.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
+                    this.debugLog(`✏️ Area edited: ${layer.areaData.name}`);
 
-                    // Update soundscape
-                    const soundscape = this.getActiveSoundscape();
-                    if (soundscape) {
-                        soundscape.updateArea(area.id, area);
-                        this._markSoundscapeDirty();
-                        this._scheduleAutoSave();
-                    }
-
-                    this.debugLog(`✏️ Edited Area: ${area.name}`);
+                    // Mark soundscape dirty and schedule save
+                    this._markSoundscapeDirty();
+                    this._scheduleAutoSave();
                 }
             });
         });
-
-        this.debugLog('🗺️ Leaflet.Draw initialized for Areas');
     }
 
     /**
-     * Find area by Leaflet layer
-     * @param {L.Polygon} layer
-     * @returns {Object|null}
+     * Setup event listeners
      * @private
      */
-    _findAreaByLayer(layer) {
+    _setupEventListeners() {
+        // Map click handler already exists in MapAppShared._initMap()
+        // It calls _addWaypoint when clicking on map in editor mode
+
+        // Drag start - prevent accidental clicks
+        this.map.on('dragstart', () => {
+            this.isDragging = true;
+        });
+
+        // Drag end - re-enable clicks
+        this.map.on('dragend', () => {
+            this.isDragging = false;
+        });
+
+        // Listen for waypoint changes to refresh lists
+        this.onWaypointsChange = () => this._refreshWaypointList();
+    }
+
+    /**
+     * Get area by ID
+     * @private
+     */
+    _getAreaById(id) {
         const soundscape = this.getActiveSoundscape();
         if (!soundscape) return null;
-        
+
         for (const area of soundscape.getAreas()) {
-            if (area._leafletLayer === layer) {
+            if (area.id === id) {
                 return area;
             }
         }
@@ -1360,43 +600,434 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
-     * Add vertex when clicking on edge
-     * @param {Object} area
-     * @param {L.LatLng} clickLatlng
+     * Get waypoint by ID
      * @private
      */
-    _addVertexOnClick(area, clickLatlng) {
-        const layer = area._leafletLayer;
-        if (!layer) return;
-        
-        const latlngs = layer.getLatLngs()[0];
-        
-        // Find closest edge
-        let closestIndex = 0;
-        let minDistance = Infinity;
-        
-        for (let i = 0; i < latlngs.length; i++) {
-            const nextIndex = (i + 1) % latlngs.length;
-            const distance = L.GeometryUtil.distanceToSegment(this.map, clickLatlng, latlngs[i], latlngs[nextIndex]);
-            
-            if (distance < minDistance) {
-                minDistance = distance;
-                closestIndex = i;
+    _getWaypointById(id) {
+        return this.waypoints.find(wp => wp.id === id);
+    }
+
+    /**
+     * Add area to sidebar list
+     * @private
+     */
+    _addAreaToList(area) {
+        // Show the areas section if it's hidden
+        const computedStyle = window.getComputedStyle(areasSection);
+        if (computedStyle.display === 'none') {
+            areasSection.style.display = '';
+        }
+
+        const meta = `${area.polygon.length} vertices`;
+        const html = `
+            <div class="item-list-item" data-id="${area.id}" data-type="area" data-color="${area.color}">
+                <span class="item-icon">◈</span>
+                <span class="item-name">${area.name}</span>
+                <span class="item-meta">${meta}</span>
+            </div>
+        `;
+        areasList.insertAdjacentHTML('beforeend', html);
+
+        this.debugLog(`📋 Area added to list: ${area.name}`);
+    }
+
+    /**
+     * Refresh the waypoint list from current data
+     * @private
+     */
+    _refreshWaypointList(scrollToId = null) {
+        // Clear list
+        waypointsList.innerHTML = '';
+
+        // Get waypoints section
+        const waypointsSection = document.getElementById('waypointsSection');
+
+        // Repopulate from waypoints array
+        if (this.waypoints.length === 0) {
+            // Hide section if empty
+            if (waypointsSection) waypointsSection.style.display = 'none';
+            return;
+        }
+
+        // Show section if has items
+        if (waypointsSection) waypointsSection.style.display = '';
+
+        this.waypoints.forEach(wp => {
+            const meta = `${wp.activationRadius}m`;
+            const html = `
+                <div class="item-list-item" data-id="${wp.id}" data-type="waypoint" data-color="${wp.color}">
+                    <span class="item-icon waypoint-item-icon" style="background-color: ${wp.color};"></span>
+                    <span class="item-name">${wp.name}</span>
+                    <span class="item-meta">${meta}</span>
+                </div>
+            `;
+            waypointsList.insertAdjacentHTML('beforeend', html);
+        });
+
+        // Scroll to specific item if requested
+        if (scrollToId) {
+            const itemEl = waypointsList.querySelector(`[data-id="${scrollToId}"]`);
+            if (itemEl) {
+                itemEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
         }
-        
-        // Insert vertex
-        latlngs.splice(closestIndex + 1, 0, clickLatlng);
-        layer.setLatLngs(latlngs);
-        
-        // Update area data
-        area.polygon = latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng }));
-        
-        this.debugLog(`✅ Added vertex to Area ${area.name} at index ${closestIndex + 1}`);
+    }
+
+    // Cache-busting marker: 20260329114500
+
+    /**
+     * Refresh the area list from current data
+     * @private
+     */
+    _refreshAreaList() {
+        // Clear list
+        areasList.innerHTML = '';
+
+        // Get areas from soundscape
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return;
+
+        const areas = soundscape.getAreas();
+
+        // Show/hide section based on count
+        if (areas.length === 0) {
+            areasSection.style.display = 'none';
+            return;
+        }
+
+        areasSection.style.display = '';
+
+        // Repopulate from areas
+        areas.forEach(area => {
+            this._addAreaToList(area);
+        });
+    }
+
+    /**
+     * Initialize forms from soundscape data
+     * @private
+     */
+    _initForms() {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return;
+
+        // Populate edit form
+        if (editName) editName.value = soundscape.name || '';
+        if (editDescription) editDescription.value = soundscape.description || '';
+        if (editPublic) editPublic.checked = soundscape.isPublic !== false;
+
+        // Populate lists
+        this._refreshWaypointList();
+        this._refreshAreaList();
+    }
+
+    /**
+     * Create a default soundscape when none exists
+     * @private
+     */
+    _createDefaultSoundscape() {
+        const id = 'soundscape_' + Date.now();
+        const soundscape = new SoundScape(id, 'New Soundscape', [], [], []);
+        this.soundscapes.set(id, soundscape);
+        this.activeSoundscapeId = id;
+
+        this.debugLog(`🎼 Created default soundscape: ${soundscape.name} (${id})`);
+    }
+
+    /**
+     * Override _addWaypoint to integrate with UI lists (Session 3: CRUD)
+     * @override
+     * @protected
+     */
+    _addWaypoint(lat, lon) {
+        if (this.state !== 'editor') return;
+        if (this.isDrawingArea) return;  // Don't create waypoints while drawing areas
+        if (this.isDraggingArea) return;  // Don't create waypoints while dragging areas
+
+        const waypoint = {
+            id: 'wp' + this.nextId++,
+            name: 'Sound ' + this.nextId,
+            lat: lat,
+            lon: lon,
+            soundUrl: '',
+            volume: 0.8,
+            loop: true,
+            activationRadius: 20,
+            color: '#00d9ff',
+            sortOrder: 0
+        };
+
+        this.waypoints.push(waypoint);
+
+        // Mark soundscape dirty and schedule save (waypoint will be saved with soundscape)
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            // Sync soundscape.waypointData with this.waypoints (auto-save uses waypointData)
+            soundscape.waypointData = this.waypoints;
+            this.debugLog(`📝 Synced soundscape.waypointData (${soundscape.waypointData.length} waypoints)`);
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
+        }
+
+        // Create custom div icon with colored dot
+        const icon = L.divIcon({
+            className: 'waypoint-marker',
+            html: `<div style="
+                width: 12px;
+                height: 12px;
+                background-color: ${waypoint.color};
+                border-radius: 50%;
+                cursor: grab;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            "></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
+        });
+
+        const marker = L.marker([waypoint.lat, waypoint.lon], {
+            icon: icon,
+            draggable: this.allowEditing
+        }).addTo(this.map);
+
+        // No popup - editing via slideout panel only
+
+        marker.on('dragstart', () => {
+            this.isDragging = true;
+        });
+
+        marker.on('dragend', (e) => {
+            this.isDragging = false;
+            const newLat = e.target.getLatLng().lat;
+            const newLon = e.target.getLatLng().lng;
+
+            this.debugLog(`🖐️ Dragged ${waypoint.name} to [${newLat.toFixed(4)}, ${newLon.toFixed(4)}]`);
+
+            // Update waypoint
+            waypoint.lat = newLat;
+            waypoint.lon = newLon;
+
+            // Sync soundscape.waypointData with this.waypoints
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                soundscape.waypointData = this.waypoints;
+                this.debugLog(`📝 Synced soundscape.waypointData after drag (${soundscape.waypointData.length} waypoints)`);
+            }
+
+            this._updateRadiusCircle(waypoint);
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
+        });
+
+        this.markers.set(waypoint.id, marker);
+        this._updateRadiusCircle(waypoint);
+
+        // Add to sidebar list and scroll to new item
+        this._refreshWaypointList(waypoint.id);
+
+        this.debugLog(`✅ Waypoint created: ${waypoint.name} at [${lat.toFixed(5)}, ${lon.toFixed(5)}]`);
+    }
+
+    /**
+     * Update waypoint from slideout form
+     * @param {Object} updatedData
+     * @private
+     */
+    _updateWaypointFromForm(updatedData) {
+        const waypoint = this._getWaypointById(updatedData.id);
+        if (!waypoint) return;
+
+        this.debugLog(`✏️ Updating waypoint: ${waypoint.id}`);
+        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
+        this.debugLog(`   Waypoint before update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
+
+        // Update waypoint properties
+        Object.assign(waypoint, updatedData);
+
+        this.debugLog(`   Waypoint after update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
+
+        // Update marker if exists
+        const marker = this.markers.get(waypoint.id);
+        if (marker) {
+            // Update radius circle
+            this._updateRadiusCircle(waypoint);
+        }
+
+        // Verify soundscape has the updated data
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            // Sync soundscape.waypointData with this.waypoints
+            soundscape.waypointData = this.waypoints;
+            this.debugLog(`📝 Synced soundscape.waypointData after form update (${soundscape.waypointData.length} waypoints)`);
+        }
+        const waypointInSoundscape = soundscape?.waypointData?.find(wp => wp.id === waypoint.id);
+        this.debugLog(`   Waypoint in soundscape soundUrl: ${waypointInSoundscape?.soundUrl || '(empty)'}`);
+
+        // Refresh list to show updated name
+        this._refreshWaypointList();
+
+        // Mark soundscape dirty
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        this.debugLog(`✏️ Updated waypoint: ${waypoint.name}`);
+    }
+
+    /**
+     * Delete waypoint
+     * @param {string} waypointId
+     * @private
+     */
+    _deleteWaypoint(waypointId) {
+        const waypoint = this._getWaypointById(waypointId);
+        if (!waypoint) return;
+
+        // Remove from map
+        const marker = this.markers.get(waypointId);
+        if (marker) {
+            marker.remove();
+            this.markers.delete(waypointId);
+        }
+
+        // Remove radius circle
+        if (waypoint.circleMarker) {
+            waypoint.circleMarker.remove();
+            waypoint.circleMarker = null;
+        }
+
+        // Remove from waypoints array
+        const index = this.waypoints.findIndex(wp => wp.id === waypointId);
+        if (index > -1) {
+            this.waypoints.splice(index, 1);
+        }
+
+        // Remove from soundscape (using removeSound, not deleteWaypoint)
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            soundscape.removeSound(waypointId);
+            this._markSoundscapeDirty();
+            // Force immediate save for deletions (don't debounce)
+            this._executeAutoSaveForce();
+        }
+
+        // Refresh list
+        this._refreshWaypointList();
+
+        this.debugLog(`🗑️ Deleted waypoint: ${waypoint.name}`);
+    }
+
+    /**
+     * Update area from slideout form
+     * @param {Object} updatedData
+     * @private
+     */
+    _updateAreaFromForm(updatedData) {
+        const area = this._getAreaById(updatedData.id);
+        if (!area) return;
+
+        this.debugLog(`✏️ Updating area: ${area.id}`);
+        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
+        this.debugLog(`   Area before update soundUrl: ${area.soundUrl || '(empty)'}`);
+
+        // Update area properties
+        Object.assign(area, updatedData);
+
+        this.debugLog(`   Area after update soundUrl: ${area.soundUrl || '(empty)'}`);
+
+        // Update layer if exists
+        const layer = this.areaMarkers.get(area.id);
+        if (layer && layer.areaData) {
+            layer.areaData = area;
+        }
+
+        // Verify soundscape has the updated data
+        const soundscape = this.getActiveSoundscape();
+        const areaInSoundscape = soundscape?.getAreas().find(a => a.id === area.id);
+        this.debugLog(`   Area in soundscape soundUrl: ${areaInSoundscape?.soundUrl || '(empty)'}`);
+
+        // Refresh list to show updated name
+        this._refreshAreaList();
+
+        // Mark soundscape dirty
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        this.debugLog(`✏️ Updated area: ${area.name}`);
+    }
+
+    /**
+     * Delete area
+     * @param {string} areaId
+     * @private
+     */
+    _deleteArea(areaId) {
+        const area = this._getAreaById(areaId);
+        if (!area) return;
+
+        // Remove from map
+        const layer = this.areaMarkers.get(areaId);
+        if (layer) {
+            this.drawnItems.removeLayer(layer);
+            this.areaMarkers.delete(areaId);
+        }
+
+        // Remove from soundscape
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            soundscape.deleteArea(areaId);
+            this._markSoundscapeDirty();
+            // Force immediate save for deletions (don't debounce)
+            this._executeAutoSaveForce();
+        }
+
+        // Refresh list
+        this._refreshAreaList();
+
+        this.debugLog(`🗑️ Deleted area: ${area.name}`);
+    }
+
+    /**
+     * Update soundscape metadata from form
+     * @private
+     */
+    _updateSoundscapeFromForm() {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return;
+
+        soundscape.name = editName?.value || '';
+        soundscape.description = editDescription?.value || '';
+        soundscape.isPublic = editPublic?.checked !== false;
+
+        this._markSoundscapeDirty();
+        this._scheduleAutoSave();
+
+        this.debugLog(`✏️ Updated soundscape metadata: ${soundscape.name}`);
+    }
+
+    /**
+     * Clear all waypoints and areas
+     * @private
+     */
+    _clearAll() {
+        if (!confirm('Clear all waypoints and areas?')) return;
+
+        this.debugLog('🗑️ Clear All clicked - starting...');
+
+        // Clear waypoints
+        this._clearAllWaypoints();
+
+        // Clear areas
+        this._clearAllAreas();
+
+        // Refresh lists
+        this._refreshWaypointList();
+        this._refreshAreaList();
+
+        this.debugLog('🗑️ Cleared all waypoints and areas');
     }
 
     /**
      * Clear all areas
+     * @private
      */
     _clearAllAreas() {
         // Remove from map
@@ -1416,8 +1047,38 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
+     * Clear all waypoints (override to use _refreshWaypointList)
+     * @override
+     * @protected
+     */
+    _clearAllWaypoints() {
+        // Remove markers from map
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+        
+        // Remove radius circles
+        this.waypoints.forEach(wp => { if (wp.circleMarker) wp.circleMarker.remove(); });
+        
+        // Clear arrays
+        this.waypoints = [];
+        this.nextId = 1;
+
+        // Clear soundscape data
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape) {
+            soundscape.soundIds = [];
+            soundscape.waypointData = [];
+            this._markSoundscapeDirty();
+            this._scheduleAutoSave();
+        }
+
+        this.debugLog('🗑️ Cleared all waypoints');
+    }
+
+    /**
      * Load areas when switching soundscapes
      * @param {Object[]} areas
+     * @private
      */
     _loadAreasIntoDrawer(areas) {
         if (!areas || areas.length === 0) return;
@@ -1432,8 +1093,8 @@ class MapEditorApp extends MapAppShared {
             const latlngs = area.polygon.map(v => [v.lat, v.lng]);
 
             const polygon = L.polygon(latlngs, {
-                color: area.color || '#ff6b6b',
-                fillColor: area.color || '#ff6b6b',
+                color: area.color || '#00d9ff',
+                fillColor: area.color || '#00d9ff',
                 fillOpacity: 0.2,
                 weight: 2
             });
@@ -1442,162 +1103,1513 @@ class MapEditorApp extends MapAppShared {
             this.areaMarkers.set(area.id, polygon);
             area._leafletLayer = polygon;
 
-            // Bind popup
-            polygon.bindPopup(this._createAreaPopupContent(area));
+            // Store area data on layer
+            polygon.areaData = area;
 
-            // Add click handler - always stop propagation to prevent waypoint creation
-            polygon.on('click', (e) => {
-                e.originalEvent.stopPropagation();
-            });
+            // Make polygon draggable in edit mode (not in simulate mode)
+            this._makeAreaDraggable(polygon);
         });
 
         this.debugLog(`📍 Loaded ${areas.length} Areas`);
     }
 
     /**
-     * Get popup content for Area
-     * @param {Object} area
-     * @returns {string}
+     * Draw intersection overlay for small overlaps
+     * Called when simulation is active and areas overlap
      * @private
      */
-    _createAreaPopupContent(area) {
-        const content = `
-            <div style="min-width: 200px;">
-                <h3 style="margin: 0 0 10px 0;">${area.icon || '◈'} ${area.name}</h3>
-                <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
-                    <div>📍 ${area.polygon.length} vertices</div>
-                    <div>🔊 Volume: ${(area.volume * 100).toFixed(0)}%</div>
-                    <div>🎵 Sound: ${area.soundUrl.split('/').pop()}</div>
-                </div>
-                <div style="display: flex; gap: 5px;">
-                    <button id="edit-area-${area.id}" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
-                    <button id="delete-area-${area.id}" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
-                </div>
+    _updateIntersectionOverlay() {
+        // Clear existing overlay
+        if (this.intersectionOverlayLayer) {
+            this.map.removeLayer(this.intersectionOverlayLayer);
+            this.intersectionOverlayLayer = null;
+        }
+
+        // Use window.app (global) since this function is called from map_shared.js
+        const theApp = window.app || app;
+        
+        // areaManager is on app.app (SpatialAudioApp instance), not app (MapEditorApp)
+        const areaManager = theApp?.app?.areaManager || theApp?.areaManager;
+        
+        if (!areaManager) {
+            return;
+        }
+
+        const intersectionInfo = areaManager.getIntersectionInfo();
+        
+        // Recalculate isTooSmall dynamically (stored value may be stale)
+        const MIN_INTERSECTION_SIZE = 9.0;
+        const isTooSmall = intersectionInfo && intersectionInfo.minDimension < MIN_INTERSECTION_SIZE;
+        
+        if (!intersectionInfo || !isTooSmall) {
+            return;
+        }
+
+        // Draw orange overlay on the intersection bounds
+        const bounds = intersectionInfo.bounds;
+        if (!bounds) return;
+
+        const latlngs = [
+            [bounds.minLat, bounds.minLng],
+            [bounds.minLat, bounds.maxLng],
+            [bounds.maxLat, bounds.maxLng],
+            [bounds.maxLat, bounds.minLng]
+        ];
+
+        this.intersectionOverlayLayer = L.rectangle(latlngs, {
+            color: '#f39c12',
+            fillColor: '#f39c12',
+            fillOpacity: 0.3,
+            weight: 2,
+            dashArray: '5, 5'
+        }).addTo(this.map);
+
+        // Add popup with warning
+        this.intersectionOverlayLayer.bindPopup(`
+            <div style="font-size: 12px;">
+                <strong>⚠️ Small Intersection</strong><br>
+                Overlap: ${intersectionInfo.minDimension.toFixed(1)}m (min: 9m)<br>
+                <em>Cross-fade disabled - using equal distribution</em>
             </div>
-        `;
-        
-        // Add event handlers after popup opens
-        setTimeout(() => {
-            const editBtn = document.getElementById(`edit-area-${area.id}`);
-            const deleteBtn = document.getElementById(`delete-area-${area.id}`);
-
-            if (editBtn && area._leafletLayer) {
-                editBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    this.debugLog(`✏️ Editing area: ${area.name}`);
-                    
-                    // Close the popup first
-                    if (area._leafletLayer) {
-                        area._leafletLayer.closePopup();
-                    }
-                    
-                    // Enable editing on the specific layer
-                    if (this.drawnItems) {
-                        // Use Leaflet.Draw's edit handler
-                        const editHandler = this.map.editHandler;
-                        if (editHandler) {
-                            editHandler.enable();
-                        } else {
-                            // Fallback: trigger edit via drawnItems
-                            this.drawnItems.eachLayer((layer) => {
-                                if (layer === area._leafletLayer) {
-                                    layer.editing.enable();
-                                }
-                            });
-                        }
-                    }
-                    
-                    this._showInstruction(`✏️ Editing: ${area.name}. Drag vertices to reshape. Click Save when done.`, 'info');
-                });
-            }
-
-            if (deleteBtn) {
-                deleteBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    this._deleteArea(area.id);
-                });
-            }
-        }, 50);
-        
-        return content;
+        `).openPopup();
     }
 
     /**
-     * Delete an Area
-     * @param {string} areaId
+     * Make area polygon draggable in edit mode using centroid handle
+     * @param {L.Polygon} polygon - Leaflet polygon layer
      * @private
      */
-    _deleteArea(areaId) {
+    _makeAreaDraggable(polygon) {
+        // Create centroid drag handle
+        const latlngs = polygon.getLatLngs()[0];
+        const centroid = this._calculateCentroid(latlngs);
+
+        const handleIcon = L.divIcon({
+            className: 'area-drag-handle',
+            html: `<div style="
+                font-size: 20px;
+                color: ${polygon.areaData?.color || '#ff6b6b'};
+                cursor: grab;
+                line-height: 1;
+            ">◈</div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+
+        const dragHandle = L.marker([centroid.lat, centroid.lon], {
+            icon: handleIcon,
+            draggable: true,
+            zIndexOffset: 1000,
+            autoPan: false
+        }).addTo(this.map);
+
+        // Store handle reference
+        if (!this.areaHandles) this.areaHandles = new Map();
+        this.areaHandles.set(polygon.areaData?.id, dragHandle);
+
+        let isDragging = false;
+        let dragStartLatLng = null;
+        let originalPolygon = null;
+
+        // Enable dragging explicitly
+        dragHandle.dragging.enable();
+
+        dragHandle.on('dragstart', (e) => {
+            if (isSimulating) return;
+            isDragging = true;
+            dragStartLatLng = e.target.getLatLng();
+            // Store original polygon as array of [lat, lon] arrays
+            const rawLatLngs = polygon.getLatLngs()[0];
+            originalPolygon = rawLatLngs.map(ll => [ll.lat, ll.lng]);
+            this.isDraggingArea = true;
+            this.map.dragging.disable();
+        });
+
+        dragHandle.on('drag', (e) => {
+            if (!isDragging || !originalPolygon) return;
+
+            const handle = e.target;
+            const currentLatLng = handle.getLatLng();
+            const deltaLat = currentLatLng.lat - dragStartLatLng.lat;
+            const deltaLon = currentLatLng.lng - dragStartLatLng.lng;
+
+            // Move all vertices from ORIGINAL position
+            const newLatLngs = originalPolygon.map(ll => [ll[0] + deltaLat, ll[1] + deltaLon]);
+            polygon.setLatLngs(newLatLngs);
+
+            // Update area data
+            if (polygon.areaData) {
+                // Create new polygon data from newLatLngs
+                polygon.areaData.polygon = newLatLngs.map(ll => ({
+                    lat: ll[0],
+                    lng: ll[1]
+                }));
+
+                // Update soundscape.areas directly
+                const soundscape = this.getActiveSoundscape();
+                if (soundscape && soundscape.areas) {
+                    const areaIndex = soundscape.areas.findIndex(a => a.id === polygon.areaData.id);
+                    if (areaIndex >= 0) {
+                        soundscape.areas[areaIndex].polygon = polygon.areaData.polygon;
+                    }
+                }
+            }
+        });
+
+        dragHandle.on('dragend', (e) => {
+            if (isDragging) {
+                isDragging = false;
+                this.isDraggingArea = false;
+                this.map.dragging.enable();
+
+                if (polygon.areaData) {
+                    this._markSoundscapeDirty();
+                    this._scheduleAutoSave();
+                }
+            }
+        });
+    }
+
+    /**
+     * Calculate centroid of polygon vertices
+     * @param {L.LatLng[]} latlngs - Polygon vertices
+     * @returns {{lat: number, lon: number}}
+     * @private
+     */
+    _calculateCentroid(latlngs) {
+        if (!latlngs || latlngs.length === 0) {
+            return { lat: 0, lon: 0 };
+        }
+
+        let latSum = 0, lonSum = 0;
+        latlngs.forEach((ll) => {
+            // Check if ll is a LatLng object (has lat/lng properties) or an array [lat, lng]
+            const lat = (ll.lat !== undefined) ? ll.lat : ll[0];
+            const lon = (ll.lng !== undefined) ? ll.lng : ll[1];
+            latSum += lat;
+            lonSum += lon;
+        });
+
+        return {
+            lat: latSum / latlngs.length,
+            lon: lonSum / latlngs.length
+        };
+    }
+
+    /**
+     * Export soundscape to JSON file
+     * @private
+     */
+    _exportSoundscape() {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) {
+            this._showToast('⚠️ No soundscape to export', 'warning');
+            return;
+        }
+
+        // Create clean waypoint data (no Leaflet refs)
+        const cleanWaypointData = this.waypoints.map(wp => ({
+            id: wp.id,
+            name: wp.name,
+            lat: wp.lat,
+            lon: wp.lon,
+            type: wp.type,
+            icon: wp.icon,
+            color: wp.color,
+            activationRadius: wp.activationRadius,
+            soundUrl: wp.soundUrl,
+            volume: wp.volume,
+            loop: wp.loop,
+            soundConfig: wp.soundConfig
+        }));
+
+        // Create clean area data (no Leaflet refs)
+        const cleanAreas = soundscape.getAreas().map(area => {
+            const { _leafletLayer, ...cleanArea } = area;
+            return cleanArea;
+        });
+
+        // Create clean soundscape data (no Leaflet refs)
+        const cleanSoundscape = {
+            id: soundscape.id,
+            name: soundscape.name,
+            description: soundscape.description,
+            isPublic: soundscape.isPublic,
+            soundIds: this.waypoints.map(wp => wp.id),
+            waypointData: cleanWaypointData,
+            areas: cleanAreas,
+            behaviors: soundscape.behaviors || []
+        };
+
+        const data = {
+            version: '3.0',
+            exportedAt: new Date().toISOString(),
+            soundscape: cleanSoundscape,
+            waypoints: cleanWaypointData,
+            areas: cleanAreas
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `soundscape_${soundscape.id}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        this.debugLog(`📦 Exported: ${a.download}`);
+        this._showToast('✅ Soundscape exported', 'success');
+    }
+
+    /**
+     * Import soundscape from JSON file
+     * @private
+     */
+    _importSoundscape() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            // Confirm before overwriting if there's existing data
+            const hasExistingData = this.waypoints.length > 0 ||
+                                   (this.getActiveSoundscape()?.getAreas().length > 0);
+            if (hasExistingData) {
+                const confirmed = confirm(
+                    `⚠️ Import will overwrite your current soundscape.\n\n` +
+                    `You have ${this.waypoints.length} waypoint(s) that will be replaced.\n\n` +
+                    `Click OK to import, or Cancel to abort.`
+                );
+                if (!confirmed) return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    const soundscape = SoundScape.fromJSON(data.soundscape);
+                    const waypoints = data.waypoints || [];
+                    const areas = data.areas || [];
+
+                    // Clear current data
+                    this._clearAllWaypoints();
+                    this._clearAllAreas();
+
+                    // Load imported data
+                    this.soundscapes.set(soundscape.id, soundscape);
+                    this.activeSoundscapeId = soundscape.id;
+                    this.waypoints = waypoints;
+
+                    // Restore nextId
+                    if (this.waypoints.length > 0) {
+                        const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                        this.nextId = maxId + 1;
+                    }
+
+                    // Restore nextAreaId
+                    if (areas.length > 0) {
+                        const maxAreaId = Math.max(...areas.map(a => parseInt(a.id.replace('area', '')) || 0));
+                        this.nextAreaId = maxAreaId + 1;
+                    }
+
+                    // Render waypoints
+                    this.waypoints.forEach(wp => this._createMarker(wp));
+                    this._refreshWaypointList();
+
+                    // Load areas into soundscape and map
+                    soundscape.areas = areas;  // Sync soundscape.areas with imported data
+                    this._loadAreasIntoDrawer(areas);
+                    this._refreshAreaList();
+
+                    // Update edit form
+                    this._initForms();
+
+                    // Mark soundscape dirty and schedule save (imported data needs to be saved)
+                    this._markSoundscapeDirty();
+                    this._scheduleAutoSave();
+
+                    this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
+                    this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
+                } catch (error) {
+                    this.debugLog('❌ Import failed: ' + error.message);
+                    this._showToast('❌ Import failed: ' + (error?.message || 'Unknown error'), 'error');
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    }
+
+    /**
+     * Delete current soundscape
+     * @private
+     */
+    async _deleteCurrentSoundscape() {
         const soundscape = this.getActiveSoundscape();
         if (!soundscape) return;
 
-        const area = soundscape.getArea(areaId);
-        if (!area) return;
+        const soundscapeName = soundscape.name || 'this soundscape';
 
-        if (!confirm(`Delete Area "${area.name}"?`)) return;
-
-        // Remove from soundscape
-        soundscape.deleteArea(areaId);
-        this._markSoundscapeDirty();
-        this._scheduleAutoSave();
-
-        // Remove from map
-        if (area._leafletLayer) {
-            this.drawnItems.removeLayer(area._leafletLayer);
+        if (!confirm(`⚠️ Delete Soundscape\n\nAre you sure you want to delete "${soundscapeName}"?\n\nThis action cannot be undone.`)) {
+            return;
         }
-        this.areaMarkers.delete(areaId);
 
-        this.debugLog(`🗑️ Deleted Area: ${area.name}`);
-        this._showToast(`🗑️ Deleted: ${area.name}`, 'info');
+        const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
+
+        // Delete from server if logged in
+        if (this.isLoggedIn && serverId) {
+            try {
+                await this.api.deleteSoundscape(serverId);
+                this.debugLog(`✅ Deleted from server: ${soundscapeName}`);
+            } catch (error) {
+                this.debugLog('❌ Failed to delete from server: ' + error.message);
+            }
+        }
+
+        // Delete locally
+        this.deleteSoundscape(this.activeSoundscapeId);
+
+        // Clear UI
+        this._clearAll();
+        if (editName) editName.value = '';
+        if (editDescription) editDescription.value = '';
+
+        this.debugLog(`🗑️ Deleted soundscape: ${soundscapeName}`);
+        this._showToast(`🗑️ Deleted: ${soundscapeName}`, 'success');
+
+        // Redirect to soundscape picker
+        setTimeout(() => {
+            window.location.href = 'soundscape_picker.html';
+        }, 1000);
     }
 
     /**
-     * Update status bar
+     * Sync from server
      * @private
      */
-    _updateStatusBar() {
-        const gpsStatusEl = document.getElementById('gpsStatus');
-        const headingStatusEl = document.getElementById('headingStatus');
-        const soundsStatusEl = document.getElementById('soundsStatus');
-        const statusBarEl = document.getElementById('statusBar');
+    async _syncFromServer() {
+        if (!this.isLoggedIn) {
+            this._showToast('⚠️ Please login first', 'warning');
+            return;
+        }
 
-        if (!gpsStatusEl || !headingStatusEl || !soundsStatusEl) return;
+        this.debugLog('🔄 Syncing from server...');
+        this._showToast('🔄 Syncing from server...', 'info');
 
-        // GPS status
-        if (this.app && this.app.gpsTracker) {
-            if (this.app.gpsTracker.isLocked) {
-                gpsStatusEl.textContent = '🔒 Locked';
-                statusBarEl.classList.add('gps-locked');
-            } else {
-                gpsStatusEl.textContent = '🔓 Live';
-                statusBarEl.classList.remove('gps-locked');
+        // Check for unsaved changes
+        const soundscape = this.getActiveSoundscape();
+        if (soundscape?.isDirty) {
+            const confirmSync = confirm(
+                '⚠️ You have unsaved changes.\n\n' +
+                'Syncing from server will overwrite your local changes.\n\n' +
+                'Click OK to sync, or Cancel to cancel.'
+            );
+            if (!confirmSync) return;
+        }
+
+        await this._loadSoundscapeFromServer();
+        this._initForms();
+        this._showToast('✅ Sync complete', 'success');
+    }
+
+    /**
+     * Load ONE soundscape from server (the active/persisted one)
+     * @private
+     */
+    async _loadSoundscapeFromServer() {
+        if (!this.isLoggedIn) {
+            this.debugLog('⚠️ Not logged in - cannot load from server');
+            return;
+        }
+
+        // FIX: Guard against loading soundscape when in new soundscape mode
+        if (this.isNewSoundscapeMode) {
+            this.debugLog('⚠️ Blocked _loadSoundscapeFromServer() - in new soundscape mode');
+            return;
+        }
+
+        try {
+            this.debugLog('☁️ Loading soundscape from server...');
+
+            // Determine which soundscape to load
+            // Priority: 1) selected_soundscape_id (fresh selection from picker - one-time use)
+            //          2) editor_active_soundscape_id (persisted from last session/refresh)
+            //          3) most recent soundscape from server
+            const selectedId = localStorage.getItem('selected_soundscape_id');
+            const persistedId = localStorage.getItem('editor_active_soundscape_id');
+
+            this.debugLog(`🔍 Selected soundscape ID (one-time from picker): ${selectedId || 'none'}`);
+            this.debugLog(`🔍 Persisted soundscape ID (from last session): ${persistedId || 'none'}`);
+
+            let targetServerId = null;
+
+            // Fresh selection from picker takes priority
+            if (selectedId) {
+                targetServerId = selectedId;
+                this.debugLog(`📥 Will load selected soundscape from picker: ${selectedId}`);
+            } else if (persistedId) {
+                targetServerId = persistedId;
+                this.debugLog(`📥 Will load persisted soundscape from last session: ${persistedId}`);
+            }
+
+            // If no selected or persisted ID, get list and use most recent
+            if (!targetServerId) {
+                const soundscapes = await this.api.getSoundscapes();
+                if (soundscapes.length === 0) {
+                    this.debugLog('📭 No soundscapes on server - creating default');
+                    await this._createNewSoundscape();
+                    return;
+                }
+                targetServerId = soundscapes[0].id;
+                this.debugLog(`📅 Using most recent soundscape: ${targetServerId}`);
+            }
+
+            // Load the single soundscape from server
+            this.debugLog('📥 Loading soundscape from server...');
+            const data = await this.api.loadSoundscape(targetServerId);
+            const soundscape = SoundScape.fromJSON(data.soundscape);
+
+            // Add waypointData to soundscape
+            soundscape.waypointData = data.waypoints;
+
+            // Debug: log waypoint soundUrls
+            this.debugLog(`  🔍 Waypoints loaded for ${soundscape.name}:`);
+            data.waypoints.forEach((wp, idx) => {
+                this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+            });
+
+            // Store soundscape and map to server ID
+            this.soundscapes.set(soundscape.id, soundscape);
+            this.serverSoundscapeIds.set(soundscape.id, targetServerId);
+            this.activeSoundscapeId = soundscape.id;
+
+            // Load waypoints
+            this.waypoints = data.waypoints || [];
+            this.debugLog(`  📍 Loaded ${this.waypoints.length} waypoints`);
+
+            // Restore nextId
+            if (this.waypoints.length > 0) {
+                const maxId = Math.max(...this.waypoints.map(wp => parseInt(wp.id.replace('wp', '')) || 0));
+                this.nextId = maxId + 1;
+            }
+
+            // Clear and render waypoints
+            this.markers.forEach(marker => marker.remove());
+            this.markers.clear();
+            this.waypoints.forEach(wp => this._createMarker(wp));
+            this._updateWaypointList();
+
+            // Load areas
+            const areas = soundscape.getAreas() || [];
+            this.debugLog(`  🗺️ Loading ${areas.length} areas...`);
+            this._loadAreasIntoDrawer(areas);
+            this._refreshAreaList();
+            
+            // Debug: log soundscape.areas reference
+            this.debugLog(`  🗺️ soundscape.areas after load: ${soundscape.areas?.length || 0} areas`);
+            if (soundscape.areas && soundscape.areas.length > 0) {
+                soundscape.areas.forEach((area, idx) => {
+                    this.debugLog(`    soundscape.areas[${idx}]: "${area.name}" polygon=${area.polygon ? 'YES' : 'MISSING'}`);
+                    if (area.polygon && area.polygon.length > 0) {
+                        this.debugLog(`      First vertex: [${area.polygon[0].lat.toFixed(5)}, ${area.polygon[0].lng.toFixed(5)}]`);
+                    }
+                });
+            }
+
+            // Center and zoom map to show all waypoints AND areas
+            const bounds = [];
+
+            // Add waypoint positions
+            this.waypoints.forEach(wp => {
+                bounds.push([wp.lat, wp.lon]);
+            });
+
+            // Add area vertices
+            areas.forEach(area => {
+                if (area.polygon && area.polygon.length > 0) {
+                    area.polygon.forEach(vertex => {
+                        bounds.push([vertex.lat, vertex.lng]);
+                    });
+                }
+            });
+
+            if (bounds.length > 0) {
+                this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+
+                const centerLat = bounds.reduce((sum, b) => sum + b[0], 0) / bounds.length;
+                const centerLon = bounds.reduce((sum, b) => sum + b[1], 0) / bounds.length;
+
+                this.debugLog(`🗺️ Map centered on soundscape at [${centerLat.toFixed(4)}, ${centerLon.toFixed(4)}] (zoomed to show ${this.waypoints.length} waypoints and ${areas.length} areas)`);
+            }
+
+            // Persist the loaded soundscape for page refresh
+            // This ensures that refreshing the page keeps the same soundscape
+            localStorage.setItem('editor_active_soundscape_id', targetServerId);
+            this.debugLog(`💾 Persisted editor_active_soundscape_id: ${targetServerId}`);
+
+            // Clear one-time selection from soundscape_picker (but keep persisted ID for next refresh)
+            if (selectedId) {
+                localStorage.removeItem('selected_soundscape_id');
+                this.debugLog(`🧹 Cleared one-time selected_soundscape_id`);
+            }
+
+            this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
+            this._updateSyncStatus(true);
+        } catch (error) {
+            this.debugLog('❌ Failed to load from server: ' + error.message);
+            this._showToast('⚠️ Server sync failed', 'error');
+            this._updateSyncStatus(false);
+        }
+    }
+
+    /**
+     * Create new soundscape
+     * @private
+     */
+    async _createNewSoundscape() {
+        const name = prompt('Enter soundscape name:', 'New Soundscape');
+        if (!name) return;
+
+        // Save current soundscape first (if any)
+        this._saveSoundscapeToStorage();
+
+        // Create new empty soundscape
+        const id = 'soundscape_' + Date.now();
+        const soundscape = new SoundScape(id, name, [], [], []);
+        this.soundscapes.set(id, soundscape);
+        this.activeSoundscapeId = id;
+
+        // Clear waypoints and areas for the new soundscape
+        this._clearAllWaypoints();
+        this._clearAllAreas();
+        this.nextId = 1;
+        this.nextAreaId = 1;
+
+        // Clear markers
+        this.markers.forEach(marker => marker.remove());
+        this.markers.clear();
+
+        if (this.isLoggedIn) {
+            // Create on server FIRST, then map IDs
+            try {
+                const result = await this.api.createSoundscape(name);
+                const serverId = result.soundscape.id;
+
+                // Map local ID to server ID BEFORE saving
+                this.serverSoundscapeIds.set(id, serverId);
+                this.debugLog(`🎼 Created on server: ${name} (server ID: ${serverId})`);
+
+                // Save to server with the mapping in place
+                this._saveSoundscapeToStorage();
+
+                this.debugLog(`✅ Soundscape created and saved to server`);
+            } catch (error) {
+                this.debugLog('❌ Failed to create on server: ' + error.message);
+                this._showToast('⚠️ Created locally only (server failed)', 'warning');
             }
         } else {
-            gpsStatusEl.textContent = '--';
+            // Not logged in - save locally only
+            this._saveSoundscapeToStorage();
         }
 
-        // Heading status
-        if (this.listenerHeading !== null) {
-            const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-            const index = Math.round(this.listenerHeading / 45) % 8;
-            headingStatusEl.textContent = `${this.listenerHeading.toFixed(0)}° ${directions[index]}`;
+        // Update edit form
+        this._initForms();
+
+        this._showToast(`✅ Created: ${soundscape.name}`, 'success');
+    }
+
+    /**
+     * Update sync status indicator
+     * @param {boolean} isSynced - Whether server is in sync
+     * @private
+     */
+    _updateSyncStatus(isSynced) {
+        const syncStatus = document.getElementById('syncStatus');
+        if (!syncStatus) return;
+
+        const soundscape = this.getActiveSoundscape();
+        const isDirty = soundscape?.isDirty || false;
+
+        if (!this.isLoggedIn) {
+            syncStatus.textContent = '🔓 Not logged in';
+            syncStatus.style.color = '#888';
+        } else if (isDirty) {
+            syncStatus.textContent = '⚠️ Unsaved changes...';
+            syncStatus.style.color = '#f39c12';
+        } else if (isSynced) {
+            syncStatus.textContent = '🟢 Synced to server';
+            syncStatus.style.color = '#00ff88';
         } else {
-            headingStatusEl.textContent = '--';
+            syncStatus.textContent = '🟡 Local only';
+            syncStatus.style.color = '#f39c12';
         }
-
-        // Sounds status
-        soundsStatusEl.textContent = this.waypoints.length;
     }
 }
 
-// Initialize app
-const app = new MapEditorApp();
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => app.init());
-} else {
-    app.init();
+// =====================================================================
+// DOM Elements (UI-only, not map-related)
+// =====================================================================
+
+const editName = document.getElementById('editName');
+const editDescription = document.getElementById('editDescription');
+const editPublic = document.getElementById('editPublic');
+const areasList = document.getElementById('areasList');
+const waypointsList = document.getElementById('waypointsList');
+const areasSection = document.getElementById('areasSection');
+const slideoutPanel = document.getElementById('slideoutPanel');
+const slideoutTitle = document.getElementById('slideoutTitle');
+const slideoutName = document.getElementById('slideoutName');
+const slideoutMeta = document.getElementById('slideoutMeta');
+const slideoutColor = document.getElementById('slideoutColor');
+const slideoutClose = document.getElementById('slideoutClose');
+const slideoutCancel = document.getElementById('slideoutCancel');
+const slideoutSave = document.getElementById('slideoutSave');
+const slideoutDelete = document.getElementById('slideoutDelete');
+
+// Debug modal elements
+const debugPanel = document.getElementById('debugPanel');
+const debugPanelBody = document.getElementById('debugPanelBody');
+const debugClearBtn = document.getElementById('debugClearBtn');
+const debugCopyBtn = document.getElementById('debugCopyBtn');
+
+// Slideout form elements (waypoint editing)
+const slideoutBody = document.getElementById('slideoutBody');
+const slideoutType = document.getElementById('slideoutType');
+const slideoutTypeSection = document.getElementById('slideoutTypeSection');
+const typeSectionTitle = document.getElementById('typeSectionTitle');
+const typeFieldsContainer = document.getElementById('typeFieldsContainer');
+// Note: Type-specific fields (slideoutSoundUrl, etc.) are queried after renderTypeFields()
+const slideoutVolume = document.getElementById('slideoutVolume');
+const slideoutVolumeValue = document.getElementById('slideoutVolumeValue');
+const slideoutActivationRadius = document.getElementById('slideoutActivationRadius');
+const slideoutActivationRadiusValue = document.getElementById('slideoutActivationRadiusValue');
+const slideoutLoop = document.getElementById('slideoutLoop');
+const slideoutSortOrder = document.getElementById('slideoutSortOrder');
+const slideoutLat = document.getElementById('slideoutLat');
+const slideoutLon = document.getElementById('slideoutLon');
+const slideoutAdvanced = document.getElementById('slideoutAdvanced');
+
+// Type configurations for dynamic form fields
+const TYPE_CONFIGS = {
+    'file': {
+        title: 'File Settings',
+        fields: `
+            <div class="slideout-field">
+                <label for="slideoutSoundUrl">Sound URL</label>
+                <input type="url" id="slideoutSoundUrl" placeholder="https://example.com/sound.mp3">
+                <small class="slideout-help">MP3, WAV, or OGG file URL</small>
+            </div>
+        `,
+        onRender: () => {
+            // Optional: Add event listeners after render
+        }
+    },
+    'oscillator': {
+        title: 'Oscillator Settings',
+        fields: `
+            <div class="slideout-field">
+                <label for="slideoutWaveform">Waveform</label>
+                <select id="slideoutWaveform">
+                    <option value="sine">Sine ◯</option>
+                    <option value="square">Square ◻</option>
+                    <option value="sawtooth">Sawtooth ⚡</option>
+                    <option value="triangle">Triangle △</option>
+                </select>
+            </div>
+            <div class="slideout-field-row">
+                <div class="slideout-field">
+                    <label for="slideoutFrequency">Frequency (Hz)</label>
+                    <input type="number" id="slideoutFrequency" min="20" max="20000" value="440">
+                    <small class="slideout-help">20Hz - 20kHz</small>
+                </div>
+                <div class="slideout-field">
+                    <label for="slideoutDetune">Detune (cents)</label>
+                    <input type="number" id="slideoutDetune" min="-1200" max="1200" value="0">
+                    <small class="slideout-help">-1200 to +1200</small>
+                </div>
+            </div>
+            <div class="slideout-field">
+                <label for="slideoutGain">Gain</label>
+                <input type="range" id="slideoutGain" min="0" max="1" step="0.01" value="0.5">
+                <span class="slideout-field-value" id="slideoutGainValue">50%</span>
+            </div>
+        `,
+        onRender: () => {
+            const gainSlider = document.getElementById('slideoutGain');
+            const gainValue = document.getElementById('slideoutGainValue');
+            if (gainSlider && gainValue) {
+                gainSlider.addEventListener('input', (e) => {
+                    gainValue.textContent = `${Math.round(e.target.value * 100)}%`;
+                });
+            }
+        }
+    },
+    'streaming': {
+        title: 'Streaming Settings',
+        fields: `
+            <div class="slideout-field">
+                <label for="slideoutStreamUrl">Stream URL</label>
+                <input type="url" id="slideoutStreamUrl" placeholder="https://stream.example.com/live">
+            </div>
+            <div class="slideout-field">
+                <label for="slideoutStreamType">Stream Type</label>
+                <select id="slideoutStreamType">
+                    <option value="mp3">MP3 Stream</option>
+                    <option value="hls">HLS (m3u8)</option>
+                    <option value="icecast">Icecast/Shoutcast</option>
+                    <option value="dash">DASH</option>
+                </select>
+            </div>
+            <div class="slideout-field">
+                <label for="slideoutBufferTime">Buffer Time</label>
+                <input type="range" id="slideoutBufferTime" min="1" max="30" step="1" value="5">
+                <span class="slideout-field-value" id="slideoutBufferTimeValue">5s</span>
+            </div>
+            <div class="slideout-field">
+                <label class="slideout-checkbox">
+                    <input type="checkbox" id="slideoutAutoReconnect" checked>
+                    <span>Auto-Reconnect</span>
+                </label>
+            </div>
+        `,
+        onRender: () => {
+            const bufferSlider = document.getElementById('slideoutBufferTime');
+            const bufferValue = document.getElementById('slideoutBufferTimeValue');
+            if (bufferSlider && bufferValue) {
+                bufferSlider.addEventListener('input', (e) => {
+                    bufferValue.textContent = `${e.target.value}s`;
+                });
+            }
+        }
+    }
+};
+
+let debugLogs = ['Ready - tap Start to begin...'];
+
+// Toggle advanced section
+function toggleAdvancedSection() {
+    slideoutAdvanced.classList.toggle('active');
+    const toggle = document.getElementById('slideoutAdvancedToggle');
+    if (slideoutAdvanced.classList.contains('active')) {
+        toggle.textContent = '▲ More';
+        addDebugLog('More opened');
+    } else {
+        toggle.textContent = '▼ More';
+    }
 }
 
-console.log('[map_editor.js] MapEditorApp class loaded');
+// Render type-specific fields
+function renderTypeFields(type) {
+    const config = TYPE_CONFIGS[type] || TYPE_CONFIGS['file'];
+
+    typeSectionTitle.textContent = config.title;
+    typeFieldsContainer.innerHTML = config.fields;
+
+    // Call onRender callback if defined
+    if (config.onRender) {
+        config.onRender();
+    }
+
+    addDebugLog(`Rendered form for type: ${type}`);
+}
+
+// Get current form data based on type
+function getFormData() {
+    const type = slideoutType.value;
+    const data = {
+        type: type,
+        name: document.getElementById('slideoutName').value,
+        volume: parseFloat(document.getElementById('slideoutVolume').value),
+        loop: document.getElementById('slideoutLoop').checked,
+        activationRadius: parseInt(document.getElementById('slideoutActivationRadius').value),
+        sortOrder: parseInt(document.getElementById('slideoutSortOrder').value)
+    };
+
+    // Only include lat/lon for waypoints (areas use polygon instead)
+    if (selectedItemType === 'Waypoint') {
+        data.lat = slideoutLat.textContent;
+        data.lon = slideoutLon.textContent;
+    }
+
+    // Add type-specific fields
+    if (type === 'file') {
+        data.soundUrl = document.getElementById('slideoutSoundUrl').value;
+        addDebugLog(`📝 getFormData: soundUrl=${data.soundUrl || '(empty)'}`);
+    } else if (type === 'oscillator') {
+        data.waveform = document.getElementById('slideoutWaveform').value;
+        data.frequency = parseFloat(document.getElementById('slideoutFrequency').value);
+        data.detune = parseFloat(document.getElementById('slideoutDetune').value);
+        data.gain = parseFloat(document.getElementById('slideoutGain').value);
+    } else if (type === 'streaming') {
+        data.streamUrl = document.getElementById('slideoutStreamUrl').value;
+        data.streamType = document.getElementById('slideoutStreamType').value;
+        data.bufferTime = parseInt(document.getElementById('slideoutBufferTime').value);
+        data.autoReconnect = document.getElementById('slideoutAutoReconnect').checked;
+    }
+
+    return data;
+}
+
+// Live update for range sliders
+if (slideoutVolume) {
+    slideoutVolume.addEventListener('input', (e) => {
+        const value = Math.round(e.target.value * 100);
+        slideoutVolumeValue.textContent = `${value}%`;
+    });
+}
+
+if (slideoutActivationRadius) {
+    slideoutActivationRadius.addEventListener('input', (e) => {
+        slideoutActivationRadiusValue.textContent = `${e.target.value}m`;
+    });
+}
+
+// Type selector change handler
+if (slideoutType) {
+    slideoutType.addEventListener('change', (e) => {
+        renderTypeFields(e.target.value);
+    });
+}
+
+// Debug log functions
+function addDebugLog(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString();
+    debugLogs.push(`[${timestamp}] ${message}`);
+    renderDebugLogs();
+}
+
+function renderDebugLogs() {
+    debugPanelBody.innerHTML = debugLogs.map(log =>
+        `<div class="debug-line">${log}</div>`
+    ).join('');
+    debugPanelBody.scrollTop = debugPanelBody.scrollHeight;
+}
+
+function clearDebugLogs() {
+    debugLogs = [];
+    renderDebugLogs();
+}
+
+function copyDebugLogs() {
+    const text = debugLogs.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        addDebugLog('Logs copied to clipboard');
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+    });
+}
+
+// Debug panel event handlers
+function toggleDebugPanel() {
+    debugPanel.classList.toggle('active');
+    const toggle = document.getElementById('debugPanelToggle');
+    if (debugPanel.classList.contains('active')) {
+        toggle.textContent = '▼ Debug Log';
+        addDebugLog('Debug panel opened');
+    } else {
+        toggle.textContent = '▲ Debug Log';
+    }
+}
+
+// Advanced settings toggle
+function toggleAdvancedSettings() {
+    const advancedSettings = document.getElementById('advancedSettings');
+    const toggle = document.getElementById('advancedSettingsToggle');
+    advancedSettings.classList.toggle('active');
+    if (advancedSettings.classList.contains('active')) {
+        toggle.textContent = '▲ More';
+        addDebugLog('More opened');
+    } else {
+        toggle.textContent = '▼ More';
+    }
+}
+
+debugClearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    clearDebugLogs();
+    addDebugLog('Debug logs cleared');
+});
+
+debugCopyBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyDebugLogs();
+});
+
+// =====================================================================
+// Toolbar Button Handlers (Session 3: Real CRUD operations)
+// =====================================================================
+
+// Sync from Server
+document.getElementById('syncFromServerBtn').addEventListener('click', () => {
+    app._syncFromServer();
+});
+
+// Clear All
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+    app._clearAll();
+});
+
+// Import
+document.getElementById('btnImport').addEventListener('click', () => {
+    app._importSoundscape();
+});
+
+// Export
+document.getElementById('btnExport').addEventListener('click', () => {
+    app._exportSoundscape();
+});
+
+// =====================================================================
+// Slideout Panel Handlers
+// =====================================================================
+
+let selectedItem = null;
+let selectedItemType = null;
+let selectedItemData = null;
+
+// Handle item clicks - open slideout
+function handleItemClick(e, type, id, name, meta, color) {
+    // Remove previous selection highlight
+    if (selectedItem) {
+        selectedItem.classList.remove('selected');
+    }
+
+    // Select new item (use the item from the event, not currentTarget)
+    const item = e.target.closest('.item-list-item');
+    if (!item) return;
+
+    item.classList.add('selected');
+    selectedItem = item;
+    selectedItemType = type;
+
+    // Scroll item into view
+    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // Get actual data from app
+    if (type === 'Waypoint') {
+        selectedItemData = app._getWaypointById(id);
+    } else if (type === 'Area') {
+        selectedItemData = app._getAreaById(id);
+    }
+
+    if (!selectedItemData) {
+        addDebugLog(`⚠️ ${type} not found: ${id}`);
+        return;
+    }
+
+    // Open slideout with data
+    openSlideout(type, id, name, meta, color);
+}
+
+// Open slideout with item data
+function openSlideout(type, id, name, meta, color) {
+    slideoutTitle.textContent = 'Edit ' + type;
+
+    if (type === 'Waypoint') {
+        const waypoint = app._getWaypointById(id);
+        if (!waypoint) return;
+
+        // Show waypoint form
+        slideoutBody.style.display = 'block';
+
+        // Populate common fields
+        slideoutName.value = waypoint.name || '';
+        slideoutVolume.value = waypoint.volume || 0.8;
+        slideoutVolumeValue.textContent = `${Math.round((waypoint.volume || 0.8) * 100)}%`;
+        slideoutActivationRadius.value = waypoint.activationRadius || 20;
+        slideoutActivationRadiusValue.textContent = `${waypoint.activationRadius || 20}m`;
+        slideoutLoop.checked = waypoint.loop !== false;
+        slideoutSortOrder.value = waypoint.sortOrder || 0;
+        slideoutLat.textContent = (typeof waypoint.lat === 'number' ? waypoint.lat.toFixed(6) : waypoint.lat) || '--';
+        slideoutLon.textContent = (typeof waypoint.lon === 'number' ? waypoint.lon.toFixed(6) : waypoint.lon) || '--';
+
+        // Show type selector and render type-specific fields
+        slideoutType.style.display = 'block';
+        slideoutTypeSection.style.display = 'block';
+        slideoutVolume.parentElement.style.display = 'flex';
+        slideoutActivationRadius.parentElement.parentElement.style.display = 'flex';
+        slideoutLoop.parentElement.style.display = 'flex';
+        slideoutSortOrder.parentElement.style.display = 'flex';
+        slideoutLat.parentElement.style.display = 'flex';
+        slideoutLon.parentElement.style.display = 'flex';
+
+        // Set type selector and render type-specific fields
+        slideoutType.value = waypoint.type || 'file';
+        renderTypeFields(waypoint.type || 'file');
+
+        // Debug: log waypoint data
+        addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundUrl=${waypoint.soundUrl || '(empty)'}`);
+
+        // Populate type-specific fields based on type
+        if (waypoint.type === 'file') {
+            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
+            if (slideoutSoundUrl) {
+                slideoutSoundUrl.value = waypoint.soundUrl || '';
+                addDebugLog(`🎵 Waypoint soundUrl loaded: ${waypoint.soundUrl || '(empty)'}`);
+            } else {
+                addDebugLog(`❌ slideoutSoundUrl element not found`);
+            }
+        } else if (waypoint.type === 'oscillator') {
+            const slideoutWaveform = document.getElementById('slideoutWaveform');
+            const slideoutFrequency = document.getElementById('slideoutFrequency');
+            const slideoutDetune = document.getElementById('slideoutDetune');
+            const slideoutGain = document.getElementById('slideoutGain');
+            const slideoutGainValue = document.getElementById('slideoutGainValue');
+
+            if (slideoutWaveform) slideoutWaveform.value = waypoint.waveform || 'sine';
+            if (slideoutFrequency) slideoutFrequency.value = waypoint.frequency || 440;
+            if (slideoutDetune) slideoutDetune.value = waypoint.detune || 0;
+            if (slideoutGain) {
+                slideoutGain.value = waypoint.gain !== undefined ? waypoint.gain : 0.5;
+                if (slideoutGainValue) {
+                    slideoutGainValue.textContent = `${Math.round((waypoint.gain !== undefined ? waypoint.gain : 0.5) * 100)}%`;
+                }
+            }
+            addDebugLog(`🎹 Waypoint oscillator loaded: wave=${waypoint.waveform}, freq=${waypoint.frequency}Hz`);
+        } else if (waypoint.type === 'streaming') {
+            const slideoutStreamUrl = document.getElementById('slideoutStreamUrl');
+            const slideoutStreamType = document.getElementById('slideoutStreamType');
+            const slideoutBufferTime = document.getElementById('slideoutBufferTime');
+            const slideoutBufferTimeValue = document.getElementById('slideoutBufferTimeValue');
+            const slideoutAutoReconnect = document.getElementById('slideoutAutoReconnect');
+
+            if (slideoutStreamUrl) slideoutStreamUrl.value = waypoint.streamUrl || '';
+            if (slideoutStreamType) slideoutStreamType.value = waypoint.streamType || 'mp3';
+            if (slideoutBufferTime) {
+                slideoutBufferTime.value = waypoint.bufferTime || 5;
+                if (slideoutBufferTimeValue) {
+                    slideoutBufferTimeValue.textContent = `${waypoint.bufferTime || 5}s`;
+                }
+            }
+            if (slideoutAutoReconnect) slideoutAutoReconnect.checked = waypoint.autoReconnect !== false;
+            addDebugLog(`📡 Waypoint streaming loaded: url=${waypoint.streamUrl || '(empty)'}`);
+        }
+
+    } else if (type === 'Area') {
+        const area = app._getAreaById(id);
+        if (!area) return;
+
+        // Show area form
+        slideoutBody.style.display = 'block';
+
+        // Populate common fields
+        slideoutName.value = area.name || '';
+        slideoutVolume.value = area.volume || 0.8;
+        slideoutVolumeValue.textContent = `${Math.round((area.volume || 0.8) * 100)}%`;
+        slideoutLoop.checked = area.loop !== false;
+        slideoutSortOrder.value = area.sortOrder || 0;
+        slideoutLat.textContent = meta || '--';
+        slideoutLon.textContent = '--';
+
+        // Show type selector and render type-specific fields
+        slideoutType.style.display = 'block';
+        slideoutTypeSection.style.display = 'block';
+        slideoutVolume.parentElement.style.display = 'flex';
+        slideoutActivationRadius.parentElement.parentElement.style.display = 'none'; // Hide for areas
+        slideoutLoop.parentElement.style.display = 'flex';
+        slideoutSortOrder.parentElement.style.display = 'flex';
+        slideoutLat.parentElement.style.display = 'flex';
+        slideoutLon.parentElement.style.display = 'flex';
+
+        // Set type selector and render type-specific fields
+        slideoutType.value = area.type || 'file';
+        renderTypeFields(area.type || 'file');
+
+        // Debug: log area data
+        addDebugLog(`🔍 Area data: type=${area.type}, soundUrl=${area.soundUrl || '(empty)'}`);
+
+        // Populate type-specific fields based on type
+        if (area.type === 'file') {
+            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
+            if (slideoutSoundUrl) {
+                slideoutSoundUrl.value = area.soundUrl || '';
+                addDebugLog(`🎵 Area soundUrl loaded: ${area.soundUrl || '(empty)'}`);
+            } else {
+                addDebugLog(`❌ slideoutSoundUrl element not found`);
+            }
+        } else if (area.type === 'oscillator') {
+            const slideoutWaveform = document.getElementById('slideoutWaveform');
+            const slideoutFrequency = document.getElementById('slideoutFrequency');
+            const slideoutDetune = document.getElementById('slideoutDetune');
+            const slideoutGain = document.getElementById('slideoutGain');
+            const slideoutGainValue = document.getElementById('slideoutGainValue');
+
+            if (slideoutWaveform) slideoutWaveform.value = area.waveform || 'sine';
+            if (slideoutFrequency) slideoutFrequency.value = area.frequency || 440;
+            if (slideoutDetune) slideoutDetune.value = area.detune || 0;
+            if (slideoutGain) {
+                slideoutGain.value = area.gain !== undefined ? area.gain : 0.5;
+                if (slideoutGainValue) {
+                    slideoutGainValue.textContent = `${Math.round((area.gain !== undefined ? area.gain : 0.5) * 100)}%`;
+                }
+            }
+            addDebugLog(`🎹 Area oscillator loaded: wave=${area.waveform}, freq=${area.frequency}Hz`);
+        } else if (area.type === 'streaming') {
+            const slideoutStreamUrl = document.getElementById('slideoutStreamUrl');
+            const slideoutStreamType = document.getElementById('slideoutStreamType');
+            const slideoutBufferTime = document.getElementById('slideoutBufferTime');
+            const slideoutBufferTimeValue = document.getElementById('slideoutBufferTimeValue');
+            const slideoutAutoReconnect = document.getElementById('slideoutAutoReconnect');
+
+            if (slideoutStreamUrl) slideoutStreamUrl.value = area.streamUrl || '';
+            if (slideoutStreamType) slideoutStreamType.value = area.streamType || 'mp3';
+            if (slideoutBufferTime) {
+                slideoutBufferTime.value = area.bufferTime || 5;
+                if (slideoutBufferTimeValue) {
+                    slideoutBufferTimeValue.textContent = `${area.bufferTime || 5}s`;
+                }
+            }
+            if (slideoutAutoReconnect) slideoutAutoReconnect.checked = area.autoReconnect !== false;
+            addDebugLog(`📡 Area streaming loaded: url=${area.streamUrl || '(empty)'}`);
+        }
+    }
+
+    // Show panel
+    slideoutPanel.classList.add('active');
+
+    addDebugLog(`Selected ${type}: ${name}`);
+}
+
+function closeSlideout() {
+    slideoutPanel.classList.remove('active');
+    // Clear selection highlight
+    if (selectedItem) {
+        selectedItem.classList.remove('selected');
+        selectedItem = null;
+    }
+    selectedItemType = null;
+    selectedItemData = null;
+}
+
+function saveSlideout() {
+    if (!selectedItemData || !selectedItemType) return;
+
+    // Get all form data including type-specific fields
+    const updated = getFormData();
+    updated.id = selectedItemData.id;
+
+    if (selectedItemType === 'Waypoint') {
+        // Update waypoint
+        app._updateWaypointFromForm(updated);
+
+        // Update list display
+        if (selectedItem) {
+            selectedItem.querySelector('.item-name').textContent = updated.name;
+        }
+    } else if (selectedItemType === 'Area') {
+        // Update area
+        app._updateAreaFromForm(updated);
+
+        // Update list display
+        if (selectedItem) {
+            selectedItem.querySelector('.item-name').textContent = updated.name;
+        }
+    }
+
+    addDebugLog(`✏️ Saved ${selectedItemType}: ${updated.name}`);
+    closeSlideout();
+}
+
+function deleteSlideout() {
+    if (!selectedItemData || !selectedItem || !selectedItemType) return;
+
+    if (selectedItemType === 'Waypoint') {
+        app._deleteWaypoint(selectedItemData.id);
+    } else if (selectedItemType === 'Area') {
+        app._deleteArea(selectedItemData.id);
+    }
+
+    // Remove from list
+    selectedItem.remove();
+
+    addDebugLog(`🗑️ Deleted ${selectedItemType}: ${selectedItemData.name}`);
+    closeSlideout();
+}
+
+// Close slideout handlers
+slideoutClose.addEventListener('click', closeSlideout);
+slideoutCancel.addEventListener('click', closeSlideout);
+slideoutSave.addEventListener('click', saveSlideout);
+slideoutDelete.addEventListener('click', deleteSlideout);
+
+// Close slideout when clicking outside
+document.addEventListener('click', (e) => {
+    if (!slideoutPanel.contains(e.target) &&
+        !areasList.contains(e.target) &&
+        !waypointsList.contains(e.target)) {
+        if (slideoutPanel.classList.contains('active')) {
+            closeSlideout();
+        }
+    }
+});
+
+// Close slideout on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && slideoutPanel.classList.contains('active')) {
+        closeSlideout();
+    }
+});
+
+// Add click handlers to lists (event delegation)
+areasList.addEventListener('click', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        handleItemClick(e, 'Area', item.dataset.id, item.querySelector('.item-name').textContent, item.querySelector('.item-meta').textContent, item.dataset.color);
+    }
+});
+
+waypointsList.addEventListener('click', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        handleItemClick(e, 'Waypoint', item.dataset.id, item.querySelector('.item-name').textContent, item.querySelector('.item-meta').textContent, item.dataset.color);
+    }
+});
+
+// Add hover handlers to lists - highlight map graphics on hover
+// Note: Using mouseover/mouseout because they bubble (unlike mouseenter/mouseleave)
+areasList.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const areaId = item.dataset.id;
+        const layer = app.areaMarkers.get(areaId);
+        if (layer) {
+            // Store original style
+            layer._originalStyle = {
+                color: layer.options.color,
+                weight: layer.options.weight
+            };
+            // Apply highlight style - only change the outline, not the fill
+            layer.setStyle({
+                color: '#ffffff',
+                weight: 4
+            });
+        }
+    }
+});
+
+areasList.addEventListener('mouseout', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const areaId = item.dataset.id;
+        const layer = app.areaMarkers.get(areaId);
+        if (layer && layer._originalStyle) {
+            // Restore original style
+            layer.setStyle(layer._originalStyle);
+            delete layer._originalStyle;
+        }
+    }
+});
+
+waypointsList.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const waypointId = item.dataset.id;
+        const marker = app.markers.get(waypointId);
+        if (marker) {
+            // Get the icon element and add a glow effect
+            const iconElement = marker.getElement();
+            if (iconElement) {
+                // Use box-shadow for highlight instead of transform (which conflicts with Leaflet positioning)
+                const innerDiv = iconElement.querySelector('div');
+                if (innerDiv) {
+                    innerDiv.style.transition = 'box-shadow 0.15s ease';
+                    innerDiv.style.boxShadow = '0 0 10px 3px rgba(255, 255, 255, 0.8)';
+                }
+            }
+        }
+        // Also highlight the radius circle if it exists
+        const waypoint = app._getWaypointById(waypointId);
+        if (waypoint && waypoint.circleMarker) {
+            waypoint.circleMarker.setStyle({
+                color: '#ffffff',
+                weight: 3,
+                opacity: 0.8
+            });
+        }
+    }
+});
+
+waypointsList.addEventListener('mouseout', (e) => {
+    const item = e.target.closest('.item-list-item');
+    if (item && item.dataset.id) {
+        const waypointId = item.dataset.id;
+        const marker = app.markers.get(waypointId);
+        if (marker) {
+            // Restore original glow
+            const iconElement = marker.getElement();
+            if (iconElement) {
+                const innerDiv = iconElement.querySelector('div');
+                if (innerDiv) {
+                    innerDiv.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+                }
+            }
+        }
+        // Restore radius circle style
+        const waypoint = app._getWaypointById(waypointId);
+        if (waypoint && waypoint.circleMarker) {
+            waypoint.circleMarker.setStyle({
+                color: waypoint.color || '#00d9ff',
+                weight: 1,
+                opacity: 0.3
+            });
+        }
+    }
+});
+
+// =====================================================================
+// Other UI Handlers
+// =====================================================================
+
+// Simulate/Edit toggle
+let isSimulating = false;
+document.getElementById('btnSimulate').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    
+    console.log('[Simulate] Button clicked, isSimulating will be:', !isSimulating);
+    console.log('[Simulate] app exists:', !!app);
+    console.log('[Simulate] app.showSimulator:', app?.showSimulator);
+    console.log('[Simulate] app.waypoints.length:', app?.waypoints?.length);
+    
+    // Check if simulation is available
+    if (!app || !app.showSimulator) {
+        addDebugLog('⚠️ Simulation not available');
+        return;
+    }
+    
+    // Check if there are waypoints
+    if (!app.waypoints || app.waypoints.length === 0) {
+        addDebugLog('⚠️ Add at least one waypoint first');
+        alert('⚠️ Please add at least one waypoint before simulation');
+        return;
+    }
+    
+    isSimulating = !isSimulating;
+
+    const btn = document.getElementById('btnSimulate');
+    const simPanel = document.getElementById('simPanel');
+
+    if (isSimulating) {
+        btn.textContent = 'Edit';
+        simPanel.classList.add('active');
+        addDebugLog('Simulation started');
+        
+        // Start simulation mode (create avatar marker, start audio)
+        try {
+            addDebugLog('🎮 Calling app._startSimulation()...');
+            await app._startSimulation();
+            addDebugLog('✅ app._startSimulation() completed');
+        } catch (error) {
+            addDebugLog('❌ Simulation start error: ' + error.message);
+            console.error('Simulation error:', error);
+            alert('❌ Simulation error: ' + error.message);
+        }
+    } else {
+        btn.textContent = 'Simulate';
+        simPanel.classList.remove('active');
+        addDebugLog('Simulation stopped');
+
+        // Stop simulation mode (remove avatar, stop audio)
+        try {
+            addDebugLog('⏹ Calling app._stopSimulation()...');
+            app._stopSimulation();
+            addDebugLog('✅ app._stopSimulation() completed');
+        } catch (error) {
+            addDebugLog('❌ Simulation stop error: ' + error.message);
+            console.error('Simulation stop error:', error);
+        }
+    }
+});
+
+// Back button
+document.getElementById('backBtn').addEventListener('click', () => {
+    addDebugLog('Back button clicked');
+    window.location.href = 'soundscape_picker.html';
+});
+
+// Logout button
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+    addDebugLog('Logout button clicked');
+
+    const soundscape = app.getActiveSoundscape();
+    const hasUnsavedChanges = soundscape?.isDirty || false;
+
+    if (hasUnsavedChanges) {
+        const confirmed = confirm(
+            '⚠️ You have unsaved changes.\n\n' +
+            'Click OK to save before logout, or Cancel to logout without saving.'
+        );
+        if (!confirmed) {
+            app.debugLog('⚠️ Logout without saving - changes will be lost');
+        } else {
+            app.debugLog('💾 Saving before logout...');
+            try {
+                if (app.saveDebounceTimer) {
+                    clearTimeout(app.saveDebounceTimer);
+                    app.saveDebounceTimer = null;
+                }
+                if (app.saveAbortController) {
+                    app.saveAbortController.abort();
+                    app.saveAbortController = null;
+                }
+                await app._executeAutoSaveForce();
+                app.debugLog('✅ Saved before logout');
+            } catch (error) {
+                app.debugLog('❌ Failed to save before logout: ' + error.message);
+            }
+        }
+    }
+
+    app.api.logout();
+    app.isLoggedIn = false;
+    app.serverSoundscapeIds.clear();
+    app.soundscapes.clear();
+    app.activeSoundscapeId = null;
+    app.waypoints = [];
+    app.nextId = 1;
+
+    // Clear map markers
+    app.markers.forEach(marker => marker.remove());
+    app.markers.clear();
+    app._refreshWaypointList();
+
+    app._showToast('🚪 Logged out successfully', 'info');
+    app.debugLog('🚪 Logged out');
+
+    window.location.href = 'index.html';
+});
+
+// Delete Soundscape button
+document.getElementById('deleteSoundscapeBtn').addEventListener('click', () => {
+    app._deleteCurrentSoundscape();
+});
+
+// Edit form change handlers (auto-save on change)
+if (editName) {
+    editName.addEventListener('input', () => {
+        app._updateSoundscapeFromForm();
+    });
+}
+
+if (editDescription) {
+    editDescription.addEventListener('input', () => {
+        app._updateSoundscapeFromForm();
+    });
+}
+
+if (editPublic) {
+    editPublic.addEventListener('change', () => {
+        app._updateSoundscapeFromForm();
+    });
+}
+
+console.log('[map_editor.js] Loaded');
+
+// =====================================================================
+// Initialize Application
+// =====================================================================
+
+const app = new MapEditorApp();
+window.app = app;  // Expose globally for intersection overlay
+app.init();
