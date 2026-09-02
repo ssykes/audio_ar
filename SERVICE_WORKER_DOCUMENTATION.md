@@ -39,7 +39,7 @@ The Audio AR app uses a **Service Worker** to enable offline playback of downloa
 
 ## What Gets Cached
 
-### 1. Service Worker Cache (`audio-ar-{timestamp}`)
+### 1. Service Worker Cache (`audio-ar-v1`)
 
 **Managed by:** `sw.js`
 
@@ -53,7 +53,7 @@ The Audio AR app uses a **Service Worker** to enable offline playback of downloa
 
 **Purpose:** Enable app to load without network
 
-**Note (Updated 2026-04-02):** Cache name uses timestamp format (e.g., `audio-ar-20260402125004`) instead of `v1`. Old caches are automatically deleted on SW activate.
+**Note:** Cache name uses version format (e.g., `audio-ar-v1`) where `v1` is the `CACHE_VERSION` constant. Old caches are automatically deleted on SW activate.
 
 ---
 
@@ -223,15 +223,56 @@ self.addEventListener('fetch', (event) => {
 
 ---
 
-### Pass-Through (Audio Files)
+### Cache-First (Audio Files)
 
-Service Worker **skips** audio file requests, letting `CachedSampleSource` handle them directly:
+Service Worker **handles** audio file requests with cache-first strategy, supporting offline playback:
 
 ```javascript
-// Skip audio files (managed by OfflineDownloadManager)
-if (url.pathname.match(/\.(mp3|wav|ogg|m4a|aac|flac)($|\?)/i)) {
-  console.log('[SW] ⏭️ Skipping audio file');
-  return; // Let CachedSampleSource handle it
+// Audio file requests - cache-first strategy for offline support
+// AreaSoundSource and CachedSampleSource use Cache API directly, but SW must intercept when offline
+if (url.pathname.match(new RegExp(`\\.(${AUDIO_EXTENSIONS.join('|')})($|\\?)`, 'i'))) {
+  console.log('[SW] 🎵 Audio file request:', url.pathname);
+  event.respondWith(
+    (async () => {
+      // Check all soundscape caches first
+      const cacheNames = await caches.keys();
+      const soundscapeCaches = cacheNames.filter(name => name.startsWith('soundscape-'));
+
+      for (const cacheName of soundscapeCaches) {
+        const cache = await caches.open(cacheName);
+        const cachedResponse = await cache.match(event.request);
+        if (cachedResponse) {
+          console.log('[SW] 🎵 ✅ CACHE HIT:', url.pathname, 'from', cacheName);
+          return cachedResponse;
+        }
+      }
+
+      // Not in soundscape caches - check main cache
+      const mainCache = await caches.open(CACHE_NAME);
+      const mainCachedResponse = await mainCache.match(event.request);
+      if (mainCachedResponse) {
+        console.log('[SW] 🎵 ✅ CACHE HIT (main):', url.pathname);
+        return mainCachedResponse;
+      }
+
+      // Not cached - try network if online
+      if (navigator.onLine) {
+        console.log('[SW] 🎵 🌐 Not cached, fetching from network:', url.pathname);
+        try {
+          const networkResponse = await fetch(event.request);
+          return networkResponse;
+        } catch (error) {
+          console.error('[SW] 🎵 ❌ Network fetch failed:', url.pathname, error);
+          return new Response('', { status: 404 });
+        }
+      }
+
+      // Offline and not cached
+      console.error('[SW] 🎵 ❌ Audio file not cached and offline:', url.pathname);
+      return new Response('', { status: 404 });
+    })()
+  );
+  return;
 }
 ```
 
@@ -253,14 +294,26 @@ if (url.pathname.startsWith('/api/')) {
 
 ### Fallback (Map Tiles)
 
-When offline, map tiles show a placeholder instead of breaking:
+When offline, map tiles show a detailed placeholder SVG instead of breaking:
 
 ```javascript
+// OFFLINE_TILE_PLACEHOLDER defined as:
+const OFFLINE_TILE_PLACEHOLDER =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256">' +
+  '<rect fill="#e0e0e0" width="256" height="256"/>' +
+  '<text x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="#999">Offline</text>' +
+  '</svg>';
+
+// Map tiles - cache-first strategy with network fallback
 if (url.hostname.includes('tile.openstreetmap.org')) {
-  return new Response(
-    '<svg>Offline</svg>',
-    { headers: { 'Content-Type': 'image/svg+xml' } }
+  console.log('[SW] 🗺️ Map tile request:', url.pathname);
+  event.respondWith(
+    cacheFirstStrategy(event, CACHE_NAME, {
+      logPrefix: '[SW] 🗺️',
+      placeholder: OFFLINE_TILE_PLACEHOLDER
+    })
   );
+  return;
 }
 ```
 
@@ -295,7 +348,7 @@ if (url.hostname.includes('tile.openstreetmap.org')) {
 
 ---
 
-### `sw-register.js` (Updated 2026-04-02)
+### `sw-register.js`
 
 **Location:** `/sw-register.js`
 

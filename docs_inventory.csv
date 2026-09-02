@@ -1,0 +1,57 @@
+Filename,Category,Status,LastUpdated,Notes
+AREA_EDIT_FORM.md,Miscellaneous,Needs Review,,Describes area editing form implementation
+AREAS_DISPLAY_FIX.md,Miscellaneous,Needs Review,,Fix for area display issues
+AREAS_NOT_SAVING_FIX.md,Miscellaneous,Needs Review,,Fix for area saving issues
+BACKUP_CHECKLIST.md,Operations,Needs Review,,Backup procedures
+CACHED_STREAM_SOURCE.md,Technical,Needs Review,,Session-based cached streaming
+CLOUDFLARE_CACHE_TROUBLESHOOTING.md,Operations,Needs Review,,Cloudflare caching issues
+CLOUDFLARE_WORKER_READMD.md,Operations,Needs Review,,Cloudflare worker setup
+DATABASE_COLUMN_ADDITION_GUIDE.md,Miscellaneous,Needs Review,,Database schema changes
+DATABASE_RESET_2026_03_28.md,Miscellaneous,Needs Review,,Database reset procedure
+DEBUG_LOG_STYLING_UPDATE.md,Miscellaneous,Needs Review,,Debug console improvements
+DEBUG_LOGGING_ADDED.md,Miscellaneous,Needs Review,,Debug logging implementation
+DEPLOY_SECURITY_UPDATES.md,Operations,Needs Review,,Deployment security measures
+DISASTER_RECOVERY.md,Operations,Needs Review,,Disaster recovery procedures
+DYNAMIC_SOUND_EDIT_FORM.md,Miscellaneous,Needs Review,,Dynamic sound editing
+FADE_IMPROVEMENT_OPTIONS.md,Miscellaneous,Needs Review,,Fade zone improvements
+FEATURE_14_DISTANCE_BASED_AUDIO.md,Feature Spec,Needs Review,,Air absorption feature
+FEATURE_14_IMPLEMENTED.md,Feature Spec,Needs Review,,Air absorption implementation
+FEATURE_15_OFFLINE_DOWNLOAD.md,Feature Spec,Needs Review,,Offline download feature
+FEATURE_17_INTERSECTION_CROSSFADE.md,Miscellaneous,Needs Review,,Area intersection crossfade
+FEATURE_17_MAP_EDITOR_UI_REFACTOR.md,Feature Spec,Needs Review,,UI refactoring
+FEATURES.md,Feature Catalog,Needs Review,,Complete feature list
+LAZY_LOADING_FADE_ZONE_FIX.md,Miscellaneous,Needs Review,,Lazy loading fixes
+LAZY_LOADING_SPECIFICATION.md,Technical,Needs Review,,Lazy loading implementation
+LISTENER_DRIFT_COMPENSATION.md,Miscellaneous,Needs Review,,GPS drift compensation
+MARTINEZ_DEPLOYMENT_CHECKLIST.md,Miscellaneous,Needs Review,,Martinez algorithm deployment
+MARTINEZ_IMPLEMENTATION_COMPLETE.md,Miscellaneous,Needs Review,,Martinez implementation
+MARTINEZ_IMPLEMENTATION_PLAN.md,Miscellaneous,Needs Review,,Martinez algorithm plan
+MARTINEZ_INTEGRATION_SUMMARY.md,Miscellaneous,Needs Review,,Martinez integration
+MIDI_BRAINSTORM.md,Miscellaneous,Needs Review,,MIDI integration ideas
+NEW_SOUNDSCAPE_MODE.md,Miscellaneous,Needs Review,,New soundscape mode
+OFFLINE_MODE_PICKER.md,Miscellaneous,Needs Review,,Offline mode implementation
+OFFLINE_SOUNDSCAPE_DEBUGGING.md,Miscellaneous,Needs Review,,Offline debugging
+PROJECT_SUMMARY.md,Project Overview,Current,Today,High-level project summary
+PURGE_CLOUDFLARE_CACHE.PS1,Operations,Needs Review,,Cache purging script
+QWEN_SESSION_5B_SUMMARY.md,Miscellaneous,Needs Review,,Session summary
+QUICK_REFERENCE.md,Project Overview,Current,Today,Quick reference guide
+RANDOM_MICRO_VARIATIONS.md,Miscellaneous,Needs Review,,Micro variations in audio
+SECURITY.MD,Operations,Needs Review,,Security considerations
+SERVICE_WORKER_DOCUMENTATION.md,Technical,Needs Review,,Service worker implementation
+SERVICE_WORKER_REACTIVATION.md,Miscellaneous,Needs Review,,Service worker reactivation
+SERVICE_WORKER_REFACTOR_COMPLETE.md,Miscellaneous,Needs Review,,Service worker refactoring
+SERVICE_WORKER_REFACTOR.md,Technical,Needs Review,,Service worker refactoring
+SESSION_10_SUMMARY.md,Miscellaneous,Needs Review,,Session summary
+SESSION4_AREAS_PERSISTENCE_FIX.md,Miscellaneous,Needs Review,,Area persistence fix
+SOUND_AREA_ARCHITECTURE.md,Technical,Needs Review,,Area sound architecture
+SOUND_AREA.md,Miscellaneous,Needs Review,,Sound area implementation
+SOUND_WALK_COMPOSER.md,Miscellaneous,Needs Review,,Route-based sound walks
+SOUNDSCAPE_SELECTION_BUG_FIX.md,Miscellaneous,Needs Review,,Soundscape selection fix
+TECHNICAL_DEEP_DIVE.md,Project Overview,Current,Today,Deep technical dive
+architecture.md,Architecture,Needs Review,,System architecture
+audio_ar_deployment.md,Operations,Needs Review,,Deployment procedures
+audio_ar_sound_design.md,Miscellaneous,Needs Review,,Sound design guidelines
+binaural_navigation.md,Miscellaneous,Needs Review,,Binaural audio navigation
+OFFLINE_SETUP.md,Miscellaneous,Needs Review,,Offline setup instructions
+README.md,Project Overview,Needs Review,,Main project readme
+SAMPLESOURCE.md,Miscellaneous,Needs Review,,Sample source implementation

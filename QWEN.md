@@ -7,6 +7,10 @@
 ```
 QWEN.md (this file - project context & memories)
     ↓
+README.md (project overview)
+    ↓
+CONSOLIDATED_DOCUMENTATION.md (comprehensive technical overview)
+    ↓
 FEATURES.md (feature catalog - all completed features)
     ↓
 FEATURE_*.md (individual feature specs)
@@ -19,6 +23,8 @@ Source code (implementation)
 | Document | Purpose | When to Use |
 |----------|---------|-------------|
 | **QWEN.md** | Project context, memories, setup | Starting session, need project info |
+| **README.md** | Project overview and getting started | New contributor onboarding |
+| **CONSOLIDATED_DOCUMENTATION.md** | Comprehensive technical overview | Deep technical understanding |
 | **FEATURES.md** | Feature catalog (Features 1-16 completed) | Reference existing features, plan new ones |
 | **FEATURE_*.md** | Deep-dive specs | Implementation details, debugging |
 | **LAZY_*.md** | Lazy loading architecture | Audio optimization work |
