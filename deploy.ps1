@@ -114,6 +114,8 @@ $DOWNLOAD_MANAGER_PATTERN = 'download_manager\.js(\?v=\d+)?'
 $SW_VERSION_PATTERN = 'sw\.js(\?v=\d+)?'
 $SW_REGISTER_PATTERN = 'sw-register\.js(\?v=\d+)?'
 $MARTINEZ_PATTERN = 'martinez\.min\.js(\?v=\d+)?'
+$SOUND_LIBRARY_JS_PATTERN = 'sound_library\.js(\?v=\d+)?'
+$SOUND_LIBRARY_CSS_PATTERN = 'sound_library\.css(\?v=\d+)?'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -210,6 +212,20 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (martinez.min.js)" -ForegroundColor Green
         }
+
+        # Update sound_library.js version
+        if ($content -match $SOUND_LIBRARY_JS_PATTERN) {
+            $content = $content -replace $SOUND_LIBRARY_JS_PATTERN, "sound_library.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (sound_library.js)" -ForegroundColor Green
+        }
+
+        # Update sound_library.css version
+        if ($content -match $SOUND_LIBRARY_CSS_PATTERN) {
+            $content = $content -replace $SOUND_LIBRARY_CSS_PATTERN, "sound_library.css?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (sound_library.css)" -ForegroundColor Green
+        }
     }
 }
 
@@ -291,6 +307,8 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(wake_lock_helper\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(download_manager\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(martinez\.min\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(sound_library\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(sound_library\.css)"', "`${1}?v=$VERSION`""
 
         Set-Content $tempPath $content -NoNewline
         Write-Host "  Created: ${htmlFile}.deploy (v=$VERSION)" -ForegroundColor Green
@@ -327,7 +345,9 @@ $ALL_FILES = @(
     "download_manager.js",
     "map_offline.html",
     "clear_sw_cache.html",
-    "martinez.min.js"
+    "martinez.min.js",
+    "sound_library.js",
+    "sound_library.css"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow
@@ -476,6 +496,7 @@ $API_FILES = @(
     "middleware/rateLimiter.js",
     "routes/auth.js",
     "routes/soundscapes.js",
+    "routes/sounds.js",
     "scripts/cleanup-users.js",
     "scripts/test-base-repository.js",
     "scripts/test-domain-models.js",
@@ -485,10 +506,12 @@ $API_FILES = @(
     "repositories/BehaviorRepository.js",
     "repositories/SoundScapeRepository.js",
     "repositories/AreaRepository.js",
+    "repositories/SoundRepository.js",
     "models/SoundScape.js",
     "models/Waypoint.js",
     "models/Behavior.js",
-    "models/Area.js"
+    "models/Area.js",
+    "models/Sound.js"
 )
 
 $apiPath = Join-Path $LOCAL_PATH "api"
@@ -602,22 +625,29 @@ Write-Host "Cache-Busting Version: $VERSION" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Running database migrations (if needed)..." -ForegroundColor Cyan
 
-# Copy migration file to server and run it
-$migrationFile = Join-Path $LOCAL_PATH "api\migrations\003_create_areas_table.sql"
-if (Test-Path $migrationFile) {
+# Get all migration files and run them in order
+$migrationPath = Join-Path $LOCAL_PATH "api\migrations"
+$migrationFiles = Get-ChildItem -Path $migrationPath -Filter "*.sql" | Sort-Object Name
+
+foreach ($migrationFile in $migrationFiles) {
+    Write-Host "   Running migration: $($migrationFile.Name)..." -NoNewline
+    
     # Copy to server temp location
-    & scp "$migrationFile" "${SERVER_USER}@${SERVER_HOST}:/tmp/003_create_areas_table.sql" 2>$null
+    $tempPath = "/tmp/$($migrationFile.Name)"
+    & scp $migrationFile.FullName "${SERVER_USER}@${SERVER_HOST}:$tempPath" 2>$null
+
+    # Run migration
+    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -f $tempPath 2>&1"
     
-    # Run migration and grant permissions
-    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -f /tmp/003_create_areas_table.sql 2>&1"
-    
-    # Grant permissions to user
-    & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -c 'GRANT ALL PRIVILEGES ON TABLE areas TO $SERVER_USER;' 2>&1" | Out-Null
-    
-    Write-Host "   ✅ Database schema verified" -ForegroundColor Green
-} else {
-    Write-Host "   ⚠️ Migration file not found (skipping)" -ForegroundColor Yellow
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " [OK]" -ForegroundColor Green
+    } else {
+        Write-Host " [FAILED]" -ForegroundColor Red
+        Write-Host "   Error: $migrationResult" -ForegroundColor Red
+    }
 }
+
+Write-Host "   ✅ Database migrations completed" -ForegroundColor Green
 Write-Host ""
 Write-Host "Test URLs (hard refresh to bypass browser cache):" -ForegroundColor Cyan
 Write-Host "   Landing Page:       http://ssykes.net/index.html" -ForegroundColor White

@@ -292,25 +292,46 @@ class SoundLibrary {
         // Initialize FilePond
         this.filePond = FilePond.create(pondElement, {
             acceptedFileTypes: [
-                'audio/*',
-                'video/mp4',
-                'application/octet-stream'
+                'audio/mp3',
+                'audio/wav',
+                'audio/ogg',
+                'audio/m4a',
+                'audio/flac',
+                'audio/aac',
+                'audio/opus'
             ],
             maxFileSize: '50MB',
+            maxTotalFileSize: '100MB',
             allowMultiple: true,
             labelIdle: 'Drag & drop sound files or <span class="filepond--label-action">Browse</span>',
-            
+            labelMaxFileSizeExceeded: 'File is too large',
+            labelMaxFileSize: 'Maximum file size is 50MB',
+            labelTapToCancel: 'Tap to cancel',
+            labelTapToRetry: 'Tap to retry',
+            labelTapToUndo: 'Tap to undo',
+            labelButtonRemoveItem: 'Remove',
+            labelButtonAbortItemLoad: 'Abort',
+            labelFileProcessing: 'Uploading...',
+            labelFileProcessingComplete: 'Upload complete',
+            labelFileProcessingAborted: 'Upload cancelled',
+            labelFileProcessingError: 'Upload error',
+            labelFileTypeNotAllowed: 'Invalid file type',
+            fileValidateTypeLabelExpectedTypes: 'Accepts {allTypes}',
+            onpreparefile: (file, output) => {
+                // Optional: Add preprocessing validation
+                console.log('[SoundLibrary] Preparing file:', file.filename);
+            },
             // Server upload with proper error handling (P1 fix)
             server: {
                 process: (fieldName, file, metadata, load, error, progress) => {
                     // Create FormData
                     const formData = new FormData();
                     formData.append(fieldName, file);
-                    
+
                     // Track upload state
                     let uploaded = 0;
                     let uploadComplete = false;
-                    
+
                     // Perform upload
                     fetch(`${this.apiBaseUrl}/sounds/upload`, {
                         method: 'POST',
@@ -324,21 +345,21 @@ class SoundLibrary {
                     })
                     .then(soundMetadata => {
                         uploadComplete = true;
-                        
+
                         // P1 fix: Only add to sounds array AFTER successful upload
                         this._addFile(soundMetadata);
-                        
+
                         // Return file ID to FilePond
                         load(soundMetadata.id);
                     })
                     .catch(err => {
                         console.error('[SoundLibrary] Upload error:', err);
-                        
+
                         // P1 fix: Report error to FilePond and app
                         error(err.message);
                         this.onError(err);
                     });
-                    
+
                     // Return abort function
                     return {
                         abort: () => {
