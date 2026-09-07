@@ -16,6 +16,7 @@ class Waypoint {
         lat,
         lon,
         soundUrl,
+        soundId,
         volume = 0.8,
         loop = true,
         activationRadius = 20,
@@ -35,6 +36,7 @@ class Waypoint {
         this.lat = lat;
         this.lon = lon;
         this.soundUrl = soundUrl;
+        this.soundId = soundId;
         this.volume = volume;
         this.loop = loop;
         this.activationRadius = activationRadius;
@@ -62,6 +64,7 @@ class Waypoint {
             row.lat,
             row.lon,
             row.sound_url,
+            row.sound_id,
             row.volume ?? 0.8,
             row.loop ?? true,
             row.activation_radius ?? 20,
@@ -90,6 +93,7 @@ class Waypoint {
             json.lat,
             json.lon,
             json.soundUrl || json.sound_url,
+            json.soundId || json.sound_id,
             json.volume ?? 0.8,
             json.loop ?? true,
             json.activationRadius || json.activation_radius || 20,
@@ -117,6 +121,7 @@ class Waypoint {
             lat: this.lat,
             lon: this.lon,
             sound_url: this.soundUrl,
+            sound_id: this.soundId,
             volume: this.volume,
             loop: this.loop,
             activation_radius: this.activationRadius,
@@ -144,6 +149,7 @@ class Waypoint {
             lat: this.lat,
             lon: this.lon,
             soundUrl: this.soundUrl,
+            soundId: this.soundId,
             volume: this.volume,
             loop: this.loop,
             activationRadius: this.activationRadius,

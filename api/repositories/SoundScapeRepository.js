@@ -99,9 +99,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.type || 'file', wp.volume ?? 0.8,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.soundId, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
            wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
         );
@@ -180,9 +180,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.type || 'file', wp.volume ?? 0.8,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_url, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
+          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundUrl, wp.soundId, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
            wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
         );

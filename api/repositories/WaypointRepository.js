@@ -62,6 +62,7 @@ class WaypointRepository extends BaseRepository {
         lat: wp.lat,
         lon: wp.lon,
         soundUrl: wp.soundUrl,
+        soundId: wp.soundId,
         volume: wp.volume ?? 0.8,
         loop: wp.loop ?? true,
         activationRadius: wp.activationRadius || 20,

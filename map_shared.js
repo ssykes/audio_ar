@@ -863,6 +863,18 @@ class MapAppShared {
      */
     _createPopupContent(waypoint) {
         if (this.showDetailedInfo) {
+            // Determine sound display name
+            let soundDisplay = 'No sound';
+            if (waypoint.soundUrl) {
+                // Extract filename from URL
+                const filename = waypoint.soundUrl.split('/').pop();
+                soundDisplay = filename || 'Custom sound';
+            } else if (waypoint.soundId) {
+                // If we have a soundId, try to get the name from the sound library
+                const sound = this.soundLibrary ? this.soundLibrary.findSoundById(waypoint.soundId) : null;
+                soundDisplay = sound ? sound.name : `Sound ID: ${waypoint.soundId}`;
+            }
+
             return `
                 <div style="min-width: 200px;">
                     <h3 style="margin: 0 0 10px 0;">
@@ -872,10 +884,11 @@ class MapAppShared {
                     <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
                         <div>📍 ${waypoint.lat.toFixed(5)}, ${waypoint.lon.toFixed(5)}</div>
                         <div>🔊 Radius: ${waypoint.activationRadius}m</div>
-                        <div>🎵 Sound: ${waypoint.soundUrl.split('/').pop()}</div>
+                        <div>🎵 Sound: ${soundDisplay}</div>
                     </div>
                     <div style="display: flex; gap: 5px;">
                         <button onclick="event.stopPropagation(); app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
+                        <button onclick="event.stopPropagation(); app._openSoundLibraryForWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">🔊 Change Sound</button>
                         <button onclick="event.stopPropagation(); app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
                     </div>
                 </div>
@@ -1723,6 +1736,112 @@ class MapAppShared {
      */
     _showInstruction(message) {
         this._showToast(message, 'info');
+    }
+
+    /**
+     * Open Sound Library specifically for assigning a sound to a waypoint
+     * @param {string} waypointId - The waypoint to assign a sound to
+     * @protected
+     */
+    _openSoundLibraryForWaypoint(waypointId) {
+        if (!this.soundLibrary) {
+            console.error('[MapAppShared] SoundLibrary not initialized');
+            this._showToast('❌ Sound Library not available', 'error');
+            return;
+        }
+
+        // Set the current waypoint for assignment
+        this.currentWaypointForSoundAssignment = waypointId;
+
+        // Open the sound library
+        this.soundLibrary.open();
+        this.debugLog(`📁 Opening Sound Library for waypoint assignment: ${waypointId}`);
+    }
+
+    /**
+     * Handle sound assignment from Sound Library
+     * @param {string} soundId - ID of assigned sound
+     * @param {string} [waypointId] - Target waypoint ID (optional, can use currentWaypointForSoundAssignment)
+     * @protected
+     */
+    _onSoundAssigned(soundId, waypointId) {
+        // Use provided waypointId or fall back to current assignment target
+        const targetWaypointId = waypointId || this.currentWaypointForSoundAssignment;
+        
+        if (!targetWaypointId) {
+            console.error('[MapAppShared] No waypoint specified for sound assignment');
+            this._showToast('❌ No waypoint selected for assignment', 'error');
+            return;
+        }
+
+        // Find the waypoint
+        const waypoint = this._getWaypointById(targetWaypointId);
+        if (!waypoint) {
+            console.error('[MapAppShared] Waypoint not found:', targetWaypointId);
+            this._showToast('❌ Waypoint not found', 'error');
+            return;
+        }
+
+        // Find the sound in our sounds library
+        const sound = this.soundLibrary.findSoundById(soundId);
+        if (!sound) {
+            console.error('[MapAppShared] Sound not found:', soundId);
+            this.soundLibrary.onError(new Error('Sound not found'));
+            return;
+        }
+
+        // Get the sound URL from Sound Library
+        let soundUrl = sound.source.url || '/sounds/default.mp3';  // default local file
+
+        // Verify URL format
+        if (!soundUrl.match(/^https?:\/\//)) {
+            console.warn('[SoundLibrary] URL missing protocol, prepending http://');
+            soundUrl = 'http://' + soundUrl;
+        }
+
+        this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
+
+        // Update the waypoint with the new sound
+        waypoint.soundId = soundId;
+        waypoint.soundUrl = soundUrl;  // Keep for backward compatibility
+
+        // Update audio config for playback later
+        if (waypoint.audio) {
+            waypoint.audio.setSoundUrl(soundUrl);
+        }
+
+        // Save the updated waypoint
+        this._saveWaypoint(waypoint);
+
+        // Refresh the popup to show the new sound
+        this._refreshWaypointPopup(targetWaypointId);
+
+        // Show success message
+        this._showToast(`✅ Sound "${sound.name}" assigned to "${waypoint.name}"`, 'success');
+
+        // Clear the current assignment target
+        this.currentWaypointForSoundAssignment = null;
+
+        // Close the sound library modal
+        this.soundLibrary.close();
+    }
+
+    /**
+     * Refresh waypoint popup content
+     * @param {string} waypointId - Waypoint ID to update
+     * @protected
+     */
+    _refreshWaypointPopup(waypointId) {
+        const waypoint = this._getWaypointById(waypointId);
+        if (!waypoint) return;
+
+        // Update the popup content for this waypoint
+        const marker = this._getMarkerById(waypointId);
+        if (marker) {
+            marker.closePopup();
+            marker.bindPopup(this._createPopupContent(waypoint));
+            marker.openPopup();
+        }
     }
 }
 

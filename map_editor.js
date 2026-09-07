@@ -55,6 +55,22 @@ class MapEditorApp extends MapAppShared {
             await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
         }
 
+        // Initialize SoundLibrary component
+        this.soundLibrary = new SoundLibrary({
+            apiBaseUrl: window.API_BASE_URL || '/api',
+            onSoundAssign: (soundId, waypointId) => {
+                this._onSoundAssigned(soundId, waypointId);
+            },
+            onError: (error) => {
+                console.error('[SoundLibrary Error]', error);
+                // Only show toast if it's a user-actionable error
+                if (error.message && !error.message.includes('Network request failed')) {
+                    this._showToast(`❌ ${error.message}`, 'error');
+                }
+            },
+            sounds: []  // Start with empty array - will load from server or use mock
+        });
+
         // Check for "new soundscape" mode from query parameter
         this.isNewSoundscapeMode = this._checkNewSoundscapeMode();
 
@@ -1721,6 +1737,98 @@ class MapEditorApp extends MapAppShared {
     }
 
     /**
+     * Open Sound Library component
+     */
+    async _openSoundLibrary() {
+        this.debugLog('📁 Opening Sound Library...');
+        
+        // Load sounds from Sound Library
+        await this.soundLibrary.load();
+        
+        // Show library modal
+        this.soundLibrary.show();
+    }
+
+    /**
+     * Handle sound assignment from Sound Library to waypoint
+     */
+    _onSoundAssigned(soundId, waypointId) {
+        this.debugLog(`🔖 Assigning sound "${soundId}" to waypoint "${waypointId}"`);
+
+        let waypoint = this._getWaypointById(waypointId);
+        if (!waypoint) {
+            console.warn('[MapEditor] Waypoint not found:', waypointId);
+            return;
+        } else if (!waypoint.soundUrl && waypoint.id !== waypointId) {
+            // Sound was assigned to a different ID due to reload
+            this._onSoundAssigned(soundId, waypoint.id);
+            return;
+        }
+
+        // Find the sound in our sounds library
+        const sound = this.soundLibrary.findSoundById(soundId);
+        if (!sound) {
+            console.error('[MapEditor] Sound not found:', soundId);
+            this.soundLibrary.onError(new Error('Sound not found'));
+            return;
+        }
+
+        // Get the sound URL from Sound Library
+        let soundUrl = sound.source.url || '/sounds/default.mp3';  // default local file
+
+        // Verify URL format
+        if (!soundUrl.match(/^https?:\/\//)) {
+            console.warn('[SoundLibrary] URL missing protocol, prepending http://');
+            soundUrl = 'http://' + soundUrl;
+        }
+
+        this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
+
+        // Update the waypoint with both soundId and soundUrl for compatibility
+        waypoint.soundId = soundId;
+        waypoint.soundUrl = soundUrl;
+
+        // Update audio config for playback later
+        if (waypoint.audio) {
+            const audioConfig = {
+                id: soundId,
+                url: soundUrl,
+                loop: sound.source.loop || false,
+                type: sound.source.type || 'buffer',
+                oscillatorType: sound.oscillatorType || 'sine',
+                frequency: sound.frequency || 440,
+                detune: sound.detune || 0,
+                volume: waypoint.volume > 0.1 ? waypoint.volume : 1.0  // Only set if not muted
+            };
+
+            waypoint.audio = audioConfig;
+            this.debugLog(`🎵 Audio config updated for waypoint`);
+        }
+
+        // Mark as modified
+        this._markSoundscapeDirty();
+
+        // Refresh UI with new info shown (no scroll)
+        this._refreshWaypointList(waypoint.id, false);
+
+        // Reload soundscape data from server or persist locally
+        if (this.isLoggedIn) {
+            this.api.saveWaypoints(this.activeSoundscapeId).then(() => {
+                this.debugLog('✅ Saved to server');
+            }).catch(err => {
+                console.error('[Save Error]', err);
+            });
+        } else {
+            // Not logged in - persist locally
+            this._saveSoundscapeToStorage();
+        }
+
+        // Call parent method to refresh popup and show success message
+        // Use call to ensure correct context
+        MapAppShared.prototype._onSoundAssigned.call(this, soundId, waypointId);
+    }
+
+    /**
      * Update sync status indicator
      * @param {boolean} isSynced - Whether server is in sync
      * @private
@@ -2044,6 +2152,11 @@ debugCopyBtn.addEventListener('click', (e) => {
 // Sync from Server
 document.getElementById('syncFromServerBtn').addEventListener('click', () => {
     app._syncFromServer();
+});
+
+// Sound Library
+document.getElementById('soundLibraryBtn').addEventListener('click', async () => {
+    app._openSoundLibrary();
 });
 
 // Clear All
