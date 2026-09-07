@@ -1,5 +1,6 @@
 -- Audio AR Database Schema
 -- Supports multi-user workspaces with soundscapes and waypoints
+-- Updated to reflect all migrations including sound library implementation
 
 -- Enable UUID extension for better IDs
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -24,6 +25,21 @@ CREATE TABLE soundscapes (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Sounds table (sound library for user sounds)
+CREATE TABLE sounds (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL DEFAULT 'file', -- 'file', 'url', 'oscillator', 'noise', 'recording'
+    filepath VARCHAR(512),                   -- For file type
+    url TEXT,                                -- For URL type
+    config_json JSONB NOT NULL DEFAULT '{}', -- For oscillator/noise configs
+    file_size BIGINT,                        -- File size in bytes
+    duration DOUBLE PRECISION,               -- Duration in seconds
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Waypoints table (sounds in each soundscape)
 CREATE TABLE waypoints (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -31,7 +47,7 @@ CREATE TABLE waypoints (
     name VARCHAR(255) NOT NULL DEFAULT 'Sound',
     lat DOUBLE PRECISION NOT NULL,
     lon DOUBLE PRECISION NOT NULL,
-    sound_url VARCHAR(512) NOT NULL,
+    sound_id UUID REFERENCES sounds(id) ON DELETE SET NULL,  -- Foreign key to sounds table
     type VARCHAR(50) DEFAULT 'file',
     volume DOUBLE PRECISION DEFAULT 0.8,
     loop BOOLEAN DEFAULT true,
@@ -46,7 +62,7 @@ CREATE TABLE waypoints (
 -- Behaviors table (optional: for tempo_sync, time_sync, etc.)
 CREATE TABLE behaviors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    soundscape_id UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,
+    soundscape_id UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,   
     type VARCHAR(50) NOT NULL,
     member_ids UUID[] NOT NULL,  -- Array of waypoint IDs
     config_json JSONB NOT NULL DEFAULT '{}',
@@ -57,10 +73,10 @@ CREATE TABLE behaviors (
 -- Areas table (sound polygons in each soundscape)
 CREATE TABLE areas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    soundscape_id UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,
+    soundscape_id UUID NOT NULL REFERENCES soundscapes(id) ON DELETE CASCADE,   
     name VARCHAR(255) NOT NULL DEFAULT 'Area',
     polygon JSONB NOT NULL,  -- [{lat, lng}, ...]
-    sound_url VARCHAR(512),
+    sound_id UUID REFERENCES sounds(id) ON DELETE SET NULL,  -- Foreign key to sounds table
     type VARCHAR(50) DEFAULT 'file',
     volume DOUBLE PRECISION DEFAULT 0.8,
     loop BOOLEAN DEFAULT true,
@@ -77,8 +93,11 @@ CREATE TABLE areas (
 -- Create indexes for performance
 CREATE INDEX idx_soundscapes_user_id ON soundscapes(user_id);
 CREATE INDEX idx_waypoints_soundscape_id ON waypoints(soundscape_id);
+CREATE INDEX idx_waypoints_sound_id ON waypoints(sound_id);  -- Index for sound lookups
 CREATE INDEX idx_behaviors_soundscape_id ON behaviors(soundscape_id);
 CREATE INDEX idx_areas_soundscape_id ON areas(soundscape_id);
+CREATE INDEX idx_areas_sound_id ON areas(sound_id);  -- Index for sound lookups
+CREATE INDEX idx_sounds_user_id ON sounds(user_id);  -- Index for user's sounds
 CREATE INDEX idx_users_email ON users(email);
 
 -- Create updated_at trigger function
@@ -94,7 +113,7 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_soundscapes_updated_at BEFORE UPDATE ON soundscapes
+CREATE TRIGGER update_soundscapes_updated_at BEFORE UPDATE ON soundscapes       
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_waypoints_updated_at BEFORE UPDATE ON waypoints
@@ -105,5 +124,5 @@ CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas
 
 -- Grant permissions to audio_ar_user
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO audio_ar_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO audio_ar_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO audio_ar_user;        
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO audio_ar_user;
