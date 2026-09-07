@@ -14,7 +14,6 @@ class Area {
         soundscapeId,
         name,
         polygon,           // [{lat, lng}, ...]
-        soundUrl,
         soundId,
         volume = 0.8,
         loop = true,
@@ -35,7 +34,6 @@ class Area {
         this.soundscapeId = soundscapeId;
         this.name = name;
         this.polygon = polygon;
-        this.soundUrl = soundUrl;
         this.soundId = soundId;
         this.volume = volume;
         this.loop = loop;
@@ -67,7 +65,6 @@ class Area {
             row.soundscape_id,
             row.name,
             polygon,
-            row.sound_url,
             row.sound_id,
             row.volume ?? 0.8,
             row.loop ?? true,
@@ -97,7 +94,6 @@ class Area {
             json.soundscapeId || json.soundscape_id,
             json.name,
             json.polygon,
-            json.soundUrl || json.sound_url,
             json.soundId || json.sound_id,
             json.volume ?? 0.8,
             json.loop ?? true,
@@ -142,12 +138,10 @@ class Area {
             gain: this.gain
         };
 
-        // Include sound_id if it exists (primary approach)
+        // Include sound_id if it exists
         if (this.soundId) {
             row.sound_id = this.soundId;
         }
-        // NOTE: sound_url column has been removed from the database
-        // Any legacy soundUrl values should be migrated to soundId through the application
 
         return row;
     }
@@ -162,7 +156,6 @@ class Area {
             soundscapeId: this.soundscapeId,
             name: this.name,
             polygon: this.polygon,
-            soundUrl: this.soundUrl,
             soundId: this.soundId,
             volume: this.volume,
             loop: this.loop,

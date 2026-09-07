@@ -15,7 +15,6 @@ class Waypoint {
         name,
         lat,
         lon,
-        soundUrl,
         soundId,
         volume = 0.8,
         loop = true,
@@ -35,7 +34,6 @@ class Waypoint {
         this.name = name;
         this.lat = lat;
         this.lon = lon;
-        this.soundUrl = soundUrl;
         this.soundId = soundId;
         this.volume = volume;
         this.loop = loop;
@@ -63,7 +61,6 @@ class Waypoint {
             row.name,
             row.lat,
             row.lon,
-            row.sound_url,
             row.sound_id,
             row.volume ?? 0.8,
             row.loop ?? true,
@@ -92,7 +89,6 @@ class Waypoint {
             json.name,
             json.lat,
             json.lon,
-            json.soundUrl || json.sound_url,
             json.soundId || json.sound_id,
             json.volume ?? 0.8,
             json.loop ?? true,
@@ -134,12 +130,10 @@ class Waypoint {
             gain: this.gain
         };
 
-        // Include sound_id if it exists (primary approach)
+        // Include sound_id if it exists
         if (this.soundId) {
             row.sound_id = this.soundId;
         }
-        // NOTE: sound_url column has been removed from the database
-        // Any legacy soundUrl values should be migrated to soundId through the application
 
         return row;
     }
@@ -155,7 +149,6 @@ class Waypoint {
             name: this.name,
             lat: this.lat,
             lon: this.lon,
-            soundUrl: this.soundUrl,
             soundId: this.soundId,
             volume: this.volume,
             loop: this.loop,
