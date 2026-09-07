@@ -125,9 +125,9 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < areas.length; i++) {
         const area = areas[i];
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
-          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.type || 'file', area.volume ?? 0.8,
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.soundId, area.type || 'file', area.volume ?? 0.8,
            area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i,
            area.waveform ?? 'sine', area.frequency ?? 440, area.detune ?? 0, area.gain ?? 0.5]
         );
@@ -208,6 +208,7 @@ class SoundScapeRepository extends BaseRepository {
         console.log(`[SoundScapeRepository] Area ${i}:`, JSON.stringify({
           name: area.name,
           soundUrl: area.soundUrl,
+          soundId: area.soundId,
           type: area.type,
           polygonVertices: area.polygon?.length,
           hasPolygon: !!area.polygon,
@@ -217,9 +218,9 @@ class SoundScapeRepository extends BaseRepository {
           gain: area.gain
         }));
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING *`,
-          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.type || 'file', area.volume ?? 0.8,
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_url, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundUrl, area.soundId, area.type || 'file', area.volume ?? 0.8,
            area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i,
            area.waveform ?? 'sine', area.frequency ?? 440, area.detune ?? 0, area.gain ?? 0.5]
         );

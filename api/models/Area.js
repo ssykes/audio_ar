@@ -15,6 +15,7 @@ class Area {
         name,
         polygon,           // [{lat, lng}, ...]
         soundUrl,
+        soundId,
         volume = 0.8,
         loop = true,
         fadeZoneWidth = 5.0,
@@ -35,6 +36,7 @@ class Area {
         this.name = name;
         this.polygon = polygon;
         this.soundUrl = soundUrl;
+        this.soundId = soundId;
         this.volume = volume;
         this.loop = loop;
         this.fadeZoneWidth = fadeZoneWidth;
@@ -66,6 +68,7 @@ class Area {
             row.name,
             polygon,
             row.sound_url,
+            row.sound_id,
             row.volume ?? 0.8,
             row.loop ?? true,
             row.fade_zone_width ?? 5.0,
@@ -95,6 +98,7 @@ class Area {
             json.name,
             json.polygon,
             json.soundUrl || json.sound_url,
+            json.soundId || json.sound_id,
             json.volume ?? 0.8,
             json.loop ?? true,
             json.fadeZoneWidth ?? json.fade_zone_width ?? 5.0,
@@ -123,6 +127,7 @@ class Area {
             name: this.name,
             polygon: JSON.stringify(this.polygon),
             sound_url: this.soundUrl,
+            sound_id: this.soundId,
             volume: this.volume,
             loop: this.loop,
             fade_zone_width: this.fadeZoneWidth,
@@ -151,6 +156,7 @@ class Area {
             name: this.name,
             polygon: this.polygon,
             soundUrl: this.soundUrl,
+            soundId: this.soundId,
             volume: this.volume,
             loop: this.loop,
             fadeZoneWidth: this.fadeZoneWidth,

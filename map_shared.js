@@ -1843,6 +1843,107 @@ class MapAppShared {
             marker.openPopup();
         }
     }
+
+    /**
+     * Get area by ID
+     * @param {string} areaId - Area ID to find
+     * @returns {Object|null} Area object or null if not found
+     * @protected
+     */
+    _getAreaById(areaId) {
+        const soundscape = this.getActiveSoundscape();
+        if (!soundscape) return null;
+
+        // Try to use soundscape's method if available, otherwise use direct access
+        const areas = soundscape.getAreas ? soundscape.getAreas() : soundscape.areas || [];
+        return areas.find(area => area.id === areaId) || null;
+    }
+
+    /**
+     * Update area with new sound assignment
+     * @param {string} soundId - ID of assigned sound
+     * @param {string} areaId - Target area ID
+     * @protected
+     */
+    _onAreaSoundAssigned(soundId, areaId) {
+        // Find the area
+        const area = this._getAreaById(areaId);
+        if (!area) {
+            console.error('[MapAppShared] Area not found:', areaId);
+            this._showToast('❌ Area not found', 'error');
+            return;
+        }
+
+        // Find the sound in our sounds library
+        const sound = this.soundLibrary.findSoundById(soundId);
+        if (!sound) {
+            console.error('[MapAppShared] Sound not found:', soundId);
+            this.soundLibrary.onError(new Error('Sound not found'));
+            return;
+        }
+
+        // Get the sound URL from Sound Library
+        let soundUrl = sound.source.url || '/sounds/default.mp3';  // default local file
+
+        // Verify URL format
+        if (!soundUrl.match(/^https?:\/\//)) {
+            console.warn('[SoundLibrary] URL missing protocol, prepending http://');
+            soundUrl = 'http://' + soundUrl;
+        }
+
+        this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
+
+        // Update the area with the new sound
+        area.soundId = soundId;
+        area.soundUrl = soundUrl;  // Keep for backward compatibility
+
+        // Save the updated area
+        this._saveArea(area);
+
+        // Show success message
+        this._showToast(`✅ Sound "${sound.name}" assigned to "${area.name}"`, 'success');
+
+        // Close the sound library modal
+        this.soundLibrary.close();
+    }
+
+    /**
+     * Save updated area to the server or local storage
+     * @param {Object} area - Updated area object
+     * @protected
+     */
+    _saveArea(area) {
+        // Mark as modified
+        this._markSoundscapeDirty();
+
+        // Reload soundscape data from server or persist locally
+        if (this.isLoggedIn) {
+            // Use saveSoundscape which saves waypoints, areas, and behaviors
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                const cleanWaypoints = (soundscape.getWaypoints ? soundscape.getWaypoints() : this.waypoints).map(wp => {
+                    const { _leafletLayer, ...cleanWp } = wp;
+                    return cleanWp;
+                });
+                
+                const behaviors = soundscape.getBehaviors ? soundscape.getBehaviors() : [];
+                
+                const cleanAreas = (soundscape.getAreas ? soundscape.getAreas() : soundscape.areas || []).map(area => {
+                    const { _leafletLayer, ...cleanArea } = area;
+                    return cleanArea;
+                });
+
+                this.api.saveSoundscape(this.activeSoundscapeId, cleanWaypoints, behaviors, cleanAreas).then(() => {
+                    this.debugLog('✅ Area saved to server');
+                }).catch(err => {
+                    console.error('[Save Error]', err);
+                });
+            }
+        } else {
+            // Not logged in - persist locally
+            this._saveSoundscapeToStorage();
+        }
+    }
 }
 
 console.log('[map_shared.js] MapAppShared base class loaded');

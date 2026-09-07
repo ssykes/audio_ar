@@ -1741,25 +1741,51 @@ class MapEditorApp extends MapAppShared {
      */
     async _openSoundLibrary() {
         this.debugLog('📁 Opening Sound Library...');
-        
+
         // Load sounds from Sound Library
         await this.soundLibrary.load();
-        
+
         // Show library modal
         this.soundLibrary.show();
     }
 
     /**
-     * Handle sound assignment from Sound Library to waypoint
+     * Open Sound Library specifically for assigning a sound to an area
+     * @param {string} areaId - The area to assign a sound to
+     * @protected
      */
-    _onSoundAssigned(soundId, waypointId) {
-        this.debugLog(`🔖 Assigning sound "${soundId}" to waypoint "${waypointId}"`);
-
-        let waypoint = this._getWaypointById(waypointId);
-        if (!waypoint) {
-            console.warn('[MapEditor] Waypoint not found:', waypointId);
+    _openSoundLibraryForArea(areaId) {
+        if (!this.soundLibrary) {
+            console.error('[MapEditor] SoundLibrary not initialized');
+            this._showToast('❌ Sound Library not available', 'error');
             return;
-        } else if (!waypoint.soundUrl && waypoint.id !== waypointId) {
+        }
+
+        // Set the current area for assignment
+        this.currentAreaForSoundAssignment = areaId;
+
+        // Open the sound library
+        this.soundLibrary.open();
+        this.debugLog(`📁 Opening Sound Library for area assignment: ${areaId}`);
+    }
+
+    /**
+     * Handle sound assignment from Sound Library to waypoint or area
+     */
+    _onSoundAssigned(soundId, itemId, itemType = 'waypoint') {
+        if (itemType === 'area') {
+            this.debugLog(`🔖 Assigning sound "${soundId}" to area "${itemId}"`);
+            this._onAreaSoundAssigned(soundId, itemId);
+            return;
+        }
+
+        this.debugLog(`🔖 Assigning sound "${soundId}" to waypoint "${itemId}"`);
+
+        let waypoint = this._getWaypointById(itemId);
+        if (!waypoint) {
+            console.warn('[MapEditor] Waypoint not found:', itemId);
+            return;
+        } else if (!waypoint.soundUrl && waypoint.id !== itemId) {
             // Sound was assigned to a different ID due to reload
             this._onSoundAssigned(soundId, waypoint.id);
             return;
@@ -1825,7 +1851,110 @@ class MapEditorApp extends MapAppShared {
 
         // Call parent method to refresh popup and show success message
         // Use call to ensure correct context
-        MapAppShared.prototype._onSoundAssigned.call(this, soundId, waypointId);
+        MapAppShared.prototype._onSoundAssigned.call(this, soundId, itemId);
+    }
+
+    /**
+     * Handle sound assignment from Sound Library to area
+     */
+    _onAreaSoundAssigned(soundId, areaId) {
+        // Find the area
+        const area = this._getAreaById(areaId);
+        if (!area) {
+            console.error('[MapEditor] Area not found:', areaId);
+            this._showToast('❌ Area not found', 'error');
+            return;
+        }
+
+        // Find the sound in our sounds library
+        const sound = this.soundLibrary.findSoundById(soundId);
+        if (!sound) {
+            console.error('[MapEditor] Sound not found:', soundId);
+            this.soundLibrary.onError(new Error('Sound not found'));
+            return;
+        }
+
+        // Get the sound URL from Sound Library
+        let soundUrl = sound.source.url || '/sounds/default.mp3';  // default local file
+
+        // Verify URL format
+        if (!soundUrl.match(/^https?:\/\//)) {
+            console.warn('[SoundLibrary] URL missing protocol, prepending http://');
+            soundUrl = 'http://' + soundUrl;
+        }
+
+        this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
+
+        // Update the area with the new sound
+        area.soundId = soundId;
+        area.soundUrl = soundUrl;  // Keep for backward compatibility
+
+        // Update audio config for playback later if area has audio
+        if (area.audio) {
+            const audioConfig = {
+                id: soundId,
+                url: soundUrl,
+                loop: sound.source.loop || false,
+                type: sound.source.type || 'buffer',
+                oscillatorType: sound.oscillatorType || 'sine',
+                frequency: sound.frequency || 440,
+                detune: sound.detune || 0,
+                volume: area.volume > 0.1 ? area.volume : 1.0  // Only set if not muted
+            };
+
+            area.audio = audioConfig;
+            this.debugLog(`🎵 Audio config updated for area`);
+        }
+
+        // Save the updated area
+        this._saveArea(area);
+
+        // Refresh the area list to show the new sound
+        this._refreshAreaList();
+
+        // Show success message
+        this._showToast(`✅ Sound "${sound.name}" assigned to "${area.name}"`, 'success');
+
+        // Close the sound library modal
+        this.soundLibrary.close();
+    }
+
+    /**
+     * Save updated area to the server or local storage
+     * @param {Object} area - Updated area object
+     * @private
+     */
+    _saveArea(area) {
+        // Mark as modified
+        this._markSoundscapeDirty();
+
+        // Reload soundscape data from server or persist locally
+        if (this.isLoggedIn) {
+            // Use saveSoundscape which saves waypoints, areas, and behaviors
+            const soundscape = this.getActiveSoundscape();
+            if (soundscape) {
+                const cleanWaypoints = (soundscape.getWaypoints ? soundscape.getWaypoints() : this.waypoints).map(wp => {
+                    const { _leafletLayer, ...cleanWp } = wp;
+                    return cleanWp;
+                });
+                
+                const behaviors = soundscape.getBehaviors ? soundscape.getBehaviors() : [];
+                
+                const cleanAreas = (soundscape.getAreas ? soundscape.getAreas() : soundscape.areas || []).map(area => {
+                    const { _leafletLayer, ...cleanArea } = area;
+                    return cleanArea;
+                });
+
+                this.api.saveSoundscape(this.activeSoundscapeId, cleanWaypoints, behaviors, cleanAreas).then(() => {
+                    this.debugLog('✅ Area saved to server');
+                }).catch(err => {
+                    console.error('[Save Error]', err);
+                });
+            }
+        } else {
+            // Not logged in - persist locally
+            this._saveSoundscapeToStorage();
+        }
     }
 
     /**
