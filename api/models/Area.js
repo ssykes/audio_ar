@@ -121,13 +121,11 @@ class Area {
      * @returns {Object}
      */
     toRow() {
-        return {
+        const row = {
             id: this.id,
             soundscape_id: this.soundscapeId,
             name: this.name,
             polygon: JSON.stringify(this.polygon),
-            sound_url: this.soundUrl,
-            sound_id: this.soundId,
             volume: this.volume,
             loop: this.loop,
             fade_zone_width: this.fadeZoneWidth,
@@ -143,6 +141,15 @@ class Area {
             detune: this.detune,
             gain: this.gain
         };
+
+        // Include sound_id if it exists (primary approach)
+        if (this.soundId) {
+            row.sound_id = this.soundId;
+        }
+        // NOTE: sound_url column has been removed from the database
+        // Any legacy soundUrl values should be migrated to soundId through the application
+
+        return row;
     }
 
     /**
