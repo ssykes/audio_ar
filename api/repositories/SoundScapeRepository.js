@@ -98,10 +98,20 @@ class SoundScapeRepository extends BaseRepository {
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
+        
+        // Handle deprecated soundUrl field mapping to new soundId field
+        let soundIdValue = null;
+        if (wp.soundId) {
+          soundIdValue = wp.soundId;
+        } else if (wp.soundUrl) {
+          // If soundUrl is provided, try to map it to a soundId
+          soundIdValue = wp.soundUrl ? await this._getSoundIdFromUrl(wp.soundUrl) : null;
+        }
+
         const wpResult = await client.query(
           `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundId, wp.type || 'file', wp.volume ?? 0.8,
+          [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
            wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
         );
@@ -179,10 +189,21 @@ class SoundScapeRepository extends BaseRepository {
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
+        
+        // Handle deprecated soundUrl field mapping to new soundId field
+        let soundIdValue = null;
+        if (wp.soundId) {
+          soundIdValue = wp.soundId;
+        } else if (wp.soundUrl) {
+          // If soundUrl is provided, try to map it to a soundId
+          // For now, we'll use a helper function or set to null if not found
+          soundIdValue = wp.soundUrl ? await this._getSoundIdFromUrl(wp.soundUrl) : null;
+        }
+
         const wpResult = await client.query(
           `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [id, wp.name || 'Sound', wp.lat, wp.lon, wp.soundId, wp.type || 'file', wp.volume ?? 0.8,
+          [id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
            wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
            wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
         );
@@ -244,6 +265,23 @@ class SoundScapeRepository extends BaseRepository {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Async method to get sound_id from sound_url for backward compatibility
+   * @param {string} soundUrl - The URL of the sound
+   * @returns {Promise<string|null>} The corresponding sound_id or null
+   */
+  async _getSoundIdFromUrl(soundUrl) {
+    if (!soundUrl || soundUrl.trim() === '') {
+      return null;
+    }
+    
+    // Import SoundLookup here to avoid circular dependencies
+    const SoundLookup = require('../utils/SoundLookup');
+    const soundLookup = new SoundLookup(this.db);
+    
+    return await soundLookup.getSoundIdFromUrl(soundUrl);
   }
 }
 

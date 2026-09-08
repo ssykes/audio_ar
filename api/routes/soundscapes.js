@@ -103,7 +103,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.post('/:id/save', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { waypoints, behaviors, areas } = req.body;
+    let { waypoints, behaviors, areas } = req.body;
 
     console.log(`[Soundscapes] Save request for ${id}:`);
     console.log(`  - waypoints: ${waypoints?.length || 0}`);
@@ -119,6 +119,9 @@ router.post('/:id/save', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Soundscape not found' });
     }
 
+    // No need for soundUrl to soundId mapping since we're using a fresh database
+    // The client now sends soundId directly
+
     // Save waypoints, behaviors, and areas (transactional)
     const full = await repo.saveFull(id, waypoints || [], behaviors || [], areas || []);
 
@@ -133,6 +136,7 @@ router.post('/:id/save', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
 
 // Get soundscape last modified timestamp (Session 5E: Lightweight sync check)
 router.get('/:id/modified', authenticateToken, async (req, res) => {

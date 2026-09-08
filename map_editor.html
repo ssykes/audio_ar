@@ -1064,6 +1064,7 @@
                     </div>
                     <div class="advanced-settings-content" id="advancedSettingsContent">
                         <div class="advanced-settings-toolbar">
+                            <button class="btn-text-list" id="soundLibraryBtn">Sound Library</button>
                             <button class="btn-text-list" id="syncFromServerBtn">Sync from Server</button>
                             <button class="btn-text-list" id="btnImport">Import Soundscape</button>
                             <button class="btn-text-list" id="btnExport">Export Soundscape</button>
@@ -1265,9 +1266,14 @@
         }
     </script>
 
+    <!-- External Libraries -->
+    <script src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
+    <script src="https://unpkg.com/filepond/dist/filepond.js"></script>
+    
     <!-- Internal Scripts (with cache-busting versions) -->
     <script src="api-client.js"></script>
     <script src="soundscape.js"></script>
+    <script src="sound_library.js"></script>
     <script src="martinez.min.js"></script>
     <script src="spatial_audio.js"></script>
     <script src="spatial_audio_app.js"></script>

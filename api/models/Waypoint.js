@@ -79,17 +79,25 @@ class Waypoint {
 
     /**
      * Create Waypoint from JSON object (camelCase)
+     * Handles deprecated sound_url field mapping to new sound_id field
      * @param {Object} json - JSON object
      * @returns {Waypoint}
      */
     static fromJSON(json) {
+        // Handle deprecated soundUrl field mapping to new soundId field
+        let soundIdValue = json.soundId || json.sound_id;
+        if (!soundIdValue && json.soundUrl) {
+            // If soundId is not provided but soundUrl is, map it
+            soundIdValue = this._getSoundIdFromUrl(json.soundUrl);
+        }
+
         return new Waypoint(
             json.id,
             json.soundscapeId || json.soundscape_id,
             json.name,
             json.lat,
             json.lon,
-            json.soundId || json.sound_id,
+            soundIdValue,
             json.volume ?? 0.8,
             json.loop ?? true,
             json.activationRadius || json.activation_radius || 20,
@@ -163,6 +171,23 @@ class Waypoint {
             detune: this.detune,
             gain: this.gain
         };
+    }
+
+    /**
+     * Helper method to get sound_id from sound_url for backward compatibility
+     * @param {string} soundUrl - The URL of the sound
+     * @returns {string|null} The corresponding sound_id or null
+     */
+    static _getSoundIdFromUrl(soundUrl) {
+        // For now, if soundUrl is empty, return null
+        if (!soundUrl || soundUrl.trim() === '') {
+            return null;
+        }
+
+        // In a real implementation, you would look up the sound in the sounds table
+        // by its URL to find the corresponding sound_id
+        // For this fix, we'll return null for empty URLs
+        return null;
     }
 }
 

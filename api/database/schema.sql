@@ -122,7 +122,7 @@ CREATE TRIGGER update_waypoints_updated_at BEFORE UPDATE ON waypoints
 CREATE TRIGGER update_areas_updated_at BEFORE UPDATE ON areas
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Grant permissions to audio_ar_user
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO audio_ar_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO audio_ar_user;        
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO audio_ar_user;
+-- Grant permissions to ssykes user
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ssykes;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ssykes;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ssykes;

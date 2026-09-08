@@ -116,6 +116,11 @@ $SW_REGISTER_PATTERN = 'sw-register\.js(\?v=\d+)?'
 $MARTINEZ_PATTERN = 'martinez\.min\.js(\?v=\d+)?'
 $SOUND_LIBRARY_JS_PATTERN = 'sound_library\.js(\?v=\d+)?'
 $SOUND_LIBRARY_CSS_PATTERN = 'sound_library\.css(\?v=\d+)?'
+$CLOUDFLARE_WORKER_PATTERN = 'cloudflare-worker\.js(\?v=\d+)?'
+$DOCS_ACCURACY_CHECKER_PATTERN = 'docs_accuracy_checker\.js(\?v=\d+)?'
+$MAP_EDITOR_MOCKUP_PATTERN = 'map_editor_mockup\.js(\?v=\d+)?'
+$MAP_EDITOR_OLD_PATTERN = 'map_editor_old\.js(\?v=\d+)?'
+$MAP_EDITOR_V2_PATTERN = 'map_editor_v2\.js(\?v=\d+)?'
 
 foreach ($htmlFile in $HTML_FILES) {
     $filePath = Join-Path $LOCAL_PATH $htmlFile
@@ -226,6 +231,41 @@ foreach ($htmlFile in $HTML_FILES) {
             Set-Content $filePath $content -NoNewline
             Write-Host "  Updated: $htmlFile (sound_library.css)" -ForegroundColor Green
         }
+
+        # Update cloudflare-worker.js version
+        if ($content -match $CLOUDFLARE_WORKER_PATTERN) {
+            $content = $content -replace $CLOUDFLARE_WORKER_PATTERN, "cloudflare-worker.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (cloudflare-worker.js)" -ForegroundColor Green
+        }
+
+        # Update docs_accuracy_checker.js version
+        if ($content -match $DOCS_ACCURACY_CHECKER_PATTERN) {
+            $content = $content -replace $DOCS_ACCURACY_CHECKER_PATTERN, "docs_accuracy_checker.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (docs_accuracy_checker.js)" -ForegroundColor Green
+        }
+
+        # Update map_editor_mockup.js version
+        if ($content -match $MAP_EDITOR_MOCKUP_PATTERN) {
+            $content = $content -replace $MAP_EDITOR_MOCKUP_PATTERN, "map_editor_mockup.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_editor_mockup.js)" -ForegroundColor Green
+        }
+
+        # Update map_editor_old.js version
+        if ($content -match $MAP_EDITOR_OLD_PATTERN) {
+            $content = $content -replace $MAP_EDITOR_OLD_PATTERN, "map_editor_old.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_editor_old.js)" -ForegroundColor Green
+        }
+
+        # Update map_editor_v2.js version
+        if ($content -match $MAP_EDITOR_V2_PATTERN) {
+            $content = $content -replace $MAP_EDITOR_V2_PATTERN, "map_editor_v2.js?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (map_editor_v2.js)" -ForegroundColor Green
+        }
     }
 }
 
@@ -309,6 +349,11 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(martinez\.min\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(sound_library\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(sound_library\.css)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(cloudflare-worker\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(docs_accuracy_checker\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_editor_mockup\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_editor_old\.js)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(map_editor_v2\.js)"', "`${1}?v=$VERSION`""
 
         Set-Content $tempPath $content -NoNewline
         Write-Host "  Created: ${htmlFile}.deploy (v=$VERSION)" -ForegroundColor Green
@@ -636,8 +681,8 @@ foreach ($migrationFile in $migrationFiles) {
     $tempPath = "/tmp/$($migrationFile.Name)"
     & scp $migrationFile.FullName "${SERVER_USER}@${SERVER_HOST}:$tempPath" 2>$null
 
-    # Run migration
-    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "sudo -u postgres psql -d audio_ar -f $tempPath 2>&1"
+    # Run migration - first try without sudo (assuming postgres user has rights)
+    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "psql -U postgres -d audio_ar -f $tempPath 2>&1"
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green

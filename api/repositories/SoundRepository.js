@@ -4,6 +4,7 @@ const Sound = require('../models/Sound');
 class SoundRepository extends BaseRepository {
   constructor(db) {
     super(db, 'sounds');
+    this.table = 'sounds';
   }
 
   /**
@@ -12,11 +13,39 @@ class SoundRepository extends BaseRepository {
    * @returns {Promise<Array<Sound>>} Array of Sound instances
    */
   async getAllForUser(userId) {
-    const rows = await this.db.query(
-      `SELECT * FROM ${this.tableName} WHERE user_id = $1 ORDER BY created_at DESC`,
+    const result = await this.db.query(
+      `SELECT * FROM ${this.table} WHERE user_id = $1 ORDER BY created_at DESC`,
       [userId]
     );
+
+    // Debug: Log the result structure to understand what we're getting
+    console.log(`[SoundRepository] Query result type: ${typeof result}, isArray: ${Array.isArray(result)}`);
+    if (result && typeof result === 'object') {
+      console.log(`[SoundRepository] Result keys: ${Object.keys(result)}, has rows: ${'rows' in result}`);
+    }
     
+    // Ensure we're working with an array of rows
+    let rows;
+    if (Array.isArray(result)) {
+      rows = result;
+    } else if (result && typeof result === 'object' && 'rows' in result) {
+      // Handle pg.Pool result format
+      rows = Array.isArray(result.rows) ? result.rows : [];
+    } else if (!result) {
+      rows = [];
+    } else {
+      // If result is neither an array nor an object with a rows property, log an error and return empty array
+      console.error(`[SoundRepository] Unexpected query result format:`, result);
+      console.error(`[SoundRepository] Type of result:`, typeof result);
+      rows = [];
+    }
+
+    // Ensure rows is an array before calling map
+    if (!Array.isArray(rows)) {
+      console.error(`[SoundRepository] Rows is not an array:`, rows);
+      return [];
+    }
+
     return rows.map(row => Sound.fromRow(row));
   }
 
@@ -27,12 +56,12 @@ class SoundRepository extends BaseRepository {
    * @returns {Promise<Sound|null>} Sound instance or null if not found
    */
   async getByIdAndUser(id, userId) {
-    const row = await this.db.queryOne(
-      `SELECT * FROM ${this.tableName} WHERE id = $1 AND user_id = $2`,
+    const result = await this.db.queryOne(
+      `SELECT * FROM ${this.table} WHERE id = $1 AND user_id = $2`,
       [id, userId]
     );
-    
-    return row ? Sound.fromRow(row) : null;
+
+    return result ? Sound.fromRow(result) : null;
   }
 
   /**
@@ -41,49 +70,42 @@ class SoundRepository extends BaseRepository {
    * @returns {Promise<Sound>} Created Sound instance
    */
   async create(sound) {
-    // Convert sound to database row format (snake_case)
-    const soundRow = sound.toRow();
-    
     const result = await this.db.queryOne(
-      `INSERT INTO ${this.tableName} 
-       (user_id, name, type, file_path, url, config_json, file_size, duration) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      `INSERT INTO ${this.table}
+       (user_id, name, type, filepath, url, config_json, file_size, duration)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
-        soundRow.user_id, 
-        soundRow.name, 
-        soundRow.type, 
-        soundRow.file_path, 
-        soundRow.url, 
-        soundRow.config_json, 
-        soundRow.file_size, 
-        soundRow.duration
+        sound.userId,
+        sound.name,
+        sound.type,
+        sound.filepath,
+        sound.url,
+        sound.configJson,
+        sound.fileSize,
+        sound.duration
       ]
     );
-    
-    return Sound.fromRow(result);
+
+    return result ? Sound.fromRow(result) : null;
   }
 
   /**
    * Update an existing sound
    * @param {string} id - Sound ID to update
-   * @param {Object} updates - Fields to update (camelCase)
+   * @param {Object} updates - Fields to update
    * @param {string} userId - User ID for ownership check
    * @returns {Promise<Sound|null>} Updated Sound instance or null if not found
    */
   async update(id, updates, userId) {
-    // Convert camelCase field names to snake_case for database
+    // Build dynamic query based on provided updates
     const updateFields = [];
     const values = [];
     let paramIndex = 1;
 
     for (const [key, value] of Object.entries(updates)) {
-      // Use the BaseRepository's conversion method
-      const dbField = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      
-      // Only allow specific fields to be updated
-      if (this.allowedUpdateFields.includes(key) || this.allowedUpdateFields.includes(dbField)) {
-        updateFields.push(`${dbField} = $${paramIndex}`);
+      if (this.allowedUpdateFields.includes(key)) {
+        updateFields.push(`${key} = $${paramIndex}`);
         values.push(value);
         paramIndex++;
       }
@@ -99,7 +121,7 @@ class SoundRepository extends BaseRepository {
     const idParamIndex = paramIndex + 1;
 
     const query = `
-      UPDATE ${this.tableName} 
+      UPDATE ${this.table} 
       SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
       WHERE id = $${idParamIndex} AND user_id = $${userIdParamIndex}
       RETURNING *
@@ -117,7 +139,7 @@ class SoundRepository extends BaseRepository {
    */
   async delete(id, userId) {
     const result = await this.db.queryOne(
-      `DELETE FROM ${this.tableName} WHERE id = $1 AND user_id = $2 RETURNING id`,
+      `DELETE FROM ${this.table} WHERE id = $1 AND user_id = $2 RETURNING id`,
       [id, userId]
     );
     
@@ -139,11 +161,11 @@ class SoundRepository extends BaseRepository {
   }
 
   /**
-   * Get allowed fields for updates (camelCase)
+   * Get allowed fields for updates
    * @returns {Array<string>} List of allowed field names
    */
   get allowedUpdateFields() {
-    return ['name', 'type', 'filepath', 'url', 'configJson', 'fileSize', 'duration'];
+    return ['name', 'type', 'filepath', 'url', 'config_json', 'file_size', 'duration'];
   }
 }
 

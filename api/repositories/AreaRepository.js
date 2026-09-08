@@ -108,6 +108,7 @@ class AreaRepository extends BaseRepository {
 
   /**
    * Override: Convert entity to database row
+   * Handles deprecated sound_url field mapping to new sound_id field
    * @param {Object} entity - Area entity
    * @returns {Object}
    */
@@ -115,9 +116,37 @@ class AreaRepository extends BaseRepository {
     if (entity instanceof Area) {
       return entity.toRow();
     }
-    // If plain object, create Area first
-    const area = Area.fromJSON(entity);
+    
+    // If plain object, handle deprecated soundUrl field before creating Area
+    const processedEntity = { ...entity };
+    if (processedEntity.soundUrl && !processedEntity.soundId) {
+      // Map the old soundUrl to the new soundId field
+      processedEntity.soundId = processedEntity.soundUrl ? this._getSoundIdFromUrl(processedEntity.soundUrl) : null;
+    }
+    
+    // If both soundUrl and soundId exist, prefer soundId
+    // Remove soundUrl since it's deprecated
+    delete processedEntity.soundUrl;
+    
+    const area = Area.fromJSON(processedEntity);
     return area.toRow();
+  }
+
+  /**
+   * Async method to get sound_id from sound_url for backward compatibility
+   * @param {string} soundUrl - The URL of the sound
+   * @returns {Promise<string|null>} The corresponding sound_id or null
+   */
+  async _getSoundIdFromUrl(soundUrl) {
+    if (!soundUrl || soundUrl.trim() === '') {
+      return null;
+    }
+    
+    // Import SoundLookup here to avoid circular dependencies
+    const SoundLookup = require('../utils/SoundLookup');
+    const soundLookup = new SoundLookup(this.db);
+    
+    return await soundLookup.getSoundIdFromUrl(soundUrl);
   }
 }
 

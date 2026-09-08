@@ -34,6 +34,7 @@ class SoundLibrary {
      * Constructor
      * @param {Object} options - Configuration options
      * @param {string} [options.apiBaseUrl='/api'] - Base API URL
+     * @param {ApiClient} [options.apiClient] - ApiClient instance for authenticated requests
      * @param {Function} [options.onSoundAssign] - Callback: (soundId, waypointId) => void
      * @param {Function} [options.onError] - Callback: (error) => void
      * @param {number} [options.slowDoubleClickMin=400] - Min ms for slow double-click (rename)
@@ -49,9 +50,10 @@ class SoundLibrary {
         this.lastClickTime = 0;
         this.renameTimer = null;
         this.isLoading = false;
-        
+
         // === Configuration ===
         this.apiBaseUrl = options.apiBaseUrl || '/api';
+        this.apiClient = options.apiClient || null;
         this.onSoundAssign = options.onSoundAssign || (() => {});
         this.onError = options.onError || console.error;
         this.slowDoubleClickMin = options.slowDoubleClickMin || 400;
@@ -528,33 +530,60 @@ class SoundLibrary {
      */
     async _loadSounds() {
         this._setLoading(true);
-        
+
         try {
-            // Try to load from API
-            const response = await fetch(`${this.apiBaseUrl}/sounds`);
-            
-            if (response.ok) {
-                const sounds = await response.json();
+            // Use ApiClient if available, otherwise fall back to direct fetch
+            if (this.apiClient) {
+                // Use the ApiClient to make authenticated requests
+                const sounds = await this.apiClient.getSounds();
                 
                 // P1 fix: Validate sounds array
                 if (!Array.isArray(sounds)) {
                     throw new Error('Invalid response format: expected array');
                 }
-                
+
                 this.sounds = sounds;
                 this._render();
                 this._setLoading(false);
                 return;
+            } else {
+                // Try to load from API with authentication headers
+                const token = localStorage.getItem('audio_ar_token');
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const response = await fetch(`${this.apiBaseUrl}/sounds`, {
+                    headers: headers
+                });
+
+                if (response.ok) {
+                    const sounds = await response.json();
+
+                    // P1 fix: Validate sounds array
+                    if (!Array.isArray(sounds)) {
+                        throw new Error('Invalid response format: expected array');
+                    }
+
+                    this.sounds = sounds;
+                    this._render();
+                    this._setLoading(false);
+                    return;
+                }
+
+                // Non-200 response
+                console.warn('[SoundLibrary] API returned non-200:', response.status);
             }
-            
-            // Non-200 response
-            console.warn('[SoundLibrary] API returned non-200:', response.status);
-            
+
         } catch (error) {
             console.warn('[SoundLibrary] API load failed, using mock data:', error);
             this.onError(error);
         }
-        
+
         // Fallback to mock data
         this._loadMockData();
         this._setLoading(false);

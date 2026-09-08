@@ -7,7 +7,7 @@ const soundscapeLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
-  trustProxy: true,
+  // Removed trustProxy: true to avoid security warning
 });
 
 // Custom rate limiter for auth endpoints (only counts failed logins)

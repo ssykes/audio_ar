@@ -82,6 +82,12 @@ class BaseRepository {
     
     const query = `SELECT * FROM ${this.tableName} ${whereClause} ${orderClause}`;
     const result = await this.db.query(query, values);
+
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows)) {
+      console.error(`[BaseRepository] Query result missing or malformed rows:`, result);
+      return [];
+    }
     
     return result.rows;
   }
@@ -94,6 +100,12 @@ class BaseRepository {
   async findById(id) {
     const query = `SELECT * FROM ${this.tableName} WHERE id = $1`;
     const result = await this.db.query(query, [id]);
+
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows)) {
+      console.error(`[BaseRepository] findById query result missing or malformed rows:`, result);
+      return null;
+    }
     
     return result.rows.length > 0 ? result.rows[0] : null;
   }
@@ -107,6 +119,12 @@ class BaseRepository {
   async findByColumn(column, value) {
     const query = `SELECT * FROM ${this.tableName} WHERE ${column} = $1`;
     const result = await this.db.query(query, [value]);
+
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows)) {
+      console.error(`[BaseRepository] findByColumn query result missing or malformed rows:`, result);
+      return null;
+    }
     
     return result.rows.length > 0 ? result.rows[0] : null;
   }
@@ -129,6 +147,13 @@ class BaseRepository {
     `;
 
     const result = await this.db.query(query, values);
+    
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows) || result.rows.length === 0) {
+      console.error(`[BaseRepository] insert query result missing or malformed rows:`, result);
+      return null;
+    }
+    
     return result.rows[0];
   }
 
@@ -153,6 +178,13 @@ class BaseRepository {
     `;
 
     const result = await this.db.query(query, [...values, id]);
+    
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows)) {
+      console.error(`[BaseRepository] update query result missing or malformed rows:`, result);
+      return null;
+    }
+    
     return result.rows.length > 0 ? result.rows[0] : null;
   }
 
@@ -164,7 +196,13 @@ class BaseRepository {
   async delete(id) {
     const query = `DELETE FROM ${this.tableName} WHERE id = $1 RETURNING *`;
     const result = await this.db.query(query, [id]);
-    
+
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows)) {
+      console.error(`[BaseRepository] delete query result missing or malformed rows:`, result);
+      return false;
+    }
+
     return result.rows.length > 0;
   }
 
@@ -187,7 +225,13 @@ class BaseRepository {
     
     const query = `SELECT COUNT(*) FROM ${this.tableName} ${whereClause}`;
     const result = await this.db.query(query, values);
-    
+
+    // Ensure result has rows property and it's an array
+    if (!result || !result.rows || !Array.isArray(result.rows) || !result.rows[0]) {
+      console.error(`[BaseRepository] count query result missing or malformed rows:`, result);
+      return 0;
+    }
+
     return parseInt(result.rows[0].count, 10);
   }
 }

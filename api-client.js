@@ -269,6 +269,10 @@ class ApiClient {
                 if (wp.config_json !== undefined) {
                     mappedWp.config = typeof wp.config_json === 'string' ? JSON.parse(wp.config_json) : wp.config_json;
                 }
+                // Handle sound_id to soundId mapping
+                if (wp.sound_id !== undefined) {
+                    mappedWp.soundId = wp.sound_id;
+                }
                 return mappedWp;
             });
         }
@@ -296,6 +300,10 @@ class ApiClient {
                 // Handle config_json for areas if present
                 if (area.config_json !== undefined) {
                     mappedArea.config = typeof area.config_json === 'string' ? JSON.parse(area.config_json) : area.config_json;
+                }
+                // Handle sound_id to soundId mapping
+                if (area.sound_id !== undefined) {
+                    mappedArea.soundId = area.sound_id;
                 }
                 return mappedArea;
             });
@@ -361,6 +369,7 @@ class ApiClient {
                 if (wp.config !== undefined) {
                     row.config_json = typeof wp.config === 'string' ? wp.config : JSON.stringify(wp.config);
                 }
+                // The _toRow method already handles soundId to sound_id mapping
                 return row;
             }),
             behaviors: behaviors.map(b => {
@@ -385,6 +394,7 @@ class ApiClient {
                 if (area.config !== undefined) {
                     row.config_json = typeof area.config === 'string' ? area.config : JSON.stringify(area.config);
                 }
+                // The _toRow method already handles soundId to sound_id mapping
                 return row;
             })
         };
@@ -442,6 +452,14 @@ class ApiClient {
         // Apply data mapping to ensure consistency
         const mappedData = this._toEntity(data);
         return mappedData.lastModified;
+    }
+
+    /**
+     * Get user's sounds
+     */
+    async getSounds() {
+        const data = await this.request('/sounds');
+        return data;  // Return the sounds array directly
     }
 
     /**

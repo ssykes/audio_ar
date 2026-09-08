@@ -58,6 +58,7 @@ class MapEditorApp extends MapAppShared {
         // Initialize SoundLibrary component
         this.soundLibrary = new SoundLibrary({
             apiBaseUrl: window.API_BASE_URL || '/api',
+            apiClient: this.api,  // Pass the ApiClient instance for authenticated requests
             onSoundAssign: (soundId, waypointId) => {
                 this._onSoundAssigned(soundId, waypointId);
             },
@@ -512,7 +513,7 @@ class MapEditorApp extends MapAppShared {
                 id: 'area' + this.nextAreaId++,
                 name: areaName,
                 polygon: latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng })),
-                soundUrl: '',
+                soundId: null,
                 volume: 0.8,
                 loop: true,
                 fadeZoneWidth: 5.0,
@@ -765,7 +766,7 @@ class MapEditorApp extends MapAppShared {
             name: 'Sound ' + this.nextId,
             lat: lat,
             lon: lon,
-            soundUrl: '',
+            soundId: null,
             volume: 0.8,
             loop: true,
             activationRadius: 20,
@@ -853,13 +854,13 @@ class MapEditorApp extends MapAppShared {
         if (!waypoint) return;
 
         this.debugLog(`✏️ Updating waypoint: ${waypoint.id}`);
-        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
-        this.debugLog(`   Waypoint before update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
+        this.debugLog(`   Updated data soundId: ${updatedData.soundId || '(empty)'}`);
+        this.debugLog(`   Waypoint before update soundId: ${waypoint.soundId || '(empty)'}`);
 
         // Update waypoint properties
         Object.assign(waypoint, updatedData);
 
-        this.debugLog(`   Waypoint after update soundUrl: ${waypoint.soundUrl || '(empty)'}`);
+        this.debugLog(`   Waypoint after update soundId: ${waypoint.soundId || '(empty)'}`);
 
         // Update marker if exists
         const marker = this.markers.get(waypoint.id);
@@ -876,7 +877,7 @@ class MapEditorApp extends MapAppShared {
             this.debugLog(`📝 Synced soundscape.waypointData after form update (${soundscape.waypointData.length} waypoints)`);
         }
         const waypointInSoundscape = soundscape?.waypointData?.find(wp => wp.id === waypoint.id);
-        this.debugLog(`   Waypoint in soundscape soundUrl: ${waypointInSoundscape?.soundUrl || '(empty)'}`);
+        this.debugLog(`   Waypoint in soundscape soundId: ${waypointInSoundscape?.soundId || '(empty)'}`);
 
         // Refresh list to show updated name
         this._refreshWaypointList();
@@ -941,13 +942,13 @@ class MapEditorApp extends MapAppShared {
         if (!area) return;
 
         this.debugLog(`✏️ Updating area: ${area.id}`);
-        this.debugLog(`   Updated data soundUrl: ${updatedData.soundUrl || '(empty)'}`);
-        this.debugLog(`   Area before update soundUrl: ${area.soundUrl || '(empty)'}`);
+        this.debugLog(`   Updated data soundId: ${updatedData.soundId || '(empty)'}`);
+        this.debugLog(`   Area before update soundId: ${area.soundId || '(empty)'}`);
 
         // Update area properties
         Object.assign(area, updatedData);
 
-        this.debugLog(`   Area after update soundUrl: ${area.soundUrl || '(empty)'}`);
+        this.debugLog(`   Area after update soundId: ${area.soundId || '(empty)'}`);
 
         // Update layer if exists
         const layer = this.areaMarkers.get(area.id);
@@ -958,7 +959,7 @@ class MapEditorApp extends MapAppShared {
         // Verify soundscape has the updated data
         const soundscape = this.getActiveSoundscape();
         const areaInSoundscape = soundscape?.getAreas().find(a => a.id === area.id);
-        this.debugLog(`   Area in soundscape soundUrl: ${areaInSoundscape?.soundUrl || '(empty)'}`);
+        this.debugLog(`   Area in soundscape soundId: ${areaInSoundscape?.soundId || '(empty)'}`);
 
         // Refresh list to show updated name
         this._refreshAreaList();
@@ -1333,7 +1334,7 @@ class MapEditorApp extends MapAppShared {
             icon: wp.icon,
             color: wp.color,
             activationRadius: wp.activationRadius,
-            soundUrl: wp.soundUrl,
+            soundId: wp.soundId,
             volume: wp.volume,
             loop: wp.loop,
             soundConfig: wp.soundConfig
@@ -1590,10 +1591,10 @@ class MapEditorApp extends MapAppShared {
             // Add waypointData to soundscape
             soundscape.waypointData = data.waypoints;
 
-            // Debug: log waypoint soundUrls
+            // Debug: log waypoint soundIds
             this.debugLog(`  🔍 Waypoints loaded for ${soundscape.name}:`);
             data.waypoints.forEach((wp, idx) => {
-                this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+                this.debugLog(`    WP ${idx + 1}: "${wp.name}" soundId=${wp.soundId || '(empty)'}`);
             });
 
             // Store soundscape and map to server ID
@@ -1785,7 +1786,7 @@ class MapEditorApp extends MapAppShared {
         if (!waypoint) {
             console.warn('[MapEditor] Waypoint not found:', itemId);
             return;
-        } else if (!waypoint.soundUrl && waypoint.id !== itemId) {
+        } else if (!waypoint.soundId && waypoint.id !== itemId) {
             // Sound was assigned to a different ID due to reload
             this._onSoundAssigned(soundId, waypoint.id);
             return;
@@ -1810,9 +1811,8 @@ class MapEditorApp extends MapAppShared {
 
         this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
 
-        // Update the waypoint with both soundId and soundUrl for compatibility
-        waypoint.soundId = soundId;
-        waypoint.soundUrl = soundUrl;
+        // Update the waypoint with soundId
+        waypoint.soundId = soundId || null;
 
         // Update audio config for playback later
         if (waypoint.audio) {
@@ -1864,6 +1864,10 @@ class MapEditorApp extends MapAppShared {
             console.error('[MapEditor] Area not found:', areaId);
             this._showToast('❌ Area not found', 'error');
             return;
+        } else if (!area.soundId && area.id !== areaId) {
+            // Sound was assigned to a different ID due to reload
+            this._onSoundAssigned(soundId, area.id);
+            return;
         }
 
         // Find the sound in our sounds library
@@ -1886,8 +1890,7 @@ class MapEditorApp extends MapAppShared {
         this.debugLog(`🔗 Validated sound URL: ${soundUrl}`);
 
         // Update the area with the new sound
-        area.soundId = soundId;
-        area.soundUrl = soundUrl;  // Keep for backward compatibility
+        area.soundId = soundId || null;
 
         // Update audio config for playback later if area has audio
         if (area.audio) {
@@ -2017,7 +2020,7 @@ const slideoutType = document.getElementById('slideoutType');
 const slideoutTypeSection = document.getElementById('slideoutTypeSection');
 const typeSectionTitle = document.getElementById('typeSectionTitle');
 const typeFieldsContainer = document.getElementById('typeFieldsContainer');
-// Note: Type-specific fields (slideoutSoundUrl, etc.) are queried after renderTypeFields()
+// Note: Type-specific fields (slideoutSoundId, etc.) are queried after renderTypeFields()
 const slideoutVolume = document.getElementById('slideoutVolume');
 const slideoutVolumeValue = document.getElementById('slideoutVolumeValue');
 const slideoutActivationRadius = document.getElementById('slideoutActivationRadius');
@@ -2034,9 +2037,9 @@ const TYPE_CONFIGS = {
         title: 'File Settings',
         fields: `
             <div class="slideout-field">
-                <label for="slideoutSoundUrl">Sound URL</label>
-                <input type="url" id="slideoutSoundUrl" placeholder="https://example.com/sound.mp3">
-                <small class="slideout-help">MP3, WAV, or OGG file URL</small>
+                <label for="slideoutSoundId">Sound ID</label>
+                <input type="text" id="slideoutSoundId" placeholder="Sound ID">
+                <small class="slideout-help">Sound ID from library</small>
             </div>
         `,
         onRender: () => {
@@ -2172,8 +2175,8 @@ function getFormData() {
 
     // Add type-specific fields
     if (type === 'file') {
-        data.soundUrl = document.getElementById('slideoutSoundUrl').value;
-        addDebugLog(`📝 getFormData: soundUrl=${data.soundUrl || '(empty)'}`);
+        data.soundId = document.getElementById('slideoutSoundId').value || null;
+        addDebugLog(`📝 getFormData: soundId=${data.soundId || '(empty)'}`);
     } else if (type === 'oscillator') {
         data.waveform = document.getElementById('slideoutWaveform').value;
         data.frequency = parseFloat(document.getElementById('slideoutFrequency').value);
@@ -2382,16 +2385,16 @@ function openSlideout(type, id, name, meta, color) {
         renderTypeFields(waypoint.type || 'file');
 
         // Debug: log waypoint data
-        addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundUrl=${waypoint.soundUrl || '(empty)'}`);
+        addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundId=${waypoint.soundId || '(empty)'}`);
 
         // Populate type-specific fields based on type
         if (waypoint.type === 'file') {
-            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
-            if (slideoutSoundUrl) {
-                slideoutSoundUrl.value = waypoint.soundUrl || '';
-                addDebugLog(`🎵 Waypoint soundUrl loaded: ${waypoint.soundUrl || '(empty)'}`);
+            const slideoutSoundId = document.getElementById('slideoutSoundId');
+            if (slideoutSoundId) {
+                slideoutSoundId.value = waypoint.soundId || '';
+                addDebugLog(`🎵 Waypoint soundId loaded: ${waypoint.soundId || '(empty)'}`);
             } else {
-                addDebugLog(`❌ slideoutSoundUrl element not found`);
+                addDebugLog(`❌ slideoutSoundId element not found`);
             }
         } else if (waypoint.type === 'oscillator') {
             const slideoutWaveform = document.getElementById('slideoutWaveform');
@@ -2460,16 +2463,16 @@ function openSlideout(type, id, name, meta, color) {
         renderTypeFields(area.type || 'file');
 
         // Debug: log area data
-        addDebugLog(`🔍 Area data: type=${area.type}, soundUrl=${area.soundUrl || '(empty)'}`);
+        addDebugLog(`🔍 Area data: type=${area.type}, soundId=${area.soundId || '(empty)'}`);
 
         // Populate type-specific fields based on type
         if (area.type === 'file') {
-            const slideoutSoundUrl = document.getElementById('slideoutSoundUrl');
-            if (slideoutSoundUrl) {
-                slideoutSoundUrl.value = area.soundUrl || '';
-                addDebugLog(`🎵 Area soundUrl loaded: ${area.soundUrl || '(empty)'}`);
+            const slideoutSoundId = document.getElementById('slideoutSoundId');
+            if (slideoutSoundId) {
+                slideoutSoundId.value = area.soundId || '';
+                addDebugLog(`🎵 Area soundId loaded: ${area.soundId || '(empty)'}`);
             } else {
-                addDebugLog(`❌ slideoutSoundUrl element not found`);
+                addDebugLog(`❌ slideoutSoundId element not found`);
             }
         } else if (area.type === 'oscillator') {
             const slideoutWaveform = document.getElementById('slideoutWaveform');
