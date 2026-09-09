@@ -612,6 +612,20 @@ class MapAppShared {
         // These are added by _updateRadiusCircle() and contain circular references to the map
         const cleanWaypoints = wpData.map(wp => {
             const { circleMarker, marker, ...cleanWp } = wp;
+            
+            // Ensure soundId is properly handled - convert undefined/null to null explicitly
+            if (cleanWp.soundId === undefined) {
+                cleanWp.soundId = null;
+            }
+            
+            // Ensure lat/lon are numeric (avoid string conversion)
+            if (typeof cleanWp.lat === 'string') {
+                cleanWp.lat = parseFloat(cleanWp.lat);
+            }
+            if (typeof cleanWp.lon === 'string') {
+                cleanWp.lon = parseFloat(cleanWp.lon);
+            }
+
             return cleanWp; // Keep camelCase - server repository handles snake_case conversion
         });
 
@@ -624,6 +638,12 @@ class MapAppShared {
         // Strip Leaflet layer references from areas
         const cleanAreas = (soundscape.areas || []).map(area => {
             const { _leafletLayer, ...cleanArea } = area;
+            
+            // Ensure soundId is properly handled - convert undefined/null to null explicitly
+            if (cleanArea.soundId === undefined) {
+                cleanArea.soundId = null;
+            }
+            
             return cleanArea;
         });
 
@@ -711,12 +731,32 @@ class MapAppShared {
         // Strip Leaflet properties (circleMarker, marker) before sending to server
         const cleanWaypoints = wpData.map(wp => {
             const { circleMarker, marker, ...cleanWp } = wp;
+            
+            // Ensure soundId is properly handled - convert undefined/null to null explicitly
+            if (cleanWp.soundId === undefined) {
+                cleanWp.soundId = null;
+            }
+            
+            // Ensure lat/lon are numeric (avoid string conversion)
+            if (typeof cleanWp.lat === 'string') {
+                cleanWp.lat = parseFloat(cleanWp.lat);
+            }
+            if (typeof cleanWp.lon === 'string') {
+                cleanWp.lon = parseFloat(cleanWp.lon);
+            }
+            
             return cleanWp;
         });
 
         // Strip Leaflet layer references from areas
         const cleanAreas = (soundscape.areas || []).map(area => {
             const { _leafletLayer, ...cleanArea } = area;
+            
+            // Ensure soundId is properly handled - convert undefined/null to null explicitly
+            if (cleanArea.soundId === undefined) {
+                cleanArea.soundId = null;
+            }
+            
             return cleanArea;
         });
 
@@ -1923,6 +1963,20 @@ class MapAppShared {
             if (soundscape) {
                 const cleanWaypoints = (soundscape.getWaypoints ? soundscape.getWaypoints() : this.waypoints).map(wp => {
                     const { _leafletLayer, ...cleanWp } = wp;
+                    
+                    // Ensure soundId is properly handled - convert undefined/null to null explicitly
+                    if (cleanWp.soundId === undefined) {
+                        cleanWp.soundId = null;
+                    }
+                    
+                    // Ensure lat/lon are numeric (avoid string conversion)
+                    if (typeof cleanWp.lat === 'string') {
+                        cleanWp.lat = parseFloat(cleanWp.lat);
+                    }
+                    if (typeof cleanWp.lon === 'string') {
+                        cleanWp.lon = parseFloat(cleanWp.lon);
+                    }
+                    
                     return cleanWp;
                 });
                 
@@ -1930,14 +1984,26 @@ class MapAppShared {
                 
                 const cleanAreas = (soundscape.getAreas ? soundscape.getAreas() : soundscape.areas || []).map(area => {
                     const { _leafletLayer, ...cleanArea } = area;
+                    
+                    // Ensure soundId is properly handled - convert undefined/null to null explicitly
+                    if (cleanArea.soundId === undefined) {
+                        cleanArea.soundId = null;
+                    }
+                    
                     return cleanArea;
                 });
 
-                this.api.saveSoundscape(this.activeSoundscapeId, cleanWaypoints, behaviors, cleanAreas).then(() => {
-                    this.debugLog('✅ Area saved to server');
-                }).catch(err => {
-                    console.error('[Save Error]', err);
-                });
+                // Use server ID instead of local ID
+                const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
+                if (serverId) {
+                    this.api.saveSoundscape(serverId, cleanWaypoints, behaviors, cleanAreas).then(() => {
+                        this.debugLog('✅ Area saved to server');
+                    }).catch(err => {
+                        console.error('[Save Error]', err);
+                    });
+                } else {
+                    console.error('[Save Error] No server ID mapped for local ID:', this.activeSoundscapeId);
+                }
             }
         } else {
             // Not logged in - persist locally

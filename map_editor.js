@@ -1938,6 +1938,20 @@ class MapEditorApp extends MapAppShared {
             if (soundscape) {
                 const cleanWaypoints = (soundscape.getWaypoints ? soundscape.getWaypoints() : this.waypoints).map(wp => {
                     const { _leafletLayer, ...cleanWp } = wp;
+                    
+                    // Ensure soundId is properly handled - convert undefined/null to null explicitly
+                    if (cleanWp.soundId === undefined) {
+                        cleanWp.soundId = null;
+                    }
+                    
+                    // Ensure lat/lon are numeric (avoid string conversion)
+                    if (typeof cleanWp.lat === 'string') {
+                        cleanWp.lat = parseFloat(cleanWp.lat);
+                    }
+                    if (typeof cleanWp.lon === 'string') {
+                        cleanWp.lon = parseFloat(cleanWp.lon);
+                    }
+                    
                     return cleanWp;
                 });
                 
@@ -1945,14 +1959,26 @@ class MapEditorApp extends MapAppShared {
                 
                 const cleanAreas = (soundscape.getAreas ? soundscape.getAreas() : soundscape.areas || []).map(area => {
                     const { _leafletLayer, ...cleanArea } = area;
+                    
+                    // Ensure soundId is properly handled - convert undefined/null to null explicitly
+                    if (cleanArea.soundId === undefined) {
+                        cleanArea.soundId = null;
+                    }
+                    
                     return cleanArea;
                 });
 
-                this.api.saveSoundscape(this.activeSoundscapeId, cleanWaypoints, behaviors, cleanAreas).then(() => {
-                    this.debugLog('✅ Area saved to server');
-                }).catch(err => {
-                    console.error('[Save Error]', err);
-                });
+                // Use server ID instead of local ID
+                const serverId = this.serverSoundscapeIds.get(this.activeSoundscapeId);
+                if (serverId) {
+                    this.api.saveSoundscape(serverId, cleanWaypoints, behaviors, cleanAreas).then(() => {
+                        this.debugLog('✅ Area saved to server');
+                    }).catch(err => {
+                        console.error('[Save Error]', err);
+                    });
+                } else {
+                    console.error('[Save Error] No server ID mapped for local ID:', this.activeSoundscapeId);
+                }
             }
         } else {
             // Not logged in - persist locally

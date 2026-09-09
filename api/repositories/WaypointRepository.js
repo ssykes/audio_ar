@@ -81,19 +81,20 @@ class WaypointRepository extends BaseRepository {
       const wp = waypoints[i];
       
       // Process the waypoint data, handling deprecated soundUrl field
+      // Use snake_case field names since _toRow will be called
       const processedWp = {
-        soundscapeId,
+        soundscape_id: soundscapeId,
         name: wp.name || 'Sound',
         lat: wp.lat,
         lon: wp.lon,
         soundUrl: wp.soundUrl, // This will be handled by _toRow
-        soundId: wp.soundId,
+        sound_id: wp.soundId,
         volume: wp.volume ?? 0.8,
         loop: wp.loop ?? true,
-        activationRadius: wp.activationRadius || 20,
+        activation_radius: wp.activationRadius || 20,
         icon: wp.icon || '•',
         color: wp.color || '#00d9ff',
-        sortOrder: i,
+        sort_order: i,
         type: wp.type || 'file',
         // Oscillator properties
         waveform: wp.waveform ?? 'sine',

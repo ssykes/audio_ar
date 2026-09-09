@@ -70,18 +70,18 @@ class AreaRepository extends BaseRepository {
     for (let i = 0; i < areas.length; i++) {
       const area = areas[i];
       const row = this._toRow({
-        soundscapeId,
+        soundscape_id: soundscapeId,
         name: area.name || 'Area',
         polygon: area.polygon,
         soundUrl: area.soundUrl,
         volume: area.volume ?? 0.8,
         loop: area.loop ?? true,
-        fadeZoneWidth: area.fadeZoneWidth || 5.0,
-        overlapMode: area.overlapMode || 'mix',
+        fade_zone_width: area.fadeZoneWidth || 5.0,
+        overlap_mode: area.overlapMode || 'mix',
         order: i,
         icon: area.icon || '◈',
         color: area.color || '#ff6b6b',
-        sortOrder: i,
+        sort_order: i,
         type: area.type || 'file',
         // Oscillator properties
         waveform: area.waveform ?? 'sine',

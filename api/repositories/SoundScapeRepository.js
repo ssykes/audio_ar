@@ -109,11 +109,10 @@ class SoundScapeRepository extends BaseRepository {
         }
 
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
           [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
-           wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
+           wp.loop ?? true, wp.activation_radius || 20, wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
@@ -135,11 +134,10 @@ class SoundScapeRepository extends BaseRepository {
       for (let i = 0; i < areas.length; i++) {
         const area = areas[i];
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.soundId, area.type || 'file', area.volume ?? 0.8,
-           area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i,
-           area.waveform ?? 'sine', area.frequency ?? 440, area.detune ?? 0, area.gain ?? 0.5]
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [soundscape.id, area.name || 'Area', JSON.stringify(area.polygon), area.sound_id, area.type || 'file', area.volume ?? 0.8,
+           area.loop ?? true, area.fade_zone_width || 5.0, area.overlap_mode || 'mix', area.order || i, area.icon || '◈', area.color || '#ff6b6b', area.sort_order || i]
         );
         createdAreas.push(this._toEntity(areaResult.rows[0]));
       }
@@ -201,11 +199,10 @@ class SoundScapeRepository extends BaseRepository {
         }
 
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
           [id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activationRadius || 20, wp.icon || '•', wp.color || '#00d9ff', i,
-           wp.waveform ?? 'sine', wp.frequency ?? 440, wp.detune ?? 0, wp.gain ?? 0.5]
+           wp.loop ?? true, wp.activation_radius || 20, wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
@@ -238,11 +235,10 @@ class SoundScapeRepository extends BaseRepository {
           gain: area.gain
         }));
         const areaResult = await client.query(
-          `INSERT INTO areas (soundscape_id, name, polygon, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order, waveform, frequency, detune, gain)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-          [id, area.name || 'Area', JSON.stringify(area.polygon), area.soundId, area.type || 'file', area.volume ?? 0.8,
-           area.loop ?? true, area.fadeZoneWidth || 5.0, area.overlapMode || 'mix', i, area.icon || '◈', area.color || '#ff6b6b', i,
-           area.waveform ?? 'sine', area.frequency ?? 440, area.detune ?? 0, area.gain ?? 0.5]
+          `INSERT INTO areas (soundscape_id, name, polygon, sound_id, type, volume, loop, fade_zone_width, overlap_mode, "order", icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [id, area.name || 'Area', JSON.stringify(area.polygon), area.sound_id, area.type || 'file', area.volume ?? 0.8,
+           area.loop ?? true, area.fade_zone_width || 5.0, area.overlap_mode || 'mix', area.order || i, area.icon || '◈', area.color || '#ff6b6b', area.sort_order || i]
         );
         console.log(`[SoundScapeRepository] Area ${i} inserted with id=${areaResult.rows[0].id}`);
         createdAreas.push(this._toEntity(areaResult.rows[0]));
