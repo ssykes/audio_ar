@@ -14,7 +14,7 @@
 // Configuration Constants
 // ============================================================================
 
-const CACHE_VERSION = 'v1';  // Updated for map_editor_v2 cache-busting
+const CACHE_VERSION = 'v1';  // Updated for sound_library.js fixes
 const CACHE_NAME = `audio-ar-${CACHE_VERSION}`;
 
 // Files to cache (same-origin) - HTML, JS, CSS for offline support
@@ -36,6 +36,7 @@ const FILES_TO_CACHE = [
   'wake_lock_helper.js',
   'map_shared.js',
   'map_player.js',
+  'sound_library.js',
   // CSS (Leaflet - CDN version cached separately)
 ];
 

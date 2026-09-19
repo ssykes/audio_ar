@@ -150,15 +150,35 @@ class ApiClient {
             const response = await fetch(url, config);
             clearTimeout(timeoutId);
 
+            // Check if response is HTML instead of JSON (common when servers return error pages)
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) {
+                const htmlResponse = await response.text();
+                console.error('[ApiClient] Server returned HTML instead of JSON:', htmlResponse.substring(0, 200) + '...');
+                
+                // Check if it looks like a 503 error page
+                if (response.status === 503) {
+                    throw new Error('Service Unavailable: The server is temporarily unable to handle the request');
+                } else {
+                    throw new Error(`Unexpected HTML response (status: ${response.status})`);
+                }
+            }
+
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Request failed');
+                throw new Error(data.error || `Request failed with status ${response.status}`);
             }
 
             return data;
         } catch (error) {
             console.error('[ApiClient] Request failed:', error);
+            
+            // Re-throw the error with more context
+            if (error instanceof TypeError && error.message.includes('network')) {
+                throw new Error('Network error: Unable to connect to server. Please check your connection.');
+            }
+            
             throw error;
         }
     }

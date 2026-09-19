@@ -926,9 +926,8 @@ class MapAppShared {
                         <div>🔊 Radius: ${waypoint.activationRadius}m</div>
                         <div>🎵 Sound: ${soundDisplay}</div>
                     </div>
-                    <div style="display: flex; gap: 5px;">
-                        <button onclick="event.stopPropagation(); app._editWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">✏️ Edit</button>
-                        <button onclick="event.stopPropagation(); app._openSoundLibraryForWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">🔊 Change Sound</button>
+                    <div style="display: flex; gap: 5px; flex-direction: column;">
+                        <div onclick="event.stopPropagation(); triggerSidebarItemClick('${waypoint.id}', 'waypoint')" style="padding: 6px; background: #667eea; color: white; border-radius: 4px; cursor: pointer; text-align: center;">✏️ Edit</div>
                         <button onclick="event.stopPropagation(); app._deleteWaypoint('${waypoint.id}')" style="flex: 1; padding: 6px; background: #e94560; color: white; border: none; border-radius: 4px; cursor: pointer;">🗑️ Delete</button>
                     </div>
                 </div>
@@ -2013,3 +2012,27 @@ class MapAppShared {
 }
 
 console.log('[map_shared.js] MapAppShared base class loaded');
+
+/**
+ * Helper function to trigger a click on the corresponding sidebar list item
+ * @param {string} itemId - The ID of the item to select
+ * @param {string} itemType - The type of item ('waypoint' or 'area')
+ */
+function triggerSidebarItemClick(itemId, itemType) {
+    // Close the current popup
+    if (window.app && window.app.markers) {
+        const marker = window.app.markers.get(itemId);
+        if (marker) {
+            marker.closePopup();
+        }
+    }
+    
+    // Find the corresponding list item in the sidebar
+    const listItem = document.querySelector(`.item-list-item[data-id="${itemId}"][data-type="${itemType}"]`);
+    if (listItem) {
+        // Trigger click on the list item to open slideout
+        listItem.click();
+    } else {
+        console.warn(`Sidebar list item not found for ${itemType} ID: ${itemId}`);
+    }
+}

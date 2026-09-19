@@ -128,58 +128,63 @@
     margin-bottom: 20px;
 }
 
-/* ============================================
-   View Toggle
-   ============================================ */
-.sound-library-view-toggle {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
+/* Style FilePond to match the theme */
+.filepond--root {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-.sound-library-view-btn {
-    padding: 6px 12px;
+.filepond--panel-root {
+    background-color: rgba(15, 52, 96, 0.3); /* Match --bg-panel */
+    border: 1px solid rgba(26, 95, 122, 0.5); /* Match --border-input */
     border-radius: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: transparent;
-    color: rgba(255, 255, 255, 0.6);
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.15s;
 }
 
-.sound-library-view-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+.filepond--drop-label {
+    color: #ccc; /* Match --text-secondary */
 }
 
-.sound-library-view-btn:focus {
-    outline: 2px solid #667eea;
-    outline-offset: 2px;
+.filepond--browser {
+    display: none;
 }
 
-.sound-library-view-btn.active {
-    background: #667eea;
-    border-color: #667eea;
-    color: white;
+.filepond--label-action {
+    color: #00d9ff; /* Match --accent-primary */
+    font-weight: 500;
 }
+
+.filepond--item-panel {
+    background-color: #00d9ff; /* Match --accent-primary */
+}
+
+/* Hide "No file chosen" and "Powered by FilePond" */
+.filepond--file-wrapper  .filepond--label .filepond--root{
+    display: none;
+}
+
+.filepond--credits {
+    display: none !important;
+}
+
+.filepond--file-info {
+    display: none;
+}
+
+/* Hide the entire file info state label */
+.filepond--label {
+    display: none;
+}
+
 
 /* ============================================
-   File Grid (Icon View)
-   ============================================ */
-.sound-library-file-grid.view-icons {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 16px;
-}
-
-/* ============================================
-   File List (List View)
+   File List (List View Only)
    ============================================ */
 .sound-library-file-grid.view-list {
     display: table;
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
+    border: none; /* Remove any border */
+    outline: none; /* Remove outline */
 }
 
 .sound-library-file-grid.view-list .sound-file-item {
@@ -191,32 +196,37 @@
     vertical-align: middle;
     padding: 10px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border: none; /* Remove any additional borders */
 }
 
-.sound-library-file-grid.view-list .sound-file-icon-cell {
-    width: 40px;
-    text-align: center;
-}
 
 .sound-library-file-grid.view-list .sound-file-name-cell {
     width: auto;
+    border: none;
+    background: transparent;
 }
 
 .sound-library-file-grid.view-list .sound-file-type-cell {
     width: 80px;
     color: rgba(255, 255, 255, 0.5);
+    border: none;
+    background: transparent;
 }
 
 .sound-library-file-grid.view-list .sound-file-size-cell {
     width: 90px;
     text-align: right;
     color: rgba(255, 255, 255, 0.5);
+    border: none;
+    background: transparent;
 }
 
 .sound-library-file-grid.view-list .sound-file-date-cell {
     width: 120px;
     text-align: right;
     color: rgba(255, 255, 255, 0.5);
+    border: none;
+    background: transparent;
 }
 
 .sound-library-file-grid.view-list .sound-file-item:hover {
@@ -228,52 +238,11 @@
 }
 
 /* ============================================
-   File Item (Icon View)
+   File Name, etc. (No icon)
    ============================================ */
-.sound-library-file-grid.view-icons .sound-file-item {
-    background: rgba(255, 255, 255, 0.05);
-    border: 2px solid transparent;
-    border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    user-select: none;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.sound-library-file-grid.view-icons .sound-file-item:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-
-.sound-library-file-grid.view-icons .sound-file-item.selected {
-    background: rgba(102, 126, 234, 0.3);
-    border-color: #667eea;
-}
-
-.sound-library-file-grid.view-icons .sound-file-item.renaming input {
-    opacity: 1;
-    pointer-events: auto;
-}
-
-/* ============================================
-   File Icon, Name, Meta
-   ============================================ */
-.sound-file-icon {
-    font-size: 48px;
-    text-align: center;
-    margin-bottom: 8px;
-}
-
 .sound-file-name {
     font-size: 13px;
-    text-align: center;
     word-break: break-all;
-    max-height: 32px;
-    overflow: hidden;
-    line-height: 1.3;
 }
 
 .sound-file-name input {
@@ -286,13 +255,6 @@
     padding: 4px;
     opacity: 0;
     pointer-events: none;
-}
-
-.sound-file-meta {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.5);
-    text-align: center;
-    margin-top: 4px;
 }
 
 /* ============================================

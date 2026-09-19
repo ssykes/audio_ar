@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const authenticateToken = require('../middleware/auth');
 const { soundscapeLimiter } = require('../middleware/rateLimiter'); // Reuse existing limiter
 const SoundRepository = require('../repositories/SoundRepository');
@@ -13,7 +14,15 @@ const repo = new SoundRepository(db);
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     // Explicitly define the destination directory, ignoring any path info in the filename
-    cb(null, 'sounds/');
+    // Use absolute path to ensure it works regardless of where the server is running from
+    const uploadDir = path.join(__dirname, '..', '..', 'sounds');
+    
+    // Ensure the directory exists
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    cb(null, uploadDir);
   },
   filename: function (req, file, cb) {
     // Sanitize the original filename to remove potentially dangerous characters
@@ -82,7 +91,8 @@ router.post('/upload', authenticateToken, upload.single('sound'), async (req, re
       type: 'file',
       filepath: safeFilePath, // Store the safe path
       fileSize: req.file.size,
-      duration: null // Will be calculated later if possible
+      duration: null, // Will be calculated later if possible
+      configJson: {} // Provide default empty object for config_json
     });
 
     res.status(201).json(newSound.toApiFormat());

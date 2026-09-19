@@ -81,7 +81,7 @@ class SoundRepository extends BaseRepository {
         sound.type,
         sound.filepath,
         sound.url,
-        sound.configJson,
+        JSON.stringify(sound.configJson || {}),
         sound.fileSize,
         sound.duration
       ]
@@ -105,8 +105,14 @@ class SoundRepository extends BaseRepository {
 
     for (const [key, value] of Object.entries(updates)) {
       if (this.allowedUpdateFields.includes(key)) {
-        updateFields.push(`${key} = $${paramIndex}`);
-        values.push(value);
+        // Serialize config_json to JSON string if it's an object
+        if (key === 'config_json' && typeof value === 'object') {
+          updateFields.push(`${key} = $${paramIndex}`);
+          values.push(JSON.stringify(value));
+        } else {
+          updateFields.push(`${key} = $${paramIndex}`);
+          values.push(value);
+        }
         paramIndex++;
       }
     }
@@ -121,7 +127,7 @@ class SoundRepository extends BaseRepository {
     const idParamIndex = paramIndex + 1;
 
     const query = `
-      UPDATE ${this.table} 
+      UPDATE ${this.table}
       SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
       WHERE id = $${idParamIndex} AND user_id = $${userIdParamIndex}
       RETURNING *

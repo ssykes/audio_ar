@@ -44,7 +44,7 @@ class SoundLibrary {
         // === State ===
         this.sounds = [];                    // Array<SoundMetadata>
         this.selected = new Set();           // Set<SoundId>
-        this.currentView = 'icons';          // 'icons' | 'list'
+        this.currentView = 'list';          // 'list' only
         this.lastClickedIndex = -1;          // For Shift+Click range select
         this.clickCount = 0;                 // For slow double-click detection
         this.lastClickTime = 0;
@@ -111,6 +111,23 @@ class SoundLibrary {
         this.modalEl.classList.remove('visible');
         this._hideContextMenu();
     }
+
+    /**
+     * Load sounds from API or mock data
+     * Public interface to reload sounds
+     */
+    async load() {
+        await this._loadSounds();
+    }
+
+    /**
+     * Find sound by ID
+     * @param {string} soundId - ID of the sound to find
+     * @returns {SoundMetadata|null} The sound metadata or null if not found
+     */
+    findSoundById(soundId) {
+        return this.sounds.find(sound => sound.id === soundId) || null;
+    }
     
     /**
      * Cleanup - IMPORTANT: Call when done to prevent memory leaks
@@ -176,12 +193,7 @@ class SoundLibrary {
                         <input type="file" class="sound-library-filepond-input" multiple>
                     </div>
                     
-                    <div class="sound-library-view-toggle">
-                        <button class="sound-library-view-btn active" aria-pressed="true">⊞ Icons</button>
-                        <button class="sound-library-view-btn" aria-pressed="false">☰ List</button>
-                    </div>
-                    
-                    <div class="sound-library-file-grid view-icons" role="grid" aria-label="Sound library files" aria-rowcount="0">
+                    <div class="sound-library-file-grid view-list" role="grid" aria-label="Sound library files" aria-rowcount="0">
                         <!-- Files rendered here -->
                     </div>
                     
@@ -191,7 +203,7 @@ class SoundLibrary {
                         <div style="font-size: 12px; margin-top: 8px;">Drag & drop files above to upload</div>
                     </div>
                     
-                    <div class="sound-library-error-banner" role="alert" aria-live="assertive">
+                    <div class="sound-library-error-banner" role="alert" aria-live="assertive" style="display: none;">
                         ⚠️ Failed to load sounds. Please try again.
                     </div>
                 </div>
@@ -199,20 +211,15 @@ class SoundLibrary {
                 <div class="sound-library-footer">
                     <div class="sound-library-status-bar" aria-live="polite" aria-atomic="true">0 sounds</div>
                     <div class="sound-library-footer-actions">
-                        <button class="sound-library-btn danger" disabled>🗑️ Delete</button>
-                        <button class="sound-library-btn primary" disabled>📤 Assign to Waypoint</button>
+                        <!-- Buttons removed per requirements -->
                     </div>
                 </div>
             </div>
             
             <div class="sound-library-context-menu" role="menu" aria-label="Sound actions">
-                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1">▶️ Preview</div>
-                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1">✏️ Rename</div>
-                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1">📋 Copy</div>
+                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1" data-action="delete">Delete</div>
                 <div class="sound-library-context-menu-separator"></div>
-                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1">👁️ Show Usage</div>
-                <div class="sound-library-context-menu-separator"></div>
-                <div class="sound-library-context-menu-item danger" role="menuitem" tabindex="-1">🗑️ Delete</div>
+                <div class="sound-library-context-menu-item" role="menuitem" tabindex="-1" data-action="usage">Show Usage</div>
             </div>
         `;
         
@@ -224,15 +231,19 @@ class SoundLibrary {
         this.emptyStateEl = this.modalEl.querySelector('.sound-library-empty-state');
         this.loadingEl = this.modalEl.querySelector('.sound-library-loading');
         this.statusBarEl = this.modalEl.querySelector('.sound-library-status-bar');
-        this.deleteBtn = this.modalEl.querySelector('.sound-library-btn.danger');
-        this.assignBtn = this.modalEl.querySelector('.sound-library-btn.primary');
+        // Removed button references since buttons are no longer in the UI
+        this.deleteBtn = null;
+        this.assignBtn = null;
         this.contextMenuEl = this.modalEl.querySelector('.sound-library-context-menu');
-        this.viewIconsBtn = this.modalEl.querySelectorAll('.sound-library-view-btn')[0];
-        this.viewListBtn = this.modalEl.querySelectorAll('.sound-library-view-btn')[1];
+        // Removed view toggle buttons since they are no longer in the UI
+        this.viewIconsBtn = null;
+        this.viewListBtn = null;
         
         // Setup event listeners
         this._setupModalListeners();
+        
     }
+    
     
     /**
      * Setup modal-specific event listeners
@@ -242,28 +253,25 @@ class SoundLibrary {
         // Close button
         const closeBtn = this.modalEl.querySelector('.sound-library-close');
         closeBtn.addEventListener('click', () => this.close());
-        
+
         // Close on overlay click
         this.modalEl.addEventListener('click', (e) => {
             if (e.target === this.modalEl) {
                 this.close();
             }
         });
-        
+
         // Close on Escape
         this.modalEl.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.close();
             }
         });
+
+        // View toggle buttons - not needed since we only use list view
+        // Removed view toggle functionality
         
-        // View toggle buttons
-        this.viewIconsBtn.addEventListener('click', () => this._setView('icons'));
-        this.viewListBtn.addEventListener('click', () => this._setView('list'));
-        
-        // Footer action buttons
-        this.deleteBtn.addEventListener('click', () => this._deleteSelected());
-        this.assignBtn.addEventListener('click', () => this._handleAssign());
+        // Footer action buttons removed per requirements
     }
     
     // ============================================
@@ -294,18 +302,33 @@ class SoundLibrary {
         // Initialize FilePond
         this.filePond = FilePond.create(pondElement, {
             acceptedFileTypes: [
-                'audio/mp3',
+                'audio/mpeg',  // Standard MIME type for MP3 files
+                'audio/mp3',   // Some systems report this for MP3
                 'audio/wav',
+                'audio/x-wav',
                 'audio/ogg',
+                'audio/x-ogg',
                 'audio/m4a',
+                'audio/x-m4a',
                 'audio/flac',
+                'audio/x-flac',
                 'audio/aac',
-                'audio/opus'
+                'audio/x-aac',
+                'audio/opus',
+                'audio/x-opus',
+                '.mp3',
+                '.wav',
+                '.ogg',
+                '.m4a',
+                '.flac',
+                '.aac',
+                '.opus'
             ],
+            name: 'sound',  // Specify the field name to match the backend expectation
             maxFileSize: '50MB',
             maxTotalFileSize: '100MB',
             allowMultiple: true,
-            labelIdle: 'Drag & drop sound files or <span class="filepond--label-action">Browse</span>',
+            labelIdle: '<span class="filepond--label-action">Upload Files</span>',
             labelMaxFileSizeExceeded: 'File is too large',
             labelMaxFileSize: 'Maximum file size is 50MB',
             labelTapToCancel: 'Tap to cancel',
@@ -317,62 +340,239 @@ class SoundLibrary {
             labelFileProcessingComplete: 'Upload complete',
             labelFileProcessingAborted: 'Upload cancelled',
             labelFileProcessingError: 'Upload error',
-            labelFileTypeNotAllowed: 'Invalid file type',
+            labelFileTypeNotAllowed: 'Invalid file type ',
             fileValidateTypeLabelExpectedTypes: 'Accepts {allTypes}',
+            fileValidateTypeDetectType: (source, type) => {
+                // Debug logging to understand the file object
+                console.log('[SoundLibrary] FilePond fileValidateTypeDetectType called');
+                console.log('[SoundLibrary] File source object:', source);
+                console.log('[SoundLibrary] File source name:', source.name);
+                console.log('[SoundLibrary] File source type:', type);
+
+                // Return a promise as required by FilePond documentation
+                return new Promise((resolve, reject) => {
+                    // If the browser already reported a valid audio MIME type that we accept, return it
+                    if (type) {
+                        // Check if this type is in our accepted list
+                        const acceptedTypes = [
+                            'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav',
+                            'audio/ogg', 'audio/x-ogg', 'audio/m4a', 'audio/x-m4a',
+                            'audio/flac', 'audio/x-flac', 'audio/aac', 'audio/x-aac',
+                            'audio/opus', 'audio/x-opus'
+                        ];
+                        
+                        if (acceptedTypes.includes(type)) {
+                            console.log('[SoundLibrary] Browser reported accepted audio type:', type);
+                            resolve(type);
+                            return;
+                        }
+                    }
+
+                    // If no type or not an accepted audio type, determine from file extension
+                    const fileName = source.name || '';
+                    console.log('[SoundLibrary] Detected filename:', fileName);
+                    const extension = fileName.split('.').pop().toLowerCase();
+                    console.log('[SoundLibrary] Detected extension:', extension);
+
+                    // Map file extensions to the MIME types we're accepting in acceptedFileTypes
+                    const extToMime = {
+                        'mp3': 'audio/mpeg', // Standard MIME type for MP3
+                        'wav': 'audio/wav',
+                        'ogg': 'audio/ogg',
+                        'm4a': 'audio/m4a',
+                        'flac': 'audio/flac',
+                        'aac': 'audio/aac',
+                        'opus': 'audio/opus'
+                    };
+
+                    if (extToMime[extension]) {
+                        console.log('[SoundLibrary] Returning MIME type based on extension:', extToMime[extension]);
+                        resolve(extToMime[extension]);
+                        return;
+                    }
+
+                    // For unknown extensions, return the original type
+                    console.log('[SoundLibrary] Returning original type:', type);
+                    resolve(type);
+                });
+            },
             onpreparefile: (file, output) => {
-                // Optional: Add preprocessing validation
-                console.log('[SoundLibrary] Preparing file:', file.filename);
+                // Debug logging for file preparation
+                console.log('[SoundLibrary] Preparing file:', file);
+                console.log('[SoundLibrary] File name in onpreparefile:', file.filename);
+                console.log('[SoundLibrary] File object in onpreparefile:', file);
             },
             // Server upload with proper error handling (P1 fix)
             server: {
                 process: (fieldName, file, metadata, load, error, progress) => {
+                    // Check for duplicate filenames
+                    const existingFile = this.sounds.find(sound => sound.name === file.name);
+                    if (existingFile) {
+                        const shouldReplace = confirm(`"${file.name}" already exists. Replace it?`);
+                        if (!shouldReplace) {
+                            error('Duplicate file - upload cancelled');
+                            return;
+                        }
+                        
+                        // Remove the existing file before uploading the new one
+                        this._removeFile(existingFile.id);
+                    }
+
+                    // Debug logging
+                    console.log('[SoundLibrary] FilePond process called');
+                    console.log('[SoundLibrary] Field name:', fieldName);
+                    console.log('[SoundLibrary] File object:', file);
+                    console.log('[SoundLibrary] File name:', file.name);
+                    console.log('[SoundLibrary] File size:', file.size);
+                    console.log('[SoundLibrary] File type:', file.type);
+
                     // Create FormData
                     const formData = new FormData();
                     formData.append(fieldName, file);
 
-                    // Track upload state
-                    let uploaded = 0;
-                    let uploadComplete = false;
+                    // Create abort controller for this upload
+                    const abortController = new AbortController();
 
-                    // Perform upload
-                    fetch(`${this.apiBaseUrl}/sounds/upload`, {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`Upload failed: ${response.status}`);
+                    // Return a promise for FilePond to handle async operations
+                    const uploadPromise = new Promise(async (resolve, reject) => {
+                        try {
+                            // Use ApiClient if available, otherwise fall back to direct fetch with manual auth
+                            let response;
+                            console.log('[SoundLibrary] Starting upload...');
+                            console.log('[SoundLibrary] File details:', {
+                                name: file.name,
+                                size: file.size,
+                                type: file.type
+                            });
+
+                            if (this.apiClient) {
+                                // Use ApiClient which handles authentication automatically
+                                const headers = { ...this.apiClient.getAuthHeader() };
+                                
+                                console.log('[SoundLibrary] Using ApiClient, headers:', headers);
+                                console.log('[SoundLibrary] Upload URL:', `${this.apiClient.baseUrl}/sounds/upload`);
+
+                                response = await fetch(`${this.apiClient.baseUrl}/sounds/upload`, {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: headers,
+                                    signal: abortController.signal
+                                });
+                            } else {
+                                // Fallback to direct fetch with manual auth
+                                const token = localStorage.getItem('audio_ar_token');
+                                const headers = {
+                                    'Accept': 'application/json'
+                                };
+
+                                if (token) {
+                                    headers['Authorization'] = `Bearer ${token}`;
+                                } else {
+                                    console.warn('[SoundLibrary] No authentication token found in localStorage');
+                                }
+                                
+                                console.log('[SoundLibrary] Using direct fetch, headers:', headers);
+                                console.log('[SoundLibrary] Upload URL:', `${this.apiBaseUrl}/sounds/upload`);
+
+                                response = await fetch(`${this.apiBaseUrl}/sounds/upload`, {
+                                    method: 'POST',
+                                    body: formData,
+                                    headers: headers,
+                                    signal: abortController.signal
+                                });
+                            }
+
+                            console.log('[SoundLibrary] Upload response received:', {
+                                status: response.status,
+                                statusText: response.statusText,
+                                headers: [...response.headers.entries()],
+                                ok: response.ok
+                            });
+
+                            // Check if response is HTML instead of JSON
+                            const contentType = response.headers.get('content-type');
+                            if (contentType && contentType.includes('text/html')) {
+                                const htmlResponse = await response.text();
+                                console.error('[SoundLibrary] Upload received HTML instead of JSON:', htmlResponse.substring(0, 200) + '...');
+
+                                // Throw a more descriptive error
+                                if (response.status === 503) {
+                                    throw new Error('Service Unavailable: The server is temporarily unable to handle the upload');
+                                } else {
+                                    throw new Error(`Unexpected HTML response during upload (status: ${response.status})`);
+                                }
+                            }
+                            
+                            // Check if response is not ok (status code 4xx or 5xx)
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                console.error('[SoundLibrary] Upload failed with status:', response.status, 'Response:', errorText);
+                                throw new Error(`Upload failed with status ${response.status}: ${errorText}`);
+                            }
+
+                            const soundMetadata = await response.json();
+                            console.log('[SoundLibrary] Sound metadata received:', soundMetadata);
+
+                            // P1 fix: Only add to sounds array AFTER successful upload
+                            this._addFile(soundMetadata);
+
+                            // Return file ID to FilePond
+                            load(soundMetadata.id);
+
+                            // Update file name in FilePond to ensure it shows the correct name
+                            if (this.filePond) {
+                                // Find the file in FilePond by original file reference if possible
+                                // If not, just make sure the UI is refreshed after the metadata is loaded
+                                this._render();
+                            }
+
+                            resolve();
+                        } catch (err) {
+                            console.error('[SoundLibrary] Upload error:', {
+                                error: err,
+                                message: err.message,
+                                stack: err.stack
+                            });
+
+                            // P1 fix: Report error to FilePond and app
+                            error(err.message);
+                            this.onError(err);
+
+                            reject(err);
                         }
-                        return response.json();
-                    })
-                    .then(soundMetadata => {
-                        uploadComplete = true;
-
-                        // P1 fix: Only add to sounds array AFTER successful upload
-                        this._addFile(soundMetadata);
-
-                        // Return file ID to FilePond
-                        load(soundMetadata.id);
-                    })
-                    .catch(err => {
-                        console.error('[SoundLibrary] Upload error:', err);
-
-                        // P1 fix: Report error to FilePond and app
-                        error(err.message);
-                        this.onError(err);
                     });
 
-                    // Return abort function
+                    // Return abort function and progress handler
                     return {
                         abort: () => {
                             console.log('[SoundLibrary] Upload aborted');
-                            // Note: Would need AbortController for real abort
+                            abortController.abort();
                         },
                         onprogress: (loaded, total) => {
                             progress(true, loaded, total);
                         }
                     };
                 }
+            },
+            
+            // Hide unnecessary FilePond UI elements
+            credits: false,  // This hides "Powered by FilePond"
+            allowPaste: false,  // Disable paste functionality
+            allowMultiple: true,
+            itemInsertLocation: 'after',
+            // Simplify the file info labels to only show progress
+            labelFileProcessing: 'Uploading...',
+            labelFileProcessingComplete: '✓',
+            labelFileLoading: '',
+            // Remove file info after processing is complete
+            onprocessfile: (file) => {
+                // After file is processed, hide the file item after a short delay
+                setTimeout(() => {
+                    if (file.origin === FilePond.FILE_ORIGIN_OUTPUT) {
+                        // This is a newly added file, hide it after upload
+                        this._removeFileFromUI(file.id);
+                    }
+                }, 1000); // Wait 1 second before removing
             }
         });
         
@@ -380,7 +580,28 @@ class SoundLibrary {
         this.filePond.on('addfile', (fileError, file) => {
             if (fileError) {
                 console.error('[SoundLibrary] FilePond addfile error:', fileError);
-                this.onError(fileError);
+                
+                // Provide user-friendly error message
+                let errorMessage = 'Upload failed';
+                if (fileError.main === 'Invalid file type ') {
+                    errorMessage = 'Invalid file type. Supported formats: .mp3, .wav, .ogg, .m4a, .flac, .aac, .opus';
+                } else if (fileError.body) {
+                    errorMessage = fileError.body;
+                }
+                
+                // Show error in UI if possible
+                const errorBanner = this.modalEl.querySelector('.sound-library-error-banner');
+                if (errorBanner) {
+                    errorBanner.style.display = 'block';
+                    errorBanner.textContent = `⚠️ ${errorMessage}`;
+                    
+                    // Hide the error after 5 seconds
+                    setTimeout(() => {
+                        errorBanner.style.display = 'none';
+                    }, 5000);
+                }
+                
+                this.onError(new Error(errorMessage));
             }
         });
         
@@ -468,6 +689,17 @@ class SoundLibrary {
         this.gridEl.addEventListener('contextmenu', this._boundHandleContextMenu);
         document.addEventListener('click', this._boundHideContextMenu);
         document.addEventListener('scroll', this._boundHideContextMenu, true);
+        
+        // Add event delegation for context menu items
+        this.contextMenuEl.addEventListener('click', (e) => {
+            const menuItem = e.target.closest('.sound-library-context-menu-item');
+            if (menuItem) {
+                const action = menuItem.getAttribute('data-action');
+                if (action) {
+                    this.handleContextMenuAction(action);
+                }
+            }
+        });
     }
     
     /**
@@ -534,9 +766,18 @@ class SoundLibrary {
         try {
             // Use ApiClient if available, otherwise fall back to direct fetch
             if (this.apiClient) {
+                // Check if ApiClient is properly authenticated
+                if (this.apiClient.isLoggedIn && !this.apiClient.isLoggedIn()) {
+                    console.warn('[SoundLibrary] ApiClient not logged in, showing empty list');
+                    this.sounds = [];
+                    this._render();
+                    this._setLoading(false);
+                    return;
+                }
+
                 // Use the ApiClient to make authenticated requests
                 const sounds = await this.apiClient.getSounds();
-                
+
                 // P1 fix: Validate sounds array
                 if (!Array.isArray(sounds)) {
                     throw new Error('Invalid response format: expected array');
@@ -552,7 +793,7 @@ class SoundLibrary {
                 const headers = {
                     'Content-Type': 'application/json'
                 };
-                
+
                 if (token) {
                     headers['Authorization'] = `Bearer ${token}`;
                 }
@@ -577,15 +818,31 @@ class SoundLibrary {
 
                 // Non-200 response
                 console.warn('[SoundLibrary] API returned non-200:', response.status);
+                
+                // Don't load mock data - just show empty state
+                this.sounds = [];
+                this._render();
+                this._setLoading(false);
+                return;
             }
 
         } catch (error) {
-            console.warn('[SoundLibrary] API load failed, using mock data:', error);
+            console.error('[SoundLibrary] API load failed:', error);
+            // Show a more descriptive error in the UI
+            const errorBanner = this.modalEl.querySelector('.sound-library-error-banner');
+            if (errorBanner) {
+                errorBanner.style.display = 'block';
+                errorBanner.textContent = `⚠️ Server Error: ${error.message || 'Unable to load sounds'}`;
+            }
             this.onError(error);
+            
+            // Don't load mock data - just show empty state
+            this.sounds = [];
+            this._render();
+            this._setLoading(false);
+            return;
         }
 
-        // Fallback to mock data
-        this._loadMockData();
         this._setLoading(false);
     }
     
@@ -683,12 +940,15 @@ class SoundLibrary {
      * @private
      */
     _addFile(soundMetadata) {
+        // Debug logging
+        console.log('[SoundLibrary] Adding file with metadata:', soundMetadata);
+        
         // P1 fix: Validate metadata
         if (!soundMetadata || !soundMetadata.id) {
             console.error('[SoundLibrary] Invalid sound metadata:', soundMetadata);
             return;
         }
-        
+
         this.sounds.push(soundMetadata);
         this._render();
     }
@@ -698,9 +958,48 @@ class SoundLibrary {
      * @param {string} soundId
      * @private
      */
-    _removeFile(soundId) {
+    async _removeFile(soundId) {
+        // Remove from local array
         this.sounds = this.sounds.filter(s => s.id !== soundId);
         this.selected.delete(soundId);
+        
+        // Attempt to remove from server if ApiClient is available
+        if (this.apiClient && this.apiClient.deleteSound) {
+            try {
+                await this.apiClient.deleteSound(soundId);
+                console.log('[SoundLibrary] Deleted sound from server:', soundId);
+            } catch (error) {
+                console.error('[SoundLibrary] Failed to delete sound from server:', error);
+                // Still update UI even if server delete fails
+            }
+        } else if (this.apiClient) {
+            // Alternative API call if deleteSound method doesn't exist
+            try {
+                const token = localStorage.getItem('audio_ar_token');
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+                
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
+                const response = await fetch(`${this.apiBaseUrl}/sounds/${soundId}`, {
+                    method: 'DELETE',
+                    headers: headers
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+                
+                console.log('[SoundLibrary] Deleted sound from server:', soundId);
+            } catch (error) {
+                console.error('[SoundLibrary] Failed to delete sound from server:', error);
+                // Still update UI even if server delete fails
+            }
+        }
+        
         this._render();
     }
     
@@ -826,30 +1125,19 @@ class SoundLibrary {
     }
     
     /**
-     * Set view mode (icons or list)
-     * @param {'icons' | 'list'} view
+     * Set view mode (list only - no switching)
      * @private
      */
-    _setView(view) {
-        this.currentView = view;
-        
-        // Update button states
-        if (view === 'icons') {
-            this.viewIconsBtn.classList.add('active');
-            this.viewIconsBtn.setAttribute('aria-pressed', 'true');
-            this.viewListBtn.classList.remove('active');
-            this.viewListBtn.setAttribute('aria-pressed', 'false');
-            this.gridEl.classList.remove('view-list');
-            this.gridEl.classList.add('view-icons');
-        } else {
-            this.viewListBtn.classList.add('active');
-            this.viewListBtn.setAttribute('aria-pressed', 'true');
-            this.viewIconsBtn.classList.remove('active');
-            this.viewIconsBtn.setAttribute('aria-pressed', 'false');
+    _setView() {
+        // Only list view is supported now
+        this.currentView = 'list';
+
+        // Ensure grid is always in list view
+        if (this.gridEl) {
             this.gridEl.classList.remove('view-icons');
             this.gridEl.classList.add('view-list');
         }
-        
+
         this._render();
     }
     
@@ -858,86 +1146,69 @@ class SoundLibrary {
      * @private
      */
     _render() {
+        // Debug logging
+        console.log('[SoundLibrary] Rendering sounds:', this.sounds);
+        
         // Update empty state
         if (this.sounds.length === 0) {
             if (this.gridEl) this.gridEl.style.display = 'none';
             if (this.emptyStateEl) this.emptyStateEl.classList.add('visible');
         } else {
             if (this.gridEl) {
-                this.gridEl.style.display = this.currentView === 'icons' ? 'grid' : 'table';
+                this.gridEl.style.display = 'table';  // Always use list view
                 this.gridEl.setAttribute('aria-rowcount', String(this.sounds.length));
             }
             if (this.emptyStateEl) this.emptyStateEl.classList.remove('visible');
         }
-        
-        // Render files based on view
-        if (this.currentView === 'icons') {
-            this.gridEl.innerHTML = this.sounds.map((sound, index) => `
-                <div class="sound-file-item ${this.selected.has(sound.id) ? 'selected' : ''}" 
-                     data-id="${sound.id}"
-                     data-index="${index}"
-                     role="gridcell"
-                     tabindex="0"
-                     aria-selected="${this.selected.has(sound.id)}"
-                     aria-label="${this._escapeHtml(sound.name)}, ${this._formatSize(sound.source.fileSize)}"
-                     onclick="soundLibrary._handleFileClick(event, '${sound.id}')"
-                     ondblclick="soundLibrary._handleFileDblClick(event, '${sound.id}')"
-                     onmousedown="soundLibrary._handleFileMouseDown(event, '${sound.id}')">
-                    <div class="sound-file-icon">${this._getIconForSound(sound)}</div>
-                    <div class="sound-file-name">
-                        <span>${this._escapeHtml(sound.name)}</span>
-                    </div>
-                    <div class="sound-file-meta">${this._formatSize(sound.source.fileSize)}</div>
+
+        // Always render in list view
+        // Debug each sound before rendering
+        this.sounds.forEach((sound, index) => {
+            console.log(`[SoundLibrary] Rendering sound ${index} in list view:`, sound.name, 'with file size:', sound.source.fileSize);
+        });
+
+        // List view
+        this.gridEl.innerHTML = this.sounds.map((sound, index) => `
+            <div class="sound-file-item ${this.selected.has(sound.id) ? 'selected' : ''}"
+                 data-id="${sound.id}"
+                 data-index="${index}"
+                 role="row"
+                 tabindex="0"
+                 aria-selected="${this.selected.has(sound.id)}">
+                <div class="sound-file-name-cell">
+                    <span>${this._escapeHtml(sound.name)}</span>
                 </div>
-            `).join('');
-        } else {
-            // List view
-            this.gridEl.innerHTML = this.sounds.map((sound, index) => `
-                <div class="sound-file-item ${this.selected.has(sound.id) ? 'selected' : ''}" 
-                     data-id="${sound.id}"
-                     data-index="${index}"
-                     role="row"
-                     tabindex="0"
-                     aria-selected="${this.selected.has(sound.id)}"
-                     onclick="soundLibrary._handleFileClick(event, '${sound.id}')"
-                     ondblclick="soundLibrary._handleFileDblClick(event, '${sound.id}')"
-                     onmousedown="soundLibrary._handleFileMouseDown(event, '${sound.id}')">
-                    <div class="sound-file-icon-cell">
-                        <div class="sound-file-icon" style="font-size: 24px;">${this._getIconForSound(sound)}</div>
-                    </div>
-                    <div class="sound-file-name-cell">
-                        <span>${this._escapeHtml(sound.name)}</span>
-                    </div>
-                    <div class="sound-file-type-cell">${(sound.source.type || 'AUDIO').toUpperCase()}</div>
-                    <div class="sound-file-size-cell">${this._formatSize(sound.source.fileSize)}</div>
-                    <div class="sound-file-date-cell">${this._formatDate(sound.createdAt)}</div>
-                </div>
-            `).join('');
-        }
-        
+                <div class="sound-file-type-cell">${(sound.source.type || 'AUDIO').toUpperCase()}</div>
+                <div class="sound-file-size-cell">${this._formatSize(sound.source.fileSize)}</div>
+                <div class="sound-file-date-cell">${this._formatDate(sound.createdAt)}</div>
+            </div>
+        `).join('');
+
+        // Add event listeners after elements are created
+        this.gridEl.querySelectorAll('.sound-file-item').forEach(item => {
+            const soundId = item.dataset.id;
+            item.addEventListener('click', (e) => this._handleFileClick(e, soundId));
+            item.addEventListener('dblclick', (e) => this._handleFileDblClick(e, soundId));
+            item.addEventListener('mousedown', (e) => this._handleFileMouseDown(e, soundId));
+        });
+
         // Update status bar
         const totalSize = this.sounds.reduce((sum, s) => sum + (s.source.fileSize || 0), 0);
         const selectedSize = Array.from(this.selected)
             .map(id => this.sounds.find(s => s.id === id))
             .filter(s => s)
             .reduce((sum, s) => sum + (s.source.fileSize || 0), 0);
-        
+
         const countText = this.sounds.length === 1 ? 'sound' : 'sounds';
         const selectedText = this.selected.size === 1 ? 'selected' : 'selected';
-        
+
         if (this.statusBarEl) {
             this.statusBarEl.textContent = `${this.sounds.length} ${countText}` +
                 (this.selected.size > 0 ? ` • ${this.selected.size} ${selectedText} • ${this._formatSize(selectedSize)}` : '') +
                 ` • ${this._formatSize(totalSize)} total`;
         }
-        
-        // Update buttons (P2 fix: validate before enabling)
-        if (this.deleteBtn) {
-            this.deleteBtn.disabled = this.selected.size === 0;
-        }
-        if (this.assignBtn) {
-            this.assignBtn.disabled = this.selected.size === 0;
-        }
+
+        // Buttons removed per requirements - no need to update them
     }
     
     // ============================================
@@ -951,10 +1222,10 @@ class SoundLibrary {
      */
     _handleFileClick(e, soundId) {
         e.stopPropagation();
-        
+
         const index = this.sounds.findIndex(s => s.id === soundId);
         this.lastClickedIndex = index;
-        
+
         // Ctrl/Cmd+Click: Toggle selection
         if (e.ctrlKey || e.metaKey) {
             this._toggleSelect(soundId, true);
@@ -968,7 +1239,7 @@ class SoundLibrary {
             this._select(soundId);
         }
     }
-    
+
     /**
      * Handle file double-click (preview)
      * @param {MouseEvent} e
@@ -976,24 +1247,24 @@ class SoundLibrary {
      */
     _handleFileDblClick(e, soundId) {
         e.stopPropagation();
-        
+
         const now = Date.now();
-        
+
         // Check if this is a slow double-click (rename) or fast (preview)
         if (this.clickCount === 1 && (now - this.lastClickTime) < this.slowDoubleClickMin) {
             // Fast double-click: Preview
             this._previewSound(soundId);
         }
-        
+
         this.clickCount++;
         this.lastClickTime = now;
-        
+
         // Reset after 1 second
         setTimeout(() => {
             this.clickCount = 0;
         }, 1000);
     }
-    
+
     /**
      * Handle file mousedown (for slow double-click detection)
      * @param {MouseEvent} e
@@ -1001,11 +1272,11 @@ class SoundLibrary {
      */
     _handleFileMouseDown(e, soundId) {
         e.stopPropagation();
-        
+
         // Track for slow double-click rename
         if (e.detail === 2) {
             const now = Date.now();
-            if ((now - this.lastClickTime) > this.slowDoubleClickMin && 
+            if ((now - this.lastClickTime) > this.slowDoubleClickMin &&
                 (now - this.lastClickTime) < this.slowDoubleClickMax) {
                 // Slow double-click detected: Start rename
                 clearTimeout(this.renameTimer);
@@ -1137,16 +1408,16 @@ class SoundLibrary {
      * Delete selected sounds
      * @private
      */
-    _deleteSelected() {
+    async _deleteSelected() {
         if (this.selected.size === 0) return;
-        
+
         const selectedSounds = Array.from(this.selected)
             .map(id => this.sounds.find(s => s.id === id))
             .filter(s => s);
-        
+
         // P2 fix: Validate and show warning
         const inUse = selectedSounds.filter(s => Math.random() > 0.5);  // Mock usage check
-        
+
         if (inUse.length > 0) {
             const confirmed = confirm(
                 `⚠️ Delete ${selectedSounds.length} sounds?\n\n` +
@@ -1158,13 +1429,12 @@ class SoundLibrary {
             const confirmed = confirm(`Delete ${selectedSounds.length} selected sound(s)?`);
             if (!confirmed) return;
         }
-        
+
         // Delete sounds
-        Array.from(this.selected).forEach(id => {
-            this._removeFile(id);
-            // TODO: Call API to delete from server
-        });
-        
+        for (const id of this.selected) {
+            await this._removeFile(id);
+        }
+
         this.selected.clear();
     }
     
@@ -1174,24 +1444,24 @@ class SoundLibrary {
      */
     _handleAssign() {
         if (this.selected.size === 0) return;
-        
+
         const selectedSounds = Array.from(this.selected)
             .map(id => this.sounds.find(s => s.id === id))
             .filter(s => s);
-        
+
         // P2 fix: Validate sounds exist
         if (selectedSounds.length === 0) {
             console.error('[SoundLibrary] Assign: No valid sounds selected');
             return;
         }
-        
+
         // For now, show alert (will be replaced by waypoint assignment mode)
         alert(
             `📤 Assign to Waypoint\n\n` +
             `Selected: ${selectedSounds.map(s => s.name).join(', ')}\n\n` +
             `(In production: cursor changes to "sound dropper", click waypoint to assign)`
         );
-        
+
         // TODO: Enter assignment mode
         // this.onSoundAssign(soundId, waypointId);
     }
@@ -1201,44 +1471,61 @@ class SoundLibrary {
     // ============================================
     
     /**
-     * Handle context menu action
-     * @param {string} action
+     * Remove file from FilePond UI after upload completion
+     * @param {string} fileId - ID of the file to remove
+     * @private
      */
+    _removeFileFromUI(fileId) {
+        if (this.filePond) {
+            // Remove the file from FilePond's UI (not from server)
+            this.filePond.removeFile(fileId);
+        }
+    }
+
     handleContextMenuAction(action) {
         if (!this.contextMenuTarget) return;
-        
+
         switch (action) {
-            case 'preview':
-                this._previewSound(this.contextMenuTarget);
-                break;
-            case 'rename':
-                this._startRename(this.contextMenuTarget);
-                break;
             case 'delete':
+                // Add the clicked item to selection if not already selected
+                if (!this.selected.has(this.contextMenuTarget)) {
+                    this.selected.clear();
+                    this.selected.add(this.contextMenuTarget);
+                }
                 this._deleteSelected();
                 break;
             case 'usage':
                 const sound = this.sounds.find(s => s.id === this.contextMenuTarget);
                 if (sound) {
-                    // Mock usage
-                    const usageCount = Math.floor(Math.random() * 5);
-                    const waypoints = usageCount > 0 
-                        ? Array.from({length: usageCount}, (_, i) => `wp${i*3+1}`)
-                        : [];
+                    // In a real implementation, this would fetch actual usage data from the server
+                    // For now, we'll check if there are any waypoints/areas that use this sound
+                    // This would typically involve querying the server for entities that reference this sound ID
                     
+                    // For now, we'll show that it's not used (since we can't access the full app context here)
+                    // A proper implementation would check the actual waypoints/areas in the database
                     alert(
                         `👁️ Usage for "${sound.name}"\n\n` +
-                        (waypoints.length > 0 
-                            ? `Used by:\n${waypoints.map(wp => `• ${wp}`).join('\n')}`
-                            : 'Not used by any waypoints')
+                        'Not used by any waypoints'
                     );
                 }
                 break;
         }
-        
+
         this._hideContextMenu();
     }
     
+    /**
+     * Remove file from FilePond UI after upload completion
+     * @param {string} fileId - ID of the file to remove
+     * @private
+     */
+    _removeFileFromUI(fileId) {
+        if (this.filePond) {
+            // Remove the file from FilePond's UI (not from server)
+            this.filePond.removeFile(fileId);
+        }
+    }
+
     // ============================================
     // Utilities
     // ============================================

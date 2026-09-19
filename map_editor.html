@@ -13,7 +13,10 @@
     
     <!-- Leaflet Draw CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-    
+
+    <!-- Sound Library CSS -->
+    <link rel="stylesheet" href="sound_library.css" />
+
     <!-- Custom styles for Leaflet.Draw vertex handles -->
     <style>
         /* Vertex handles (the dots you drag) */
@@ -92,7 +95,7 @@
             --spacing-xl: 20px;
 
             /* Slideout positioning */
-            --slideout-top-offset: 392px;  /* Aligned with top of #areasSection */
+            --slideout-top-offset: 240px;  /* Adjusted to align better with #areasSection */
 
             /* Border radius */
             --radius-sm: 4px;
@@ -117,34 +120,36 @@
             box-sizing: border-box;
         }
 
-        body {
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg-body);
             color: var(--text-primary);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
+            overflow: hidden; /* Prevent any scrollbars on body */
         }
 
         /* Main Content */
         .main-content {
-            flex: 1;
             display: flex;
-            overflow: hidden;
-            height: 100%;
+            flex: 1;
+            min-height: 0; /* Needed for flex children to be sized properly in some browsers */
             position: relative;
         }
 
         /* Left Sidebar */
         .sidebar {
-            width: 280px;
+            width: 320px;
             background: var(--bg-sidebar);
             border-right: 1px solid var(--border-sidebar);
             display: flex;
             flex-direction: column;
-            height: 100%;
+            height: 100vh; /* Full viewport height */
             position: relative;
             flex-shrink: 0;
+            overflow: hidden;
+            z-index: 2; /* Ensure sidebar is above map elements */
         }
 
         .btn-icon-sm {
@@ -192,7 +197,7 @@
             justify-content: flex-end;
             align-items: center;
             gap: var(--spacing-sm);
-            padding: var(--spacing-md) var(--spacing-lg);
+            padding: var(--spacing-md) var(--spacing-md); /* Make padding consistent with other sections */
             border-bottom: 1px solid var(--border-sidebar);
         }
 
@@ -224,7 +229,7 @@
 
         /* Edit Form */
         .edit-form {
-            padding: var(--spacing-lg);
+            padding: var(--spacing-lg) var(--spacing-md); /* Reduce horizontal padding to match other sections */
             border-bottom: 1px solid var(--border-sidebar);
             flex-shrink: 0;
         }
@@ -238,6 +243,8 @@
             min-height: 0;
             height: 100%;
             position: relative;
+            padding: 0 var(--spacing-xs); /* Add horizontal padding */
+            min-width: 0; /* Ensure proper flex behavior */
         }
 
         /* VSCode-style Explorer */
@@ -249,6 +256,7 @@
             min-height: 0;
             height: 100%;
             padding: 0;
+            min-width: 0; /* Ensure proper flex behavior */
         }
 
         .explorer-section {
@@ -282,6 +290,7 @@
             overflow-y: auto;
             min-height: 0;
             flex: 1;
+            padding: var(--spacing-xs) 0; /* Add some padding to prevent items from touching edges */
         }
 
         .item-list-item {
@@ -513,8 +522,8 @@
 
         /* Slideout Edit Panel (overlays map) */
         .slideout-panel {
-            position: absolute;
-            left: 280px;
+            position: fixed;
+            left: 320px; /* Updated to match new sidebar width */
             top: var(--slideout-top-offset);
             bottom: 0;
             width: 0;
@@ -530,7 +539,7 @@
         }
 
         .slideout-panel.active {
-            width: 280px;
+            width: 300px; /* Increased width for better content display */
             padding: var(--spacing-md);
             opacity: 1;
         }
@@ -807,8 +816,10 @@
         /* Map Area */
         #map {
             flex: 1;
-            height: 100%;
-            min-height: 0;  /* Prevent flex overflow */
+            width: 100%;
+            height: 100vh; /* Full viewport height to fill available space */
+            min-height: 0;
+            min-width: 0;
             background: var(--bg-panel);
             z-index: 1;  /* Ensure map is below slideout */
         }
@@ -828,6 +839,7 @@
             flex-shrink: 0;
             transition: max-height var(--transition-slow) ease;
             max-height: 40px;  /* Collapsed height (header only) */
+            min-height: 0; /* Allow proper flex behavior */
         }
 
         .debug-panel.active {
@@ -902,7 +914,7 @@
             border: 1px solid var(--border-panel);
             border-radius: var(--radius-md);
             padding: var(--spacing-md);
-            margin-top: var(--spacing-md);
+            margin: var(--spacing-md) var(--spacing-xs); /* Add horizontal padding to match other sections */
             font-size: 0.85em;
             flex-shrink: 0;
             z-index: 50;

@@ -30,7 +30,7 @@ class Sound {
       row.type,
       row.filepath || row.file_path,  // Support both variations
       row.url,
-      row.config_json,
+      typeof row.config_json === 'string' ? JSON.parse(row.config_json) : row.config_json,
       row.file_size,
       row.duration,
       row.created_at,
@@ -71,7 +71,7 @@ class Sound {
       type: this.type,
       file_path: this.filepath,  // Use consistent snake_case for DB
       url: this.url,
-      config_json: this.configJson,
+      config_json: typeof this.configJson === 'object' ? JSON.stringify(this.configJson) : this.configJson,
       file_size: this.fileSize,
       duration: this.duration,
       created_at: this.createdAt,
@@ -91,7 +91,7 @@ class Sound {
       type: this.type,
       filepath: this.filepath,
       url: this.url,
-      config: this.configJson,
+      config: typeof this.configJson === 'string' ? JSON.parse(this.configJson) : this.configJson,
       fileSize: this.fileSize,
       duration: this.duration,
       createdAt: this.createdAt,
@@ -104,6 +104,9 @@ class Sound {
    * @returns {Object} Data in API response format
    */
   toApiFormat() {
+    // Ensure configJson is properly formatted for API response
+    const configJson = typeof this.configJson === 'string' ? JSON.parse(this.configJson) : this.configJson;
+    
     const result = {
       id: this.id,
       name: this.name,
@@ -111,7 +114,7 @@ class Sound {
       source: {
         type: this.type
       },
-      config: this.configJson,
+      config: configJson,
       createdAt: this.createdAt ? new Date(this.createdAt).getTime() : null
     };
 
@@ -122,9 +125,9 @@ class Sound {
       if (this.duration) result.source.duration = this.duration;
     } else if ((this.type === 'url' || this.type === 'stream') && this.url) {
       result.source.url = this.url;
-    } else if (this.configJson) {
+    } else if (configJson) {
       // For oscillator, noise, etc., config contains parameters
-      Object.assign(result.source, this.configJson);
+      Object.assign(result.source, configJson);
     }
 
     return result;
@@ -145,7 +148,7 @@ class Sound {
       requestData.type || 'file',
       requestData.source?.url && requestData.source.type === 'file' ? requestData.source.url : null,
       requestData.source?.url && requestData.source.type !== 'file' ? requestData.source.url : null,
-      requestData.config || {},
+      requestData.config || requestData.configJson || {},
       requestData.source?.fileSize || null,
       requestData.source?.duration || null,
       now,

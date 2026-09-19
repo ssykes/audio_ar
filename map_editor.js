@@ -1747,7 +1747,7 @@ class MapEditorApp extends MapAppShared {
         await this.soundLibrary.load();
 
         // Show library modal
-        this.soundLibrary.show();
+        this.soundLibrary.open();
     }
 
     /**
