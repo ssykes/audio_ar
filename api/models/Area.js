@@ -28,7 +28,7 @@ class Area {
         waveform = 'sine',
         frequency = 440,
         detune = 0,
-        gain = 0.5
+        gain = 0.8  // Increased from 0.5 for louder playback
     ) {
         this.id = id;
         this.soundscapeId = soundscapeId;

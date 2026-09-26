@@ -100,7 +100,7 @@ class MapAppShared {
         // Global sound configuration (applies to all waypoints)
         this.soundConfig = {
             soundUrl: '/sounds/BoxingBell.mp3',  // Default sound file
-            volume: 0.8,                          // 0.0 - 1.0
+            volume: 1.0,                          // 0.0 - 1.0 (increased from 0.8 for louder playback)
             loop: true                            // Loop playback
         };
 
@@ -629,28 +629,28 @@ class MapAppShared {
             return cleanWp; // Keep camelCase - server repository handles snake_case conversion
         });
 
-        // Debug: log waypoint soundUrls to verify they're being saved
+        // Debug: log waypoint soundIds to verify they're being saved
         this.debugLog(`📍 Waypoints being saved: ${cleanWaypoints.length}`);
         cleanWaypoints.forEach((wp, idx) => {
-            this.debugLog(`   WP ${idx + 1}: "${wp.name}" soundUrl=${wp.soundUrl || '(empty)'}`);
+            this.debugLog(`   WP ${idx + 1}: "${wp.name}" soundId=${wp.soundId || '(empty)'}`);
         });
 
         // Strip Leaflet layer references from areas
         const cleanAreas = (soundscape.areas || []).map(area => {
             const { _leafletLayer, ...cleanArea } = area;
-            
+
             // Ensure soundId is properly handled - convert undefined/null to null explicitly
             if (cleanArea.soundId === undefined) {
                 cleanArea.soundId = null;
             }
-            
+
             return cleanArea;
         });
 
-        // Debug: log area soundUrls to verify they're being saved
+        // Debug: log area soundIds to verify they're being saved
         this.debugLog(`🗺️ Areas being saved: ${cleanAreas.length}`);
         cleanAreas.forEach((area, idx) => {
-            this.debugLog(`   Area ${idx + 1}: "${area.name}" soundUrl=${area.soundUrl || '(empty)'}`);
+            this.debugLog(`   Area ${idx + 1}: "${area.name}" soundId=${area.soundId || '(empty)'}`);
             if (area.polygon && area.polygon.length > 0) {
                 this.debugLog(`     First vertex: [${area.polygon[0].lat.toFixed(5)}, ${area.polygon[0].lng.toFixed(5)}]`);
             }
@@ -859,6 +859,12 @@ class MapAppShared {
 
         marker.bindPopup(this._createPopupContent(waypoint));
         
+        // Prevent map click event from triggering when clicking on marker
+        marker.on('click', function(e) {
+            // Stop propagation to prevent the map click handler from creating a new waypoint
+            e.originalEvent.stopPropagation();
+        });
+        
         marker.on('dragstart', () => { 
             this.isDragging = true; 
             marker.closePopup(); 
@@ -981,6 +987,7 @@ class MapAppShared {
         if (soundscape) {
             const wpInSoundscape = soundscape.waypointData.find(wp => wp.id === waypointId);
             if (wpInSoundscape) {
+                wpInSoundscape.soundId = waypoint.soundId;
                 wpInSoundscape.soundUrl = waypoint.soundUrl;
                 wpInSoundscape.volume = waypoint.volume;
                 wpInSoundscape.loop = waypoint.loop;
@@ -1317,7 +1324,22 @@ class MapAppShared {
         console.log('[MapShared] 🔊 Starting simulation audio...');
         this.debugLog('🔊 Starting simulation audio engine...');
 
-        const soundConfigs = this.waypoints.map(wp => {
+        // Resolve sound IDs to URLs for waypoints
+        const resolvedWaypoints = await Promise.all(this.waypoints.map(async wp => {
+            if (wp.soundId && !wp.soundUrl) {
+                try {
+                    const soundDetails = await this.api.getSoundById(wp.soundId);
+                    if (soundDetails && soundDetails.source && soundDetails.source.url) {
+                        return { ...wp, soundUrl: soundDetails.source.url };
+                    }
+                } catch (error) {
+                    console.error('[MapShared] Error resolving sound ID to URL:', error);
+                }
+            }
+            return wp;
+        }));
+
+        const soundConfigs = resolvedWaypoints.map(wp => {
             const config = {
                 id: wp.id,
                 url: wp.type === 'oscillator' ? '' : (wp.soundUrl || this.soundConfig.soundUrl),
@@ -1396,9 +1418,24 @@ class MapAppShared {
             // === SESSION 3: Load Areas AFTER app.start() (listener now exists) ===
             // This ensures updateVolume() has valid listener coordinates
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
-                console.log('[MapShared] 🗺️ Loading', soundscape.areas.length, 'areas into AreaManager (sim, post-start)...');
-                this.debugLog(`🗺️ Loading ${soundscape.areas.length} areas for simulation...`);
-                await this.app.loadAreas(soundscape.areas);
+                // Resolve sound IDs to URLs for areas
+                const resolvedAreas = await Promise.all(soundscape.areas.map(async area => {
+                    if (area.soundId && !area.soundUrl) {
+                        try {
+                            const soundDetails = await this.api.getSoundById(area.soundId);
+                            if (soundDetails && soundDetails.source && soundDetails.source.url) {
+                                return { ...area, soundUrl: soundDetails.source.url };
+                            }
+                        } catch (error) {
+                            console.error('[MapShared] Error resolving area sound ID to URL:', error);
+                        }
+                    }
+                    return area;
+                }));
+                
+                console.log('[MapShared] 🗺️ Loading', resolvedAreas.length, 'areas into AreaManager (sim, post-start)...');
+                this.debugLog(`🗺️ Loading ${resolvedAreas.length} areas for simulation...`);
+                await this.app.loadAreas(resolvedAreas);
             }
             
             this._updateSimDisplay();

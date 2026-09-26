@@ -626,7 +626,7 @@ class SoundSource {
 
     init() {
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.3;
+        this.gain.gain.value = this.options.gain || 0.5;  // Increased from 0.3 for louder playback
         
         // Create wet/dry split for reverb
         this.dryGain = this.engine.ctx.createGain();
@@ -752,7 +752,7 @@ class OscillatorSource extends SoundSource {
      * @param {number} targetGain - Target gain at close range
      * @returns {boolean} True if within activation radius
      */
-    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
+    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.8) {  // Increased from 0.5 for louder playback
         // Guard: Check if gain node exists
         if (!this.gain) {
             console.warn(`[OscillatorSource] ${this.id}: gain node missing, skipping update`);
@@ -928,7 +928,7 @@ class GpsSoundSource extends OscillatorSource {
         return GPSUtils.distance(this.gpsLat, this.gpsLon, listenerLat, listenerLon);
     }
 
-    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.5) {
+    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.8) {  // Increased from 0.5 for louder playback
         const dist = this.getDistance(listenerLat, listenerLon);
 
         // Apply 2-meter floor: never calculate gain for closer than 2 meters
@@ -1025,7 +1025,7 @@ class MultiOscillatorSource extends GpsSoundSource {
             const oscGain = this.engine.ctx.createGain();
             osc.type = oscConfig.wave || 'sine';
             osc.frequency.value = oscConfig.freq || 440;
-            oscGain.gain.value = oscConfig.gain || 0.3;
+            oscGain.gain.value = oscConfig.gain || 0.5;  // Increased from 0.3 for louder playback
             osc.connect(oscGain);
             oscGain.connect(this.gain);
             this.oscillators.push({ osc, gain: oscGain, config: oscConfig });
@@ -1133,7 +1133,7 @@ class SampleSource extends GpsSoundSource {
 
     init() {
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.5;
+        this.gain.gain.value = this.options.gain || 0.8;  // Increased from 0.5 for louder playback
 
         this.panner = this.engine.ctx.createPanner();
         this.panner.panningModel = 'HRTF';
@@ -2033,7 +2033,7 @@ class SpatialAudioEngine {
         
         // Master gain
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 0.8;  // Increased from 0.5 for louder playback
+        this.masterGain.gain.value = 1.0;  // Increased from 0.8 for louder playback
 
         // Dynamics compressor to prevent clipping from multiple concurrent sources
         // This allows individual sources to be boosted without worrying about digital distortion
@@ -2056,7 +2056,7 @@ class SpatialAudioEngine {
 
         // Reverb output gain (limits max level to prevent accumulation)
         this.reverbOutputGain = this.ctx.createGain();
-        this.reverbOutputGain.gain.value = 0.5;  // 50% max output (balanced)
+        this.reverbOutputGain.gain.value = 0.7;  // Increased from 0.5 for louder playback
 
         // Connect: reverb → output gain → master
         this.reverb.connect(this.reverbOutputGain);
