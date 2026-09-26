@@ -551,9 +551,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260925191212 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260926103734 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260925191212 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260926103734 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -958,10 +958,6 @@
                     <li class="soundscape-item" data-id="${ss.id}">
                         <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
                         <div class="soundscape-meta">
-                            <span><span class="icon">🔊</span>${ss.waypointCount || 0} audio file(s)</span>
-                            <span class="offline-status" style="display: inline-flex;">
-                                ✅ Available Offline
-                            </span>
                         </div>
                     </li>
                 `).join('');
@@ -1027,8 +1023,6 @@
                     <li class="soundscape-item" data-id="${ss.id}">
                         <div class="soundscape-name">${this._escapeHtml(ss.name)}</div>
                         <div class="soundscape-meta">
-                            <span><span class="icon">🔊</span>${ss.waypointCount || 0} sound(s)</span>
-                            <span><span class="icon">📅</span>${this._formatDate(ss.updatedAt)}</span>
                         </div>
 
                         <!-- Download actions -->
@@ -1299,7 +1293,7 @@
                     this._debugLog(`[picker] ❌ Item not found for ${soundscapeId}`, 'error');
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260925191212
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260926103734
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
