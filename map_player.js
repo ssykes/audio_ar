@@ -27,6 +27,84 @@ class MapPlayerApp extends MapAppShared {
     }
 
     /**
+     * Hash sound ID to a shorter string for filename (copied from download_manager.js)
+     * @param {string} soundId - Sound ID to hash
+     * @returns {Promise<string>} Promise resolving to hashed string (first 10 characters of hex digest)
+     * @private
+     */
+    async _hashSoundId(soundId) {
+        // Simple hash function using built-in crypto API
+        const encoder = new TextEncoder();
+        const data = encoder.encode(soundId);
+        
+        const digest = await crypto.subtle.digest('SHA-256', data);
+        // Convert the ArrayBuffer to hex string
+        const hashArray = Array.from(new Uint8Array(digest));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        // Return first 10 characters for a reasonably short but unique identifier
+        return hashHex.substring(0, 10);
+    }
+
+    /**
+     * Initialize fetch interceptor for offline cached sounds
+     * @private
+     */
+    _initOfflineSoundInterceptor() {
+        // Create a fetch interceptor for cached sounds
+        const originalFetch = window.fetch;
+        const self = this;
+
+        window.fetch = async function(resource, init) {
+            // Check if this is a request for a cached sound
+            if (typeof resource === 'string' && resource.startsWith('/cached_sound/')) {
+                const hashedFilename = resource.replace('/cached_sound/', '');
+                self.debugLog(`🔍 Fetch interceptor: Request for cached sound: ${hashedFilename}`);
+
+                try {
+                    // Look up the sound in the appropriate soundscape cache
+                    const soundscapeId = self.activeSoundscapeId;
+                    const cacheName = `soundscape-${soundscapeId}`;
+                    self.debugLog(`🔍 Fetch interceptor: Looking for ${hashedFilename} in cache: ${cacheName}`);
+
+                    // First, let's check all available caches to see if the file exists anywhere
+                    const allCacheNames = await caches.keys();
+                    self.debugLog(`🔍 Fetch interceptor: All available caches: ${allCacheNames.join(', ')}`);
+                    
+                    // Check if the specific cache exists
+                    if (!allCacheNames.includes(cacheName)) {
+                        self.debugLog(`❌ Fetch interceptor: Cache does not exist: ${cacheName}`);
+                        return new Response(null, { status: 404, statusText: 'Cache not found' });
+                    }
+                    
+                    const cache = await caches.open(cacheName);
+                    const cachedResponse = await cache.match(hashedFilename);
+
+                    if (cachedResponse) {
+                        self.debugLog(`✅ Fetch interceptor: Serving cached sound: ${hashedFilename}`);
+                        return cachedResponse;
+                    } else {
+                        // Check what's actually in the cache for debugging
+                        const allKeys = await cache.keys();
+                        const allKeyUrls = allKeys.map(req => req.url);
+                        self.debugLog(`❌ Fetch interceptor: Cached sound not found: ${hashedFilename}`);
+                        self.debugLog(`📋 Fetch interceptor: Cache ${cacheName} contains: ${allKeyUrls.join(', ') || '(empty)'}`);
+                        
+                        // Return a default response or handle error appropriately
+                        return new Response(null, { status: 404, statusText: 'Sound not found in cache' });
+                    }
+                } catch (error) {
+                    self.debugLog(`❌ Fetch interceptor: Error retrieving cached sound ${hashedFilename}: ${error.message}`);
+                    console.error(`[MapPlayer] Error retrieving cached sound ${hashedFilename}:`, error);
+                    return new Response(null, { status: 500, statusText: 'Internal error' });
+                }
+            }
+
+            // For non-cached sound requests, use the original fetch
+            return originalFetch.call(this, resource, init);
+        };
+    }
+
+    /**
      * Initialize the player app
      * @override
      */
@@ -91,6 +169,9 @@ class MapPlayerApp extends MapAppShared {
             }
         };
         // =======================================================================
+
+        // Initialize offline sound interceptor
+        this._initOfflineSoundInterceptor();
 
         // Get GPS in background (non-blocking - don't wait for it)
         // Waypoints/areas don't need GPS, so load them immediately
@@ -916,15 +997,64 @@ class MapPlayerApp extends MapAppShared {
             // STEP 5: Create SpatialAudioApp with waypoints as sound sources
             // ---------------------------------------------------------------------
             console.log('[MapPlayer] 🎵 Creating sound configs from waypoints...');
-            const soundConfigs = this.waypoints.map(wp => ({
-                id: wp.id,
-                url: wp.soundUrl || this.soundConfig.soundUrl,
-                lat: wp.lat,
-                lon: wp.lon,
-                activationRadius: wp.activationRadius,
-                volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
-                loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
+            
+            // Determine if we're in offline mode by checking for cached soundscape data
+            this.debugLog('🔍 Checking for cached soundscape data...');
+            const cachedData = await this.downloadManager.getCachedSoundscape(this.activeSoundscapeId);
+            this.debugLog('📦 Retrieved cached data: ' + (cachedData ? 'YES' : 'NO'));
+            const isOffline = !!cachedData;
+            this.debugLog('📱 Offline mode: ' + (isOffline ? 'YES' : 'NO'));
+            
+            // Resolve sound IDs to URLs for waypoints (online) or hashed filenames (offline)
+            const resolvedWaypoints = await Promise.all(this.waypoints.map(async wp => {
+                if (wp.soundId && !wp.soundUrl) {
+                    if (isOffline) {
+                        // For offline mode, use the hash of the sound ID as the filename
+                        try {
+                            const hash = await this._hashSoundId(wp.soundId);
+                            return { ...wp, soundUrl: hash }; // Store hash as soundUrl for offline lookup
+                        } catch (error) {
+                            console.error('[MapPlayer] Error hashing sound ID for offline:', error);
+                        }
+                    } else {
+                        // For online mode, resolve to actual URL
+                        try {
+                            const soundDetails = await this.api.getSoundById(wp.soundId);
+                            if (soundDetails && soundDetails.source && soundDetails.source.url) {
+                                return { ...wp, soundUrl: soundDetails.source.url };
+                            }
+                        } catch (error) {
+                            console.error('[MapPlayer] Error resolving sound ID to URL:', error);
+                        }
+                    }
+                }
+                return wp;
             }));
+
+            // Create sound configs, adjusting URLs for offline mode
+            const soundConfigs = resolvedWaypoints.map(wp => {
+                let soundUrl = wp.soundUrl || this.soundConfig.soundUrl;
+
+                // If we're offline and the soundUrl looks like a hash, construct the cache URL
+                if (isOffline && wp.soundId && /^[a-f0-9]{10}$/.test(soundUrl)) {
+                    // This is a hashed filename for offline use, create a cache request
+                    // We need to create a URL that will retrieve from the Cache API
+                    soundUrl = `/cached_sound/${soundUrl}`; // Placeholder that SpatialAudioApp can recognize
+                }
+
+                // Add debug logging
+                this.debugLog(`🎵 Sound config: ${wp.id} | URL: ${soundUrl} | Offline: ${isOffline} | Sound ID: ${wp.soundId || 'N/A'}`);
+
+                return {
+                    id: wp.id,
+                    url: soundUrl,
+                    lat: wp.lat,
+                    lon: wp.lon,
+                    activationRadius: wp.activationRadius,
+                    volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
+                    loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
+                };
+            });
 
             console.log('[MapPlayer] 🎵 Created', soundConfigs.length, 'sound configs');
 
@@ -1035,7 +1165,42 @@ class MapPlayerApp extends MapAppShared {
                     this.debugLog('⚠️ GPS timeout - loading areas with current position (may not work correctly)');
                 }
                 
-                await this.app.loadAreas(soundscape.areas);
+                // Determine if we're in offline mode by checking for cached soundscape data
+                this.debugLog('🔍 [Areas] Checking for cached soundscape data...');
+                const cachedData = await this.downloadManager.getCachedSoundscape(this.activeSoundscapeId);
+                this.debugLog('📦 [Areas] Retrieved cached data: ' + (cachedData ? 'YES' : 'NO'));
+                const isOffline = !!cachedData;
+                this.debugLog('📱 [Areas] Offline mode: ' + (isOffline ? 'YES' : 'NO'));
+                
+                // Resolve sound IDs to URLs for areas (online) or hashed filenames (offline)
+                const resolvedAreas = await Promise.all(soundscape.areas.map(async area => {
+                    if (area.soundId && !area.soundUrl) {
+                        if (isOffline) {
+                            // For offline mode, use the hash of the sound ID as the filename
+                            try {
+                                const hash = await this._hashSoundId(area.soundId);
+                                this.debugLog(`🗺️ Area sound resolved offline: ${area.id} -> hash: ${hash}`);
+                                return { ...area, soundUrl: hash }; // Store hash as soundUrl for offline lookup
+                            } catch (error) {
+                                console.error('[MapPlayer] Error hashing area sound ID for offline:', error);
+                            }
+                        } else {
+                            // For online mode, resolve to actual URL
+                            try {
+                                const soundDetails = await this.api.getSoundById(area.soundId);
+                                if (soundDetails && soundDetails.source && soundDetails.source.url) {
+                                    this.debugLog(`🗺️ Area sound resolved online: ${area.id} -> ${soundDetails.source.url}`);
+                                    return { ...area, soundUrl: soundDetails.source.url };
+                                }
+                            } catch (error) {
+                                console.error('[MapPlayer] Error resolving area sound ID to URL:', error);
+                            }
+                        }
+                    }
+                    return area;
+                }));
+                
+                await this.app.loadAreas(resolvedAreas);
                 this.debugLog('✅ Areas loaded successfully');
             } else {
                 console.log('[MapPlayer] 🗺️ No areas in soundscape');

@@ -551,9 +551,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20260918223830 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20260925191212 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260918223830 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20260925191212 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1168,8 +1168,9 @@
                     this._debugLog(`📥 Starting download: ${soundscape.name}`, 'info');
                     this._debugLog(`📍 Waypoints to download: ${waypoints.length}`, 'info');
                     this._debugLog(`🗺️ Areas to download: ${areas.length}`, 'info');
-                    this._debugLog(`📦 Areas data: ${JSON.stringify(areas.map(a => ({ id: a.id, name: a.name, soundUrl: a.soundUrl })))}`, 'info');
-
+                    this._debugLog(`🔊 Waypoint sound IDs: ${waypoints.map(wp => wp.soundId).filter(Boolean).join(', ') || 'none'}`, 'info');
+                    this._debugLog(`🔊 Area sound IDs: ${areas.map(a => a.soundId).filter(Boolean).join(', ') || 'none'}`, 'info');
+                    
                     // Pass restructured data: areas, behaviors inside soundscapeData object
                     const result = await this.downloadManager.downloadSoundscape(
                         soundscapeId,
@@ -1183,6 +1184,12 @@
                     );
 
                     console.log(`[OfflineDownload] downloadSoundscape() returned:`, result);
+                    this._debugLog(`📊 Download result:`, 'info');
+                    this._debugLog(`   Success: ${result.success}`, 'info');
+                    this._debugLog(`   Downloaded: ${result.downloaded}`, 'info');
+                    this._debugLog(`   Failed: ${result.failed}`, 'info');
+                    this._debugLog(`   Total: ${result.total}`, 'info');
+                    this._debugLog(`   Failed URLs: ${result.failedUrls.length}`, 'info');
 
                     // Hide progress bar after completion
                     if (progressEl) {
@@ -1198,8 +1205,11 @@
                             .map(url => url.split('/').pop())
                             .slice(0, 3) // Show max 3 filenames
                             .join(', ');
-                        
-                        const msg = `⚠️ ${result.downloaded}/${result.total} downloaded. Failed: ${failedNames}${result.failed > 3 ? '...' : ''}`;
+
+                        const msg = result.failed === result.total
+                            ? `❌ Download failed - ${result.failed} file(s) failed`
+                            : `⚠️ Partially downloaded - ${result.failed} of ${result.total} failed: ${failedNames}`;
+
                         this._showToast(msg, 'warning');
                     }
 
@@ -1222,7 +1232,7 @@
 
                 // Find the soundscape item by data-id attribute (set on <li>)
                 const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
-                
+
                 if (itemEl) {
                     const progressEl = itemEl.querySelector('.download-progress');
                     if (progressEl) {
@@ -1236,6 +1246,27 @@
                 } else {
                     this._debugLog(`[picker] ❌ Soundscape item not found!`, 'error');
                 }
+                
+                // Log cache status for debugging
+                caches.keys().then(names => {
+                    const soundscapeCaches = names.filter(name => name.startsWith('soundscape-'));
+                    this._debugLog(`[picker] 🗂️ Cache status: ${soundscapeCaches.length} soundscape cache(s) exist`, 'info');
+                    if (soundscapeCaches.length > 0) {
+                        this._debugLog(`[picker] 🗂️ Cache names: ${soundscapeCaches.join(', ')}`, 'info');
+                        
+                        // Check the specific cache for this soundscape
+                        const cacheName = `soundscape-${soundscapeId}`;
+                        if (soundscapeCaches.includes(cacheName)) {
+                            caches.open(cacheName).then(cache => {
+                                cache.keys().then(keys => {
+                                    this._debugLog(`[picker] 📦 ${cacheName} contains ${keys.length} items`, 'info');
+                                });
+                            });
+                        }
+                    }
+                }).catch(err => {
+                    this._debugLog(`[picker] ❌ Error checking cache status: ${err.message}`, 'error');
+                });
             }
 
             /**
@@ -1244,6 +1275,7 @@
              * @private
              */
             _markAsOffline(soundscapeId) {
+                this._debugLog(`[picker] 📝 Marking soundscape ${soundscapeId} as offline`, 'info');
                 const itemEl = document.querySelector(`.soundscape-item[data-id="${soundscapeId}"]`);
 
                 if (itemEl) {
@@ -1251,12 +1283,23 @@
                     const progressEl = itemEl.querySelector('.download-progress');
                     const statusEl = itemEl.querySelector('.offline-status');
 
-                    if (downloadBtn) downloadBtn.style.display = 'none';
-                    if (progressEl) progressEl.style.display = 'none';
-                    if (statusEl) statusEl.style.display = 'flex';
+                    if (downloadBtn) {
+                        downloadBtn.style.display = 'none';
+                        this._debugLog(`[picker] 📵 Hidden download button for ${soundscapeId}`, 'info');
+                    }
+                    if (progressEl) {
+                        progressEl.style.display = 'none';
+                        this._debugLog(`[picker] 📵 Hidden progress bar for ${soundscapeId}`, 'info');
+                    }
+                    if (statusEl) {
+                        statusEl.style.display = 'flex';
+                        this._debugLog(`[picker] 🟢 Shown offline status for ${soundscapeId}`, 'info');
+                    }
+                } else {
+                    this._debugLog(`[picker] ❌ Item not found for ${soundscapeId}`, 'error');
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20260918223830
+                // Note: Full soundscape data is already stored by download_manager.js?v=20260925191212
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
@@ -1271,6 +1314,8 @@
                     return;
                 }
 
+                this._debugLog(`[picker] 🗑️ Starting to delete offline cache for: ${soundscapeId}`, 'info');
+                
                 try {
                     await this.downloadManager.deleteOfflineCache(soundscapeId);
                     this._showToast('Offline copy removed', 'info');
@@ -1279,8 +1324,10 @@
                     const cachedSoundscapes = await this.downloadManager.getAllCachedSoundscapes();
                     if (cachedSoundscapes.length === 0) {
                         localStorage.removeItem('offline_soundscapes_count');
+                        this._debugLog(`[picker] 🗑️ Removed offline_soundscapes_count from localStorage`, 'info');
                     } else {
                         localStorage.setItem('offline_soundscapes_count', cachedSoundscapes.length.toString());
+                        this._debugLog(`[picker] 🗑️ Updated offline_soundscapes_count to: ${cachedSoundscapes.length}`, 'info');
                     }
                     this._debugLog(`[picker] 🗑️ Updated offline count: ${cachedSoundscapes.length}`, 'info');
 
@@ -1295,11 +1342,20 @@
                             downloadBtn.style.display = 'inline-flex';
                             downloadBtn.disabled = false;
                             downloadBtn.textContent = '📥 Download';
+                            this._debugLog(`[picker] 🔄 Restored download button for ${soundscapeId}`, 'info');
                         }
-                        if (statusEl) statusEl.style.display = 'none';
+                        if (statusEl) {
+                            statusEl.style.display = 'none';
+                            this._debugLog(`[picker] 🔄 Hidden offline status for ${soundscapeId}`, 'info');
+                        }
+                    } else {
+                        this._debugLog(`[picker] ❌ Item not found for ${soundscapeId} during cache deletion`, 'error');
                     }
+                    
+                    this._debugLog(`[picker] ✅ Successfully deleted offline cache for: ${soundscapeId}`, 'info');
                 } catch (error) {
                     console.error('[OfflineDownload] Error deleting cache:', error);
+                    this._debugLog(`[picker] ❌ Error deleting cache for ${soundscapeId}: ${error.message}`, 'error');
                     this._showToast(`Failed to remove: ${error.message}`, 'error');
                 }
             }
@@ -1347,15 +1403,20 @@
              */
             async _checkOfflineStatus() {
                 console.log('[OfflineDownload] Checking offline status...');
-                
+                this._debugLog('[picker] 🗂️ Checking offline status...', 'info');
+
                 for (const ss of this.soundscapes) {
+                    this._debugLog(`[picker] 🕵️ Checking offline status for: ${ss.name} (${ss.id})`, 'info');
                     const isOffline = await this.downloadManager.isAvailableOffline(ss.id);
+                    this._debugLog(`[picker] 📊 Result: ${ss.name} (${ss.id}) is ${isOffline ? 'available' : 'not available'} offline`, 'info');
+                    
                     if (isOffline) {
                         this._markAsOffline(ss.id);
                     }
                 }
-                
+
                 console.log('[OfflineDownload] Offline status check complete');
+                this._debugLog('[picker] ✅ Offline status check complete', 'info');
             }
 
             /**
@@ -1382,10 +1443,16 @@
                 const modeParam = params.get('mode'); // 'editor' or 'player'
 
                 // Route based on device and mode
-                if (isDesktop || modeParam === 'editor') {
-                    // Desktop or Tablet Editor: Go to map_editor_v2.html
-                    console.log('[SoundscapePicker] Editor mode → map_editor_v2.html');
-                    this._debugLog(`[picker] ➡️ Redirecting to map_editor_v2.html...`, 'info');
+                // Priority: explicit mode parameter > device detection
+                if (modeParam === 'player') {
+                    // Explicit player mode: Go to map_player.html
+                    console.log('[SoundscapePicker] Player mode (explicit) → map_player.html');
+                    this._debugLog(`[picker] ➡️ Redirecting to map_player.html (explicit mode=player)...`, 'info');
+                    window.location.href = 'map_player.html';
+                } else if (modeParam === 'editor' || (isDesktop && modeParam !== 'player')) {
+                    // Editor mode or Desktop (without explicit player mode): Go to map_editor.html
+                    console.log('[SoundscapePicker] Editor mode → map_editor.html');
+                    this._debugLog(`[picker] ➡️ Redirecting to map_editor.html...`, 'info');
 
                     // Unregister Service Worker before navigating to desktop editor
                     if ('serviceWorker' in navigator) {
