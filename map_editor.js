@@ -62,6 +62,12 @@ class MapEditorApp extends MapAppShared {
             onSoundAssign: (soundId, waypointId) => {
                 this._onSoundAssigned(soundId, waypointId);
             },
+            onSoundsUpdate: () => {
+                // Refresh the sound dropdown when the sound library is updated
+                if (window.loadSoundNamesIntoDropdown) {
+                    window.loadSoundNamesIntoDropdown();
+                }
+            },
             onError: (error) => {
                 console.error('[SoundLibrary Error]', error);
                 // Only show toast if it's a user-actionable error
@@ -70,6 +76,16 @@ class MapEditorApp extends MapAppShared {
                 }
             },
             sounds: []  // Start with empty array - will load from server or use mock
+        });
+        
+        // Load sound library immediately to ensure sounds are available when needed
+        this.soundLibrary.load().then(() => {
+            // After sound library is loaded, make sure the dropdown is populated
+            if (window.loadSoundNamesIntoDropdown) {
+                window.loadSoundNamesIntoDropdown();
+            }
+        }).catch(error => {
+            console.error('[MapEditor] Failed to load sound library:', error);
         });
 
         // Check for "new soundscape" mode from query parameter
@@ -112,6 +128,14 @@ class MapEditorApp extends MapAppShared {
 
         // Initialize UI forms from soundscape data (after soundscape is loaded)
         this._initForms();
+
+        // Ensure sound dropdown is populated after initialization
+        if (window.loadSoundNamesIntoDropdown) {
+            console.log('[DEBUG] About to call loadSoundNamesIntoDropdown after app init');
+            setTimeout(() => {
+                window.loadSoundNamesIntoDropdown();
+            }, 100); // Small delay to ensure UI is fully rendered
+        }
 
         console.log('Map Editor v2 ready');
     }
@@ -514,6 +538,7 @@ class MapEditorApp extends MapAppShared {
                 name: areaName,
                 polygon: latlngs.map(ll => ({ lat: ll.lat, lng: ll.lng })),
                 soundId: null,
+                type: 'file',  // Default type to 'file'
                 volume: 0.8,
                 loop: true,
                 fadeZoneWidth: 5.0,
@@ -544,6 +569,11 @@ class MapEditorApp extends MapAppShared {
             // Add to sidebar list
             this.debugLog('   Calling _addAreaToList...');
             this._addAreaToList(area);
+
+            // Ensure sound dropdown is updated when a new area is added
+            if (window.loadSoundNamesIntoDropdown) {
+                window.loadSoundNamesIntoDropdown();
+            }
 
             this.debugLog(`✅ Area created: ${area.name} (${area.polygon.length} vertices)`);
             this.debugLog(`   Layer on map: ${this.map.hasLayer(layer)}`);
@@ -736,6 +766,11 @@ class MapEditorApp extends MapAppShared {
         // Populate lists
         this._refreshWaypointList();
         this._refreshAreaList();
+
+        // Ensure sound dropdown is updated when forms are initialized
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
     }
 
     /**
@@ -767,6 +802,7 @@ class MapEditorApp extends MapAppShared {
             lat: lat,
             lon: lon,
             soundId: null,
+            type: 'file',  // Default type to 'file'
             volume: 0.8,
             loop: true,
             activationRadius: 20,
@@ -808,6 +844,12 @@ class MapEditorApp extends MapAppShared {
 
         // No popup - editing via slideout panel only
 
+        // Prevent map click event from triggering when clicking on marker
+        marker.on('click', function(e) {
+            // Stop propagation to prevent the map click handler from creating a new waypoint
+            e.originalEvent.stopPropagation();
+        });
+
         marker.on('dragstart', () => {
             this.isDragging = true;
         });
@@ -840,6 +882,13 @@ class MapEditorApp extends MapAppShared {
 
         // Add to sidebar list and scroll to new item
         this._refreshWaypointList(waypoint.id);
+
+        // Ensure sound dropdown is updated when a new waypoint is added
+        if (window.loadSoundNamesIntoDropdown) {
+            // Use the global function to ensure it's properly awaited
+            console.log('[DEBUG] Calling loadSoundNamesIntoDropdown after new waypoint creation');
+            window.loadSoundNamesIntoDropdown();
+        }
 
         this.debugLog(`✅ Waypoint created: ${waypoint.name} at [${lat.toFixed(5)}, ${lon.toFixed(5)}]`);
     }
@@ -885,6 +934,11 @@ class MapEditorApp extends MapAppShared {
         // Mark soundscape dirty
         this._markSoundscapeDirty();
         this._scheduleAutoSave();
+
+        // Ensure sound dropdown is updated when a waypoint is updated
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
 
         this.debugLog(`✏️ Updated waypoint: ${waypoint.name}`);
     }
@@ -967,6 +1021,11 @@ class MapEditorApp extends MapAppShared {
         // Mark soundscape dirty
         this._markSoundscapeDirty();
         this._scheduleAutoSave();
+
+        // Ensure sound dropdown is updated when an area is updated
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
 
         this.debugLog(`✏️ Updated area: ${area.name}`);
     }
@@ -1447,6 +1506,11 @@ class MapEditorApp extends MapAppShared {
                     this._markSoundscapeDirty();
                     this._scheduleAutoSave();
 
+                    // Ensure sound dropdown is updated when importing a soundscape
+                    if (window.loadSoundNamesIntoDropdown) {
+                        window.loadSoundNamesIntoDropdown();
+                    }
+
                     this.debugLog(`✅ Imported: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
                     this._showToast(`✅ Imported: ${soundscape.name}`, 'success');
                 } catch (error) {
@@ -1528,6 +1592,12 @@ class MapEditorApp extends MapAppShared {
 
         await this._loadSoundscapeFromServer();
         this._initForms();
+        
+        // Ensure sound dropdown is updated when syncing from server
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
+        
         this._showToast('✅ Sync complete', 'success');
     }
 
@@ -1673,6 +1743,12 @@ class MapEditorApp extends MapAppShared {
             }
 
             this.debugLog(`✅ Loaded: ${soundscape.name} (${this.waypoints.length} waypoints, ${areas.length} areas)`);
+            
+            // Ensure sound dropdown is updated when soundscape is loaded from server
+            if (window.loadSoundNamesIntoDropdown) {
+                window.loadSoundNamesIntoDropdown();
+            }
+            
             this._updateSyncStatus(true);
         } catch (error) {
             this.debugLog('❌ Failed to load from server: ' + error.message);
@@ -1733,6 +1809,11 @@ class MapEditorApp extends MapAppShared {
 
         // Update edit form
         this._initForms();
+
+        // Ensure sound dropdown is updated when a new soundscape is created
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
 
         this._showToast(`✅ Created: ${soundscape.name}`, 'success');
     }
@@ -1852,6 +1933,11 @@ class MapEditorApp extends MapAppShared {
         // Call parent method to refresh popup and show success message
         // Use call to ensure correct context
         MapAppShared.prototype._onSoundAssigned.call(this, soundId, itemId);
+        
+        // Ensure sound dropdown is updated when a sound is assigned to a waypoint
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
     }
 
     /**
@@ -1920,6 +2006,11 @@ class MapEditorApp extends MapAppShared {
 
         // Close the sound library modal
         this.soundLibrary.close();
+        
+        // Ensure sound dropdown is updated when a sound is assigned to an area
+        if (window.loadSoundNamesIntoDropdown) {
+            window.loadSoundNamesIntoDropdown();
+        }
     }
 
     /**
@@ -2063,13 +2154,15 @@ const TYPE_CONFIGS = {
         title: 'File Settings',
         fields: `
             <div class="slideout-field">
-                <label for="slideoutSoundId">Sound ID</label>
-                <input type="text" id="slideoutSoundId" placeholder="Sound ID">
-                <small class="slideout-help">Sound ID from library</small>
+                <label for="slideoutSoundName">Sound Name</label>
+                <select id="slideoutSoundName">
+                    <option value="">Select a sound...</option>
+                </select>
+                <small class="slideout-help">Select sound from library</small>
             </div>
         `,
         onRender: () => {
-            // Optional: Add event listeners after render
+            // Sound names will be loaded when form is populated
         }
     },
     'oscillator': {
@@ -2201,7 +2294,7 @@ function getFormData() {
 
     // Add type-specific fields
     if (type === 'file') {
-        data.soundId = document.getElementById('slideoutSoundId').value || null;
+        data.soundId = document.getElementById('slideoutSoundName').value || null;
         addDebugLog(`📝 getFormData: soundId=${data.soundId || '(empty)'}`);
     } else if (type === 'oscillator') {
         data.waveform = document.getElementById('slideoutWaveform').value;
@@ -2216,6 +2309,68 @@ function getFormData() {
     }
 
     return data;
+}
+
+// Load sound names into the dropdown
+async function loadSoundNamesIntoDropdown() {
+    console.log('[DEBUG] loadSoundNamesIntoDropdown called');
+    const soundNameSelect = document.getElementById('slideoutSoundName');
+    if (!soundNameSelect) {
+        console.log('[DEBUG] slideoutSoundName element not found');
+        return;
+    }
+    console.log('[DEBUG] Found slideoutSoundName element');
+
+    // Clear existing options except the first one
+    while (soundNameSelect.children.length > 1) {
+        soundNameSelect.removeChild(soundNameSelect.lastChild);
+    }
+
+    try {
+        // Make sure app and soundLibrary exist
+        if (!window.app || !window.app.soundLibrary) {
+            console.error('App or SoundLibrary not available');
+            return;
+        }
+        console.log('[DEBUG] App and SoundLibrary are available');
+
+        // Load sounds from the sound library if not already loaded
+        console.log('[DEBUG] About to load sound library');
+        await window.app.soundLibrary.load();
+        console.log('[DEBUG] Sound library loaded');
+
+        const sounds = window.app.soundLibrary.sounds;
+        console.log('[DEBUG] Retrieved sounds from library:', sounds);
+
+        // Add each sound to the dropdown
+        sounds.forEach(sound => {
+            const option = document.createElement('option');
+            option.value = sound.id; // Store the ID as the value
+            option.textContent = sound.name; // Display the name
+            soundNameSelect.appendChild(option);
+            console.log(`[DEBUG] Added sound to dropdown: ${sound.name} (${sound.id})`);
+        });
+        
+        console.log(`[DEBUG] Finished populating dropdown with ${sounds.length} sounds`);
+    } catch (error) {
+        console.error('Error loading sounds for dropdown:', error);
+        if (window.app && window.app._showToast) {
+            window.app._showToast('⚠️ Failed to load sounds', 'error');
+        }
+    }
+    
+    // Return a promise that resolves when the dropdown is populated
+    return Promise.resolve();
+}
+
+// Make the function available globally
+window.loadSoundNamesIntoDropdown = loadSoundNamesIntoDropdown;
+
+// Get sound ID by name
+function getSoundIdByName(soundName) {
+    const sounds = app.soundLibrary.sounds;
+    const sound = sounds.find(s => s.name === soundName);
+    return sound ? sound.id : null;
 }
 
 // Live update for range sliders
@@ -2414,15 +2569,46 @@ function openSlideout(type, id, name, meta, color) {
         addDebugLog(`🔍 Waypoint data: type=${waypoint.type}, soundId=${waypoint.soundId || '(empty)'}`);
 
         // Populate type-specific fields based on type
-        if (waypoint.type === 'file') {
-            const slideoutSoundId = document.getElementById('slideoutSoundId');
-            if (slideoutSoundId) {
-                slideoutSoundId.value = waypoint.soundId || '';
-                addDebugLog(`🎵 Waypoint soundId loaded: ${waypoint.soundId || '(empty)'}`);
-            } else {
-                addDebugLog(`❌ slideoutSoundId element not found`);
-            }
-        } else if (waypoint.type === 'oscillator') {
+        // Use the effective type (defaulting to 'file') to determine which fields to populate
+        const effectiveType = waypoint.type || 'file';
+        if (effectiveType === 'file') {
+            // First ensure the sound library is loaded and the dropdown is populated
+            console.log('[DEBUG] About to call loadSoundNamesIntoDropdown for waypoint in slideout');
+            setTimeout(() => {
+                console.log('[DEBUG] In setTimeout for waypoint sound dropdown');
+                // Use the global function to ensure it's always up-to-date
+                window.loadSoundNamesIntoDropdown().then(() => {
+                    console.log('[DEBUG] loadSoundNamesIntoDropdown promise resolved for waypoint');
+                    const slideoutSoundName = document.getElementById('slideoutSoundName');
+                    if (slideoutSoundName) {
+                        // Check if the soundId from the waypoint exists in the loaded sounds
+                        const soundExists = Array.from(slideoutSoundName.options).some(option => option.value === (waypoint.soundId || ''));
+
+                        if (!soundExists && waypoint.soundId) {
+                            addDebugLog(`⚠️ Waypoint soundId '${waypoint.soundId}' not found in loaded sounds`);
+                            // Log the available sound IDs for debugging
+                            const availableSounds = Array.from(slideoutSoundName.options)
+                                .filter(option => option.value)  // Exclude empty option
+                                .map(option => option.value);
+                            addDebugLog(`🎵 Available sound IDs: [${availableSounds.join(', ')}]`);
+                        } else if (waypoint.soundId) {
+                            addDebugLog(`🎵 Waypoint soundId '${waypoint.soundId}' found in loaded sounds`);
+                        } else {
+                            addDebugLog(`🎵 Waypoint has no soundId assigned`);
+                        }
+
+                        // Set the value to the sound ID, which will automatically select the corresponding option
+                        slideoutSoundName.value = waypoint.soundId || '';
+                        addDebugLog(`🎵 Waypoint soundId loaded: ${waypoint.soundId || '(empty)'}`);
+                    } else {
+                        addDebugLog(`❌ slideoutSoundName element not found`);
+                    }
+                }).catch(error => {
+                    console.error('Error loading sound names into dropdown:', error);
+                    addDebugLog(`⚠️ Error loading sound names: ${error.message}`);
+                });
+            }, 0);
+        } else if (effectiveType === 'oscillator') {
             const slideoutWaveform = document.getElementById('slideoutWaveform');
             const slideoutFrequency = document.getElementById('slideoutFrequency');
             const slideoutDetune = document.getElementById('slideoutDetune');
@@ -2492,15 +2678,46 @@ function openSlideout(type, id, name, meta, color) {
         addDebugLog(`🔍 Area data: type=${area.type}, soundId=${area.soundId || '(empty)'}`);
 
         // Populate type-specific fields based on type
-        if (area.type === 'file') {
-            const slideoutSoundId = document.getElementById('slideoutSoundId');
-            if (slideoutSoundId) {
-                slideoutSoundId.value = area.soundId || '';
-                addDebugLog(`🎵 Area soundId loaded: ${area.soundId || '(empty)'}`);
-            } else {
-                addDebugLog(`❌ slideoutSoundId element not found`);
-            }
-        } else if (area.type === 'oscillator') {
+        // Use the effective type (defaulting to 'file') to determine which fields to populate
+        const effectiveType = area.type || 'file';
+        if (effectiveType === 'file') {
+            // First ensure the sound library is loaded and the dropdown is populated
+            console.log('[DEBUG] About to call loadSoundNamesIntoDropdown for area in slideout');
+            setTimeout(() => {
+                console.log('[DEBUG] In setTimeout for area sound dropdown');
+                // Use the global function to ensure it's always up-to-date
+                window.loadSoundNamesIntoDropdown().then(() => {
+                    console.log('[DEBUG] loadSoundNamesIntoDropdown promise resolved for area');
+                    const slideoutSoundName = document.getElementById('slideoutSoundName');
+                    if (slideoutSoundName) {
+                        // Check if the soundId from the area exists in the loaded sounds
+                        const soundExists = Array.from(slideoutSoundName.options).some(option => option.value === (area.soundId || ''));
+
+                        if (!soundExists && area.soundId) {
+                            addDebugLog(`⚠️ Area soundId '${area.soundId}' not found in loaded sounds`);
+                            // Log the available sound IDs for debugging
+                            const availableSounds = Array.from(slideoutSoundName.options)
+                                .filter(option => option.value)  // Exclude empty option
+                                .map(option => option.value);
+                            addDebugLog(`🎵 Available sound IDs: [${availableSounds.join(', ')}]`);
+                        } else if (area.soundId) {
+                            addDebugLog(`🎵 Area soundId '${area.soundId}' found in loaded sounds`);
+                        } else {
+                            addDebugLog(`🎵 Area has no soundId assigned`);
+                        }
+
+                        // Set the value to the sound ID, which will automatically select the corresponding option
+                        slideoutSoundName.value = area.soundId || '';
+                        addDebugLog(`🎵 Area soundId loaded: ${area.soundId || '(empty)'}`);
+                    } else {
+                        addDebugLog(`❌ slideoutSoundName element not found`);
+                    }
+                }).catch(error => {
+                    console.error('Error loading sound names into dropdown:', error);
+                    addDebugLog(`⚠️ Error loading sound names: ${error.message}`);
+                });
+            }, 0);
+        } else if (effectiveType === 'oscillator') {
             const slideoutWaveform = document.getElementById('slideoutWaveform');
             const slideoutFrequency = document.getElementById('slideoutFrequency');
             const slideoutDetune = document.getElementById('slideoutDetune');
@@ -2602,7 +2819,9 @@ function deleteSlideout() {
 // Close slideout handlers
 slideoutClose.addEventListener('click', closeSlideout);
 slideoutCancel.addEventListener('click', closeSlideout);
-slideoutSave.addEventListener('click', saveSlideout);
+slideoutSave.addEventListener('click', function() {
+    saveSlideout();
+});
 slideoutDelete.addEventListener('click', deleteSlideout);
 
 // Close slideout when clicking outside
