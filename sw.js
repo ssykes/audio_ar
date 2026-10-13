@@ -37,7 +37,9 @@ const FILES_TO_CACHE = [
   'map_shared.js',
   'map_player.js',
   'sound_library.js',
-  // CSS (Leaflet - CDN version cached separately)
+  // Same-origin CSS (Leaflet CDN version cached separately below)
+  // theme.css carries the design tokens linked by map_player.html and soundscape_picker.html
+  'theme.css',
 ];
 
 // CDN resources to cache (cross-origin)
