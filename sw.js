@@ -125,6 +125,98 @@ async function cacheFirstStrategy(event, cacheName, options = {}) {
   }
 }
 
+/**
+ * Self-contained fallback page for navigations that can be served neither from
+ * cache nor from the network.
+ *
+ * Deliberately has zero external dependencies - inline styles, no stylesheet,
+ * no script, no image - because it fires exactly when the cache is incomplete
+ * or the network is unavailable. It must not rely on anything that could also
+ * be broken.
+ *
+ * Returns status 200 rather than 503 on purpose: an installed PWA in
+ * `display: standalone` has no browser chrome, so a 5xx risks the browser
+ * showing its own error screen with no way for the user to recover. The page
+ * states the failure plainly instead, and the miss is still logged below.
+ */
+function offlineFallbackResponse(requestedPath) {
+  // requestedPath is interpolated into markup, so strip anything unexpected
+  const safePath = String(requestedPath || '/').replace(/[^a-zA-Z0-9_./?=&%-]/g, '');
+
+  console.error('[SW] ❌ Serving inline fallback page for:', safePath);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a1a2e">
+<title>Audio AR - Page Unavailable</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+  }
+  .card { max-width: 420px; width: 100%; }
+  .icon { font-size: 3em; margin-bottom: 16px; }
+  h1 { font-size: 1.35em; color: #00d9ff; margin-bottom: 12px; }
+  p { color: #aaa; font-size: 0.95em; line-height: 1.5; margin-bottom: 10px; }
+  .path {
+    font-family: Consolas, Monaco, monospace;
+    font-size: 0.8em;
+    color: #888;
+    word-break: break-all;
+    margin-bottom: 28px;
+  }
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 16px;
+    margin-bottom: 10px;
+    font-size: 1em;
+    font-weight: 500;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .primary { background: #00d9ff; color: #1a1a2e; }
+  .secondary { background: #0f3460; color: #eee; border: 1px solid #1a5f7a; }
+  .danger { background: transparent; color: #e94560; border: 1px solid #e94560; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📡</div>
+    <h1>This page isn't available</h1>
+    <p>Audio AR couldn't reach the network, and this page isn't in your offline cache.</p>
+    <p class="path">${safePath}</p>
+    <button class="btn primary" onclick="location.reload()">Try again</button>
+    <a class="btn secondary" href="/index.html">Go to home</a>
+    <a class="btn secondary" href="/map_offline.html">Open offline player</a>
+    <a class="btn danger" href="/clearcache.html">Clear cache and reset</a>
+  </div>
+</body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // Never let the fallback itself be cached and served for a real page
+      'Cache-Control': 'no-store'
+    }
+  });
+}
+
 // Install: Cache all pages immediately
 self.addEventListener('install', (event) => {
   console.log('[SW] Install event');
@@ -370,12 +462,9 @@ self.addEventListener('fetch', (event) => {
             return cachedResponse;
           }
 
-          // No cache - return offline page
+          // No cache - serve the self-contained fallback page
           console.log('[SW] ⚠️ No cache available for:', url.pathname);
-          return new Response('Offline - page not cached', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain' }
-          });
+          return offlineFallbackResponse(url.pathname);
         }
 
         // ONLINE: Use network-first with 3-second timeout (ensures fresh code on deploy)
@@ -418,11 +507,8 @@ self.addEventListener('fetch', (event) => {
             return cachedResponse;
           }
 
-          // No cache either - return offline page
-          return new Response('Offline - page not cached', {
-            status: 503,
-            headers: { 'Content-Type': 'text/plain' }
-          });
+          // No cache either - serve the self-contained fallback page
+          return offlineFallbackResponse(url.pathname);
         }
       })()
     );
