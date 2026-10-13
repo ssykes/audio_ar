@@ -98,14 +98,15 @@ class SoundScapeRepository extends BaseRepository {
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
-        
+
         // Handle deprecated soundUrl field mapping to new soundId field
+        // The wp object comes from the request body, so it has snake_case field names
         let soundIdValue = null;
-        if (wp.soundId) {
-          soundIdValue = wp.soundId;
-        } else if (wp.soundUrl) {
-          // If soundUrl is provided, try to map it to a soundId
-          soundIdValue = wp.soundUrl ? await this._getSoundIdFromUrl(wp.soundUrl) : null;
+        if (wp.sound_id) {
+          soundIdValue = wp.sound_id;
+        } else if (wp.sound_url) {
+          // If sound_url is provided, try to map it to a soundId
+          soundIdValue = wp.sound_url ? await this._getSoundIdFromUrl(wp.sound_url) : null;
         }
 
         const wpResult = await client.query(
@@ -187,15 +188,16 @@ class SoundScapeRepository extends BaseRepository {
       const createdWaypoints = [];
       for (let i = 0; i < waypoints.length; i++) {
         const wp = waypoints[i];
-        
+
         // Handle deprecated soundUrl field mapping to new soundId field
+        // The wp object comes from the request body, so it has snake_case field names
         let soundIdValue = null;
-        if (wp.soundId) {
-          soundIdValue = wp.soundId;
-        } else if (wp.soundUrl) {
-          // If soundUrl is provided, try to map it to a soundId
+        if (wp.sound_id) {
+          soundIdValue = wp.sound_id;
+        } else if (wp.sound_url) {
+          // If sound_url is provided, try to map it to a soundId
           // For now, we'll use a helper function or set to null if not found
-          soundIdValue = wp.soundUrl ? await this._getSoundIdFromUrl(wp.soundUrl) : null;
+          soundIdValue = wp.sound_url ? await this._getSoundIdFromUrl(wp.sound_url) : null;
         }
 
         const wpResult = await client.query(
@@ -225,7 +227,7 @@ class SoundScapeRepository extends BaseRepository {
         const area = areas[i];
         console.log(`[SoundScapeRepository] Area ${i}:`, JSON.stringify({
           name: area.name,
-          soundId: area.soundId,
+          soundId: area.sound_id,
           type: area.type,
           polygonVertices: area.polygon?.length,
           hasPolygon: !!area.polygon,

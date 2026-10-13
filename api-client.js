@@ -427,6 +427,17 @@ class ApiClient {
     }
 
     /**
+     * Get sound details by ID
+     * @param {string} soundId - Sound ID
+     * @returns {Promise<Object>} Sound details including URL
+     */
+    async getSoundById(soundId) {
+        return await this.request(`/sounds/${soundId}`, {
+            method: 'GET'
+        });
+    }
+
+    /**
      * Load soundscape from server
      * Uses Data Mapper pattern for consistent field conversion
      */

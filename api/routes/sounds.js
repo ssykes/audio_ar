@@ -2,11 +2,25 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const authenticateToken = require('../middleware/auth');
 const { soundscapeLimiter } = require('../middleware/rateLimiter'); // Reuse existing limiter
 const SoundRepository = require('../repositories/SoundRepository');
 const db = require('../database');
 const router = express.Router();
+
+// Utility function to generate a 6-character base36 string
+function generateBase36Prefix(length = 6) {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
+  let result = '';
+  const randomBytes = crypto.randomBytes(length);
+  
+  for (let i = 0; i < length; i++) {
+    result += chars[randomBytes[i] % chars.length];
+  }
+  
+  return result;
+}
 
 const repo = new SoundRepository(db);
 
@@ -27,16 +41,16 @@ const storage = multer.diskStorage({
   filename: function (req, file, cb) {
     // Sanitize the original filename to remove potentially dangerous characters
     const sanitizedOriginalName = file.originalname.replace(/[^a-zA-Z0-9_.-]/g, '_');
-    
-    // Generate unique filename to prevent conflicts and ensure safety
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+
+    // Extract file extension and basename
     const ext = path.extname(sanitizedOriginalName);
     const basename = path.basename(sanitizedOriginalName, ext);
-    
-    // Create a safe filename with the sanitized base name
-    const safeFilename = `${uniqueSuffix}_${basename}${ext}`;
-    
-    cb(null, safeFilename);
+
+    // Generate a temporary filename with 6-character base36 prefix (will be renamed after DB record is created)
+    const tempId = 'temp_' + generateBase36Prefix(6);
+    const tempFilename = `${tempId}_${basename}${ext}`;
+
+    cb(null, tempFilename);
   }
 });
 const upload = multer({ 
@@ -83,22 +97,37 @@ router.post('/upload', authenticateToken, upload.single('sound'), async (req, re
     }
 
     // The filename is already sanitized by the Multer storage configuration
-    const safeFilePath = path.join('/sounds', req.file.filename);
+    const tempFilePath = path.join('/sounds', req.file.filename);
 
     const newSound = await repo.create({
       userId: req.user.id,
       name: req.file.originalname,
       type: 'file',
-      filepath: safeFilePath, // Store the safe path
+      filepath: tempFilePath, // Store the temporary path initially
       fileSize: req.file.size,
       duration: null, // Will be calculated later if possible
       configJson: {} // Provide default empty object for config_json
     });
 
-    res.status(201).json(newSound.toApiFormat());
+    // Generate a 6-character base36 prefix for the final filename
+    const base36Prefix = generateBase36Prefix(6);
+    const ext = path.extname(req.file.filename);
+    const newFileName = `${base36Prefix}_${path.basename(req.file.originalname, ext)}${ext}`;
+    const newFilePath = path.join(__dirname, '..', '..', 'sounds', newFileName);
+    const oldFilePath = path.join(__dirname, '..', '..', 'sounds', req.file.filename);
+
+    // Rename the file to use the base36 prefix
+    fs.renameSync(oldFilePath, newFilePath);
+
+    // Update the record in the database with the new file path
+    const updatedSound = await repo.update(newSound.id, {
+      filepath: `/sounds/${newFileName}`
+    }, req.user.id);
+
+    res.status(201).json(updatedSound.toApiFormat());
   } catch (error) {
     console.error('[Sounds] Upload error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to upload sound',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -118,6 +147,27 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       });
     }
 
+    // First get the sound to retrieve its file path
+    const sound = await repo.getByIdAndUser(id, req.user.id);
+    if (!sound) {
+      return res.status(404).json({ error: 'Sound not found or not owned by user' });
+    }
+
+    // Delete the physical file first, before deleting the database record
+    try {
+      const filePath = path.join(__dirname, '..', '..', sound.filepath);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (fileError) {
+      console.error('[Sounds] Failed to delete physical file:', fileError);
+      return res.status(500).json({
+        error: 'Failed to delete sound file',
+        details: process.env.NODE_ENV === 'development' ? fileError.message : undefined
+      });
+    }
+
+    // Only delete the database record if the file deletion was successful
     const deleted = await repo.delete(id, req.user.id);
 
     if (!deleted) {
@@ -227,6 +277,27 @@ router.put('/waypoints/:id/sound', authenticateToken, async (req, res) => {
   }
 });
 
+// GET /api/sounds/:id - Get a specific sound by ID
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify that the sound belongs to the user
+    const sound = await repo.getByIdAndUser(id, req.user.id);
+    if (!sound) {
+      return res.status(404).json({ error: 'Sound not found or not owned by user' });
+    }
+
+    res.json(sound.toApiFormat());
+  } catch (error) {
+    console.error('[Sounds] Get by ID error:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve sound',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // GET /api/sounds/:id/usage - Get usage information for a sound
 router.get('/:id/usage', authenticateToken, async (req, res) => {
   try {
@@ -240,8 +311,8 @@ router.get('/:id/usage', authenticateToken, async (req, res) => {
 
     // Get all waypoints using this sound
     const waypoints = await db.query(
-      `SELECT id, name 
-       FROM waypoints 
+      `SELECT id, name
+       FROM waypoints
        WHERE sound_id = $1`,
       [id]
     );
@@ -255,7 +326,7 @@ router.get('/:id/usage', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('[Sounds] Get usage error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to retrieve sound usage information',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });

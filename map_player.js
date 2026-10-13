@@ -348,13 +348,27 @@ class MapPlayerApp extends MapAppShared {
      * @private
      */
     _createAreaPopupContent(area) {
+        // Handle null/undefined area to prevent errors
+        if (!area) {
+            return `
+                <div style="min-width: 200px;">
+                    <h3 style="margin: 0 0 10px 0;">⚠️ Invalid Area</h3>
+                    <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
+                        <div>📍 No data available</div>
+                        <div>🔊 N/A</div>
+                        <div>🎵 No sound</div>
+                    </div>
+                </div>
+            `;
+        }
+        
         return `
             <div style="min-width: 200px;">
                 <h3 style="margin: 0 0 10px 0;">${area.icon || '◈'} ${area.name}</h3>
                 <div style="font-size: 0.85em; color: #666; margin-bottom: 10px;">
-                    <div>📍 ${area.polygon.length} vertices</div>
-                    <div>🔊 Volume: ${(area.volume * 100).toFixed(0)}%</div>
-                    <div>🎵 Sound: ${area.soundUrl.split('/').pop()}</div>
+                    <div>📍 ${(area.polygon && area.polygon.length) ? area.polygon.length : 0} vertices</div>
+                    <div>🔊 Volume: ${(area.volume !== undefined ? (area.volume * 100) : 0).toFixed(0)}%</div>
+                    <div>🎵 Sound: ${area.soundUrl ? area.soundUrl.split('/').pop() : (area.soundId ? 'ID: ' + area.soundId : 'No sound')}</div>
                 </div>
             </div>
         `;
