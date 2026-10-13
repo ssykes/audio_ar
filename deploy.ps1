@@ -17,7 +17,7 @@ Write-Host ""
 
 # Configuration
 $SERVER_USER = "ssykes"
-$SERVER_HOST = "macminiwebsever"
+$SERVER_HOST = "192.168.86.40"
 $SERVER_PATH = "/var/www/html"
 $LOCAL_PATH = "e:\vsCode\workspaces\audio_ar"
 
@@ -116,6 +116,7 @@ $SW_REGISTER_PATTERN = 'sw-register\.js(\?v=\d+)?'
 $MARTINEZ_PATTERN = 'martinez\.min\.js(\?v=\d+)?'
 $SOUND_LIBRARY_JS_PATTERN = 'sound_library\.js(\?v=\d+)?'
 $SOUND_LIBRARY_CSS_PATTERN = 'sound_library\.css(\?v=\d+)?'
+$THEME_CSS_PATTERN = 'theme\.css(\?v=\d+)?'
 $CLOUDFLARE_WORKER_PATTERN = 'cloudflare-worker\.js(\?v=\d+)?'
 $DOCS_ACCURACY_CHECKER_PATTERN = 'docs_accuracy_checker\.js(\?v=\d+)?'
 $MAP_EDITOR_MOCKUP_PATTERN = 'map_editor_mockup\.js(\?v=\d+)?'
@@ -232,6 +233,13 @@ foreach ($htmlFile in $HTML_FILES) {
             Write-Host "  Updated: $htmlFile (sound_library.css)" -ForegroundColor Green
         }
 
+        # Update theme.css version
+        if ($content -match $THEME_CSS_PATTERN) {
+            $content = $content -replace $THEME_CSS_PATTERN, "theme.css?v=$VERSION"
+            Set-Content $filePath $content -NoNewline
+            Write-Host "  Updated: $htmlFile (theme.css)" -ForegroundColor Green
+        }
+
         # Update cloudflare-worker.js version
         if ($content -match $CLOUDFLARE_WORKER_PATTERN) {
             $content = $content -replace $CLOUDFLARE_WORKER_PATTERN, "cloudflare-worker.js?v=$VERSION"
@@ -324,7 +332,8 @@ $HTML_FILES_WITH_VERSIONS = @(
     "single_sound_v2.html",
     "soundscape_picker.html",
     "auto_rotate.html",
-    "clear_sw_cache.html"
+    "clear_sw_cache.html",
+    "clearcache.html"
 )
 
 foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
@@ -349,6 +358,7 @@ foreach ($htmlFile in $HTML_FILES_WITH_VERSIONS) {
         $content = $content -replace '(martinez\.min\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(sound_library\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(sound_library\.css)"', "`${1}?v=$VERSION`""
+        $content = $content -replace '(theme\.css)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(cloudflare-worker\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(docs_accuracy_checker\.js)"', "`${1}?v=$VERSION`""
         $content = $content -replace '(map_editor_mockup\.js)"', "`${1}?v=$VERSION`""
@@ -390,9 +400,11 @@ $ALL_FILES = @(
     "download_manager.js",
     "map_offline.html",
     "clear_sw_cache.html",
+    "clearcache.html",
     "martinez.min.js",
     "sound_library.js",
-    "sound_library.css"
+    "sound_library.css",
+    "theme.css"
 )
 
 Write-Host "Files to deploy: $($ALL_FILES.Count)" -ForegroundColor Yellow
@@ -428,19 +440,20 @@ foreach ($file in $ALL_FILES) {
     }
 
     # Upload with scp
-    & scp $localFile $remotePath 2>$null
+    $scpOutput = & scp $localFile $remotePath 2>&1
+    $scpExitCode = $LASTEXITCODE
 
-    if ($LASTEXITCODE -eq 0) {
+    if ($scpExitCode -eq 0) {
         Write-Host " [OK]" -ForegroundColor Green
         $uploadedCount++
-        
+
         # GUARD: Verify critical files uploaded correctly
         if ($CRITICAL_FILES -contains $file) {
             Write-Host "   Verifying: $file" -NoNewline
-            
+
             # SSH with timeout (5 seconds) to prevent hanging
             $verifyResult = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "head -15 ${SERVER_PATH}/${file} 2>&1"
-            
+
             # Check for common corruption indicators
             if ($verifyResult -match 'MAX_CONCURRENT' -or $verifyResult -match 'SyntaxError' -or $verifyResult -match 'undefined') {
                 Write-Host " [CORRUPTED!]" -ForegroundColor Red
@@ -448,17 +461,21 @@ foreach ($file in $ALL_FILES) {
                 Write-Host "   Server preview:" -ForegroundColor Gray
                 $verifyResult | Select-Object -First 5 | ForEach-Object { Write-Host "     $_" -ForegroundColor Gray }
                 Write-Host "   Re-uploading..." -ForegroundColor Yellow
-                & scp $localFile $remotePath 2>$null
-                if ($LASTEXITCODE -eq 0) {
+                $retryOutput = & scp $localFile $remotePath 2>&1
+                $retryExitCode = $LASTEXITCODE
+                if ($retryExitCode -eq 0) {
                     Write-Host "   [Re-upload OK]" -ForegroundColor Green
                     $verifiedCount++
+                } else {
+                    Write-Host "   [Re-upload FAILED!]" -ForegroundColor Red
+                    Write-Host "   Error details: $retryOutput" -ForegroundColor Red
                 }
             } else {
                 Write-Host " [Verified]" -ForegroundColor Green
                 $verifiedCount++
             }
         }
-        
+
         # EXTRA VERIFICATION: Check that new code patterns exist on server (for JS files)
         if ($file -eq 'map_player.js') {
             Write-Host "   Checking new code on server..." -NoNewline
@@ -468,20 +485,30 @@ foreach ($file in $ALL_FILES) {
             } else {
                 Write-Host " [OLD CODE! ⚠️]" -ForegroundColor Red
                 Write-Host "   Server has old code! Re-uploading..." -ForegroundColor Yellow
-                & scp $localFile $remotePath 2>$null
+                $retryOutput = & scp $localFile $remotePath 2>&1
                 Start-Sleep -Seconds 2
                 $codeCheck2 = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "grep -c 'ForceSWUpdate' ${SERVER_PATH}/${file} 2>&1"
                 if ($codeCheck2 -gt 0) {
                     Write-Host "   [Re-upload successful ✅]" -ForegroundColor Green
                 } else {
                     Write-Host "   [Re-upload FAILED! ❌]" -ForegroundColor Red
-                    Write-Host "   Manual upload required: scp $file ssykes@macminiwebsever:/var/www/html/" -ForegroundColor Yellow
+                    Write-Host "   Manual upload required: scp $file ssykes@192.168.86.40:/var/www/html/" -ForegroundColor Yellow
+                    Write-Host "   Error details: $retryOutput" -ForegroundColor Red
                 }
             }
         }
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
         $failedCount++
+        Write-Host "   Error details: $scpOutput" -ForegroundColor Red
+        Write-Host "   Exit code: $scpExitCode" -ForegroundColor Red
+        
+        # Log additional debugging information
+        Write-Host "   Debug info:" -ForegroundColor Yellow
+        Write-Host "     Local file: $localFile" -ForegroundColor Yellow
+        Write-Host "     Remote path: $remotePath" -ForegroundColor Yellow
+        Write-Host "     File exists: $(Test-Path $localFile)" -ForegroundColor Yellow
+        Write-Host "     File size: $(if (Test-Path $localFile) { (Get-Item $localFile).Length } else { 'N/A' }) bytes" -ForegroundColor Yellow
     }
 }
 
@@ -515,11 +542,21 @@ if (Test-Path $soundsPath) {
         foreach ($soundFile in $soundFiles) {
             $remoteSoundPath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/sounds/"
             Write-Host "   Uploading: sounds/$($soundFile.Name)" -NoNewline
-            scp $soundFile.FullName $remoteSoundPath 2>$null
-            if ($LASTEXITCODE -eq 0) {
+            $scpOutput = & scp $soundFile.FullName $remoteSoundPath 2>&1
+            $scpExitCode = $LASTEXITCODE
+            if ($scpExitCode -eq 0) {
                 Write-Host " [OK]" -ForegroundColor Green
             } else {
                 Write-Host " [FAILED]" -ForegroundColor Red
+                Write-Host "   Error details: $scpOutput" -ForegroundColor Red
+                Write-Host "   Exit code: $scpExitCode" -ForegroundColor Red
+                
+                # Log additional debugging information
+                Write-Host "   Debug info:" -ForegroundColor Yellow
+                Write-Host "     Local file: $($soundFile.FullName)" -ForegroundColor Yellow
+                Write-Host "     Remote path: $remoteSoundPath" -ForegroundColor Yellow
+                Write-Host "     File exists: $(Test-Path $soundFile.FullName)" -ForegroundColor Yellow
+                Write-Host "     File size: $($soundFile.Length) bytes" -ForegroundColor Yellow
             }
         }
     } else {
@@ -580,12 +617,22 @@ if (Test-Path $apiPath) {
             }
 
             Write-Host "   Uploading: api/$file" -NoNewline
-            & scp $localFile $remotePath 2>$null
-            if ($LASTEXITCODE -eq 0) {
+            $scpOutput = & scp $localFile $remotePath 2>&1
+            $scpExitCode = $LASTEXITCODE
+            if ($scpExitCode -eq 0) {
                 Write-Host " [OK]" -ForegroundColor Green
             } else {
                 Write-Host " [FAILED]" -ForegroundColor Red
                 $failedCount++
+                Write-Host "   Error details: $scpOutput" -ForegroundColor Red
+                Write-Host "   Exit code: $scpExitCode" -ForegroundColor Red
+                
+                # Log additional debugging information
+                Write-Host "   Debug info:" -ForegroundColor Yellow
+                Write-Host "     Local file: $localFile" -ForegroundColor Yellow
+                Write-Host "     Remote path: $remotePath" -ForegroundColor Yellow
+                Write-Host "     File exists: $(Test-Path $localFile)" -ForegroundColor Yellow
+                Write-Host "     File size: $(if (Test-Path $localFile) { (Get-Item $localFile).Length } else { 'N/A' }) bytes" -ForegroundColor Yellow
             }
         } else {
             Write-Host "   Skipping: api/$file (not found)" -ForegroundColor Yellow
@@ -679,16 +726,24 @@ foreach ($migrationFile in $migrationFiles) {
     
     # Copy to server temp location
     $tempPath = "/tmp/$($migrationFile.Name)"
-    & scp $migrationFile.FullName "${SERVER_USER}@${SERVER_HOST}:$tempPath" 2>$null
+    $scpOutput = & scp $migrationFile.FullName "${SERVER_USER}@${SERVER_HOST}:$tempPath" 2>&1
+    $scpExitCode = $LASTEXITCODE
 
-    # Run migration - first try without sudo (assuming postgres user has rights)
-    $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "psql -U postgres -d audio_ar -f $tempPath 2>&1"
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host " [OK]" -ForegroundColor Green
+    if ($scpExitCode -eq 0) {
+        # Run migration - first try without sudo (assuming postgres user has rights)
+        $migrationResult = & ssh -n $SERVER_USER@$SERVER_HOST "psql -U postgres -d audio_ar -f $tempPath 2>&1"
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " [OK]" -ForegroundColor Green
+        } else {
+            Write-Host " [FAILED]" -ForegroundColor Red
+            Write-Host "   Migration Error: $migrationResult" -ForegroundColor Red
+        }
     } else {
         Write-Host " [FAILED]" -ForegroundColor Red
-        Write-Host "   Error: $migrationResult" -ForegroundColor Red
+        Write-Host "   Upload Error: $scpOutput" -ForegroundColor Red
+        Write-Host "   Upload Exit Code: $scpExitCode" -ForegroundColor Red
+        Write-Host "   Migration skipped due to upload failure" -ForegroundColor Yellow
     }
 }
 

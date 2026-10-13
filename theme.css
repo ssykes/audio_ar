@@ -1,0 +1,73 @@
+/**
+ * theme.css — Single source of truth for design tokens.
+ *
+ * Extracted verbatim from the :root block in map_editor.html so that all four
+ * live pages (index, soundscape_picker, map_editor, map_player) share one
+ * token set. Restyle the app by editing values here, not in the pages.
+ *
+ * LOAD ORDER MATTERS: this file must be linked BEFORE sound_library.css,
+ * which consumes these variables.
+ *
+ * Note: these are token definitions only. This file deliberately contains no
+ * element rules and no reset — the `* { margin/padding/box-sizing }` reset
+ * stays in map_editor.html because applying it globally would change the
+ * layout of the other pages.
+ */
+
+:root {
+    /* Background colors */
+    --bg-body: #1a1a2e;
+    --bg-sidebar: #16213e;
+    --bg-panel: #0f3460;
+    --bg-input: #16213e;
+    --bg-header: #0f3460;
+
+    /* Border colors */
+    --border-sidebar: #0f3460;
+    --border-input: #1a5f7a;
+    --border-panel: #1a5f7a;
+
+    /* Accent colors */
+    --accent-primary: #00d9ff;
+    --accent-success: #00ff88;
+    --accent-warning: #f39c12;
+    --accent-danger: #e94560;
+
+    /* Text colors */
+    --text-primary: #eee;
+    --text-secondary: #ccc;
+    --text-muted: #888;
+    --text-dark: #666;
+    --text-white: #fff;
+    --text-light: #aaa;
+
+    /* Accent hover colors */
+    --accent-primary-hover: #00b8d9;
+    --accent-danger-hover: #d63447;
+
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 20px;
+
+    /* Slideout positioning (map_editor only) */
+    --slideout-top-offset: 240px;  /* Adjusted to align better with #areasSection */
+
+    /* Border radius */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+
+    /* Transitions */
+    --transition-fast: 0.15s;
+    --transition-normal: 0.2s;
+    --transition-slow: 0.3s;
+
+    /* Z-index layers */
+    --z-sidebar: 10;
+    --z-slideout: 100;
+    --z-debug-console: 100;
+    --z-toast: 10000;
+}

@@ -30,7 +30,7 @@
 }
 
 .sound-library-modal {
-    background: #1a1a2e;
+    background: var(--bg-body);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     width: 700px;
@@ -134,13 +134,14 @@
 }
 
 .filepond--panel-root {
+    /* rgba() cannot use var() without color-mix(); still hand-synced to theme.css */
     background-color: rgba(15, 52, 96, 0.3); /* Match --bg-panel */
     border: 1px solid rgba(26, 95, 122, 0.5); /* Match --border-input */
     border-radius: 6px;
 }
 
 .filepond--drop-label {
-    color: #ccc; /* Match --text-secondary */
+    color: var(--text-secondary);
 }
 
 .filepond--browser {
@@ -148,12 +149,12 @@
 }
 
 .filepond--label-action {
-    color: #00d9ff; /* Match --accent-primary */
+    color: var(--accent-primary);
     font-weight: 500;
 }
 
 .filepond--item-panel {
-    background-color: #00d9ff; /* Match --accent-primary */
+    background-color: var(--accent-primary);
 }
 
 /* Hide "No file chosen" and "Powered by FilePond" */

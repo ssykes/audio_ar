@@ -7,6 +7,8 @@
     <title>Map Player - Spatial Audio AR</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
+    <!-- Design tokens - must load before any stylesheet that consumes them -->
+    <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
     <!-- Error Overlay Script (must be first) -->
@@ -478,7 +480,7 @@
     <script>
         // Register Service Worker for offline support
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20260918223830?v=' + Date.now())
+            navigator.serviceWorker.register('sw.js?v=20261013151848?v=' + Date.now())
                 .then((registration) => {
                     console.log('[map_player] ✅ Service Worker registered:', registration.scope);
                 })

@@ -7,7 +7,9 @@
     <title>Spatial Audio AR - Landing</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/svg+xml" href="icon-192.svg">
-    
+    <!-- Design tokens - must load before any stylesheet that consumes them -->
+    <link rel="stylesheet" href="theme.css" />
+
     <!-- Redirect to soundscape_picker if offline and has offline soundscapes -->
     <script>
         // Check if offline before page loads
