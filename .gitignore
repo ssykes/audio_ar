@@ -44,6 +44,9 @@ sounds/
 *.mp3
 *.m4a
 
+# Throwaway test and debug pages - build them here, never in the project root
+scratch/
+
 # Tool working files and leftovers from earlier editing attempts
 .qwen/
 .git_show_tmp.txt
