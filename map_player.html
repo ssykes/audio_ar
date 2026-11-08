@@ -478,9 +478,13 @@
 
     <!-- Service Worker Registration (for offline support) -->
     <script>
-        // Register Service Worker for offline support
+        // Register Service Worker for offline support.
+        // The deploy script adds the version stamp to this address. Nothing dynamic should be
+        // appended here: a different address on every load makes the browser reinstall the worker
+        // endlessly instead of updating it, and the deploy script's pattern cannot tell a real
+        // filename from one being built up inside a string, so it stamps straight into the middle.
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=20261013151848?v=' + Date.now())
+            navigator.serviceWorker.register('sw.js')
                 .then((registration) => {
                     console.log('[map_player] ✅ Service Worker registered:', registration.scope);
                 })

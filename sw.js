@@ -520,6 +520,25 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     // Try exact match first, then try without query string
     (async () => {
+      // A version stamp on the address means the page is asking for one specific deploy,
+      // so that request has to reach the network. Serving it from the cache instead makes
+      // the stamp meaningless, and because the stripped lookup below always finds the copy
+      // stored at install time, nothing would ever update. The unversioned entry is
+      // refreshed on the way through, so offline playback still has a copy to fall back to.
+      if (url.search) {
+        try {
+          const versionedResponse = await fetch(event.request);
+          if (versionedResponse && versionedResponse.status === 200 && url.origin === self.location.origin) {
+            const versionedCache = await caches.open(CACHE_NAME);
+            await versionedCache.put(new Request(url.origin + url.pathname), versionedResponse.clone());
+            console.log('[SW] 🌐 Versioned request served from network:', url.pathname);
+          }
+          return versionedResponse;
+        } catch (error) {
+          console.log('[SW] 📴 Versioned request failed, falling back to cache:', url.pathname);
+        }
+      }
+
       // Try exact match
       let cachedResponse = await caches.match(event.request);
       
