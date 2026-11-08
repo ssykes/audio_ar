@@ -49,36 +49,63 @@ Source code (implementation)
 |------|---------|--------------|
 | `map_player.html` | v7.2 | 2026-03-18 |
 | `map_editor.html` | v6.119+ | 2026-03-18 |
-| `map_editor_mockup.html` | v1.0 | 2026-03-25 (Feature 17B) |
-| `map_editor_mockup.js` | v1.0 | 2026-03-25 (Feature 17B) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
+| `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
 | `spatial_audio.js` | v6.2 | 2026-04-03 (Area Debug Cleanup) |
 | `spatial_audio_app.js` | v3.2 | 2026-04-03 (Area Debug Cleanup) |
 | `map_shared.js` | v6.9+ | 2026-04-03 (Sim waypoint zone logging) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
-| `sw.js` | v1.0 | 2026-03-21 (Feature 16: New) |
-| `deploy.ps1` | - | 2026-03-21 (Feature 16) |
+| `sw.js` | v1.0 | 2026-10-13 (offline fallback page; `theme.css` precached) |
+| `deploy.ps1` | - | 2026-10-13 (`theme.css` registered) |
+| `FEATURE_22_PWA_AND_UI_RESTYLE.md` | v1.0 | 2026-10-13 (Task A + Task B spec) |
 | `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 (Feature 16B spec) |
+
+**⚠️ Dead files — do not edit:** `map_editor_v2.*`, `map_editor_old.*`, `map_editor_mockup.*`.
+`FEATURE_17_MAP_EDITOR_UI_REFACTOR.md` wrongly calls `map_editor_v2.html` production. The live
+editor is `map_editor.html`. See `FEATURE_22_PWA_AND_UI_RESTYLE.md` → *Live file map*.
 
 **Note:** Cache-busting versions updated on every deploy. Check HTML files for current values.
 
 ---
 
+## 🧪 Scratch Files
+
+Throwaway test and debug pages are built in `scratch/` (gitignored) — never in the project root.
+They are not tests: nothing runs them automatically and they prove nothing later. If a check needs
+to survive, build it deliberately and say so. Nothing in `scratch/` is backed up; clear it out
+periodically.
+
+---
+
 ## 🎯 Next Priority Items
 
-1. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-2. **Feature 17: Distance Envelope** - Three-zone volume control (~4h)
-3. **Feature 20: Cached Streaming** - Session cache (~7h)
-4. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
-5. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
-6. **Feature 18: Behavior UI** - Visual timeline
+**👉 Items 1-2 are fully specified in [`FEATURE_22_PWA_AND_UI_RESTYLE.md`](FEATURE_22_PWA_AND_UI_RESTYLE.md)**
+They are two *independent* tasks — do them separately, they share no code.
+
+1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
+2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
+3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
+4. **Feature 17: Distance Envelope** - Three-zone volume control (~4h)
+5. **Feature 20: Cached Streaming** - Session cache (~7h)
+6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
+7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
+8. **Feature 18: Behavior UI** - Visual timeline
 
 ---
 
 ## 🐛 Known Issues
 
-None currently - all lazy loading bugs fixed:
+**Open (see `FEATURE_22_PWA_AND_UI_RESTYLE.md` for detail and fixes):**
+
+- 🔴 **Wake lock is never re-acquired** after the page is hidden. An incoming call or the notification shade silently kills audio and GPS mid-walk. `map_player.js` ~:1287
+- 🔴 **`manifest.json` `start_url` points at `/audio_ar_app.html`, which does not exist** - installing to the home screen produces a 404
+- 🟠 **No PNG icons anywhere** - iOS ignores the SVG icons, so an installed iOS app gets a screenshot thumbnail
+- 🟠 **`wake_lock_helper.js` is dead code** - zero call sites, yet it is loaded by `map_player.html` and precached to every phone
+- 🟠 **`offline.html` is broken** - its "Open App" button targets the same nonexistent file, and it is not in `FILES_TO_CACHE`
+- 🟡 **Docs are unreliable about which editor file is live.** `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md` and `FEATURES.md` both claim `map_editor_v2.html` is in production. It is **dead**; the live editor is `map_editor.html`. Verify with `grep "location.href.*map_editor" index.html soundscape_picker.html`
+
+**Resolved:** all lazy loading bugs fixed
 - ✅ Preload margin matches fade zone (20m)
 - ✅ Preloaded sounds start playing immediately
 - ✅ Hysteresis prevents rapid load/dispose cycles
@@ -204,21 +231,107 @@ Hard refresh browser (Ctrl+Shift+R) and check console:
 
 ---
 
-## ⚠️ Cloudflare Cache Issue
+## 🚚 How a Change Reaches the Phone — READ BEFORE TOUCHING CACHING
 
-**Problem:** Cloudflare may cache JavaScript files despite no-cache headers.
+**Verified 2026-11-08 by reading the deploy script, both service worker files, the server config
+and the pages themselves. This section supersedes `CLOUDFLARE_CACHE_TROUBLESHOOTING.md` and the
+`SERVICE_WORKER_*.md` files wherever they disagree.**
 
-**Solution:** Cloudflare Dashboard → Caching → Configuration → Set **Caching Level** to **`No Query String`**
+### The pipeline
 
-**Verification:**
+1. You edit a file. The committed copy carries **no** version strings — the pre-commit hook strips them.
+2. The deploy script generates one timestamp and rewrites every known asset reference in the
+   **working tree** to `name.ext?v=<timestamp>`. **A dirty working tree full of version stamps after
+   a deploy is expected, not a mistake.** Never commit them; the hook strips them anyway.
+3. It also stamps the cache version **in place** inside the two service worker files. Those two
+   values must always match each other.
+4. It writes throwaway `.deploy` copies of the pages, uploads those, then deletes the copies.
+5. On the server, pages, scripts **and stylesheets** are all sent with headers that forbid caching.
+   Nothing on the origin wants to be stored.
+6. On the phone, the service worker builds a fresh cache, deletes the previous one, and reloads.
+
+### Four caches sit between you and the phone — three are proven innocent
+
+Browser HTTP cache → service worker cache → Cloudflare edge → Apache.
+
+**Measured on the live site 2026-11-08:** pages, scripts and stylesheets all came back with
+`Cache-Control: no-cache, no-store, must-revalidate`, `CF-Cache-Status: DYNAMIC` (`MISS` for CSS)
+and no `Age` header. Caching level is `basic`, there are **zero** cache rules, and Rocket Loader
+is off.
+
+The browser, the edge and the origin are all refusing to store anything. **The service worker is
+the only cache in this chain that can hand you a stale file.** Do not investigate the other three.
+
+The zone is proxied, and the deploy script uploads to a LAN address while the public name resolves
+to a different-looking one — but they are the same machine. The `Last-Modified` values on the live
+site match the timestamp the deploy generated, to the second. **Uploads do land where the public
+site reads from.** Do not go looking for a second server.
+
+### ✅ Defect 1: the service worker defeated its own cache-busting
+
+**Fixed in `7f3b85c` (2026-11-08). Not yet deployed and not yet verified on a device — until it
+is, everything below still describes live production behaviour.** Reproduced in a browser first:
+the same request served a stale copy under the old rule and the current copy under the new one.
+
+The catch-all branch of the fetch handler is **cache-first even when online**, and when the exact
+URL misses it **strips the query string and tries again**. So a request for the freshly versioned
+registration script falls back to the bare copy cached at install time — the *old* file, carrying
+the *old* version. The old version then registers the old worker, the old cache stays, and nothing
+updates.
+
+**The one file whose job is to detect a new deploy is itself served stale by the mechanism built to
+detect new deploys. It cannot update itself.**
+
+This is why unregistering the service worker has always made the change appear. That is the
+*diagnostic*, not the fix, and it is not evidence that the versioning scheme is wrong.
+
+**Every precached asset was affected, not just the updater.** A versioned request for any script
+or stylesheet in the precache list resolved the same way, so no code change at all could arrive.
+The registration script is simply the one that stopped the system ever recovering on its own.
+
+`map_player.html` escapes the deadlock because it registers the worker inline with a URL that
+changes on every load. **The two pages therefore behave differently** — which is why symptoms look
+inconsistent from one test to the next.
+
+### ✅ Defect 2: that inline registration URL was malformed
+
+**Fixed in the same commit.** The registration no longer builds its own suffix, so the deploy
+script's pattern has something well-formed to stamp.
+
+`map_player.html` builds a worker address containing **two question marks** — the deploy script's
+pattern matched a bare filename inside code that was already appending its own version suffix, and
+inserted a second one. The resulting address changes on every page load, so the worker reinstalls
+endlessly instead of updating cleanly.
+
+### When a deployed change does not appear, check in this order
+
+1. Did the upload succeed? The script prints a pass/fail line per file.
+2. Do the two service worker files hold the **same** cache version in your working tree?
+3. Load the site with the service worker unregistered. **If the change appears, it is Defect 1.**
+4. Only if all three are clean, re-measure the edge — it may have been reconfigured since the
+   2026-11-08 check above:
+
 ```powershell
-Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing | 
-    Select-Object -ExpandProperty Headers | 
-    Where-Object {$_.Key -eq "CF-Cache-Status"}
-# Expected: CF-Cache-Status: DYNAMIC or BYPASS
+Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing |
+    Select-Object -ExpandProperty Headers
+# CF-Cache-Status should be DYNAMIC or MISS, never HIT. Age should be absent.
 ```
 
-**Full troubleshooting guide:** `CLOUDFLARE_CACHE_TROUBLESHOOTING.md`
+**Ignore the Cloudflare advice the deploy script prints when it finishes.** It recommends a caching
+setting that does not exist on this account, and the intent behind it — making the edge ignore query
+strings — would disable cache-busting outright. The script also never purges Cloudflare; it only
+prints instructions and leaves the purge to you.
+
+**Do not redesign the cache-busting scheme because one change failed to appear.** That reaction has
+already produced more breakage than the original problem. The scheme is sound; the service worker's
+query-string fallback contradicts it. Fix the contradiction.
+
+### Committing rules
+
+- Never commit version stamps.
+- Never commit the service worker files **without also staging an HTML file**. The pre-commit hook
+  exits early when no HTML is staged, so the deploy timestamp gets baked into history permanently
+  and the canonical reset value is lost.
 
 ---
 
@@ -253,12 +366,16 @@ Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing |
 |---------|-------------|----------|
 | **16B** | Service Worker Refactor (constants, helpers, cache opt) | Medium |
 | **17** | Distance Envelope Behavior | High |
-| **17B** | Map Editor UI Refactor (modern replacement) | High |
+| **17B** | Map Editor UI Refactor — **phase 1 done** (`theme.css` token extraction, `dab9441`) | High |
 | **18** | Behavior editing UI | Medium |
 | **19** | Multi-user collaboration | Low |
 | **20** | Session-based cached streaming | High |
 | **21** | Sound Walk Composer (Routes + OSRM) | High |
+| **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons) | High |
+| **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
+
+**Spec for 22A/22B:** `FEATURE_22_PWA_AND_UI_RESTYLE.md`
 
 ---
 
-**Last Updated:** 2026-03-21 (Pruned for clarity)
+**Last Updated:** 2026-10-13 (Added Feature 22 spec reference, Known Issues, theme.css)
