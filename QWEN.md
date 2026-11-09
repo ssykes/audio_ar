@@ -87,7 +87,7 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
 2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
 3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-4. **Feature 17: Distance Envelope** - Three-zone volume control (~4h)
+4. **Feature 23: Physical Loudness Model** - Waypoints are faint until you're on top of them. Design agreed 2026-11-08, spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17.
 5. **Feature 20: Cached Streaming** - Session cache (~7h)
 6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
@@ -402,7 +402,7 @@ things that make it fragile and expensive to reason about.
 | Feature | Description | Priority |
 |---------|-------------|----------|
 | **16B** | Service worker + deploy script cleanup — see *Cleanup backlog* above | Medium |
-| **17** | Distance Envelope Behavior — **inspect the abandoned envelope branch and stash first** | High |
+| **17** | Distance Envelope Behavior — **superseded by Feature 23.** Extract the spec and preset design from the abandoned branch before deleting it | Low |
 | **17B** | Map Editor UI Refactor — **phase 1 done** (`theme.css` token extraction, `dab9441`) | High |
 | **18** | Behavior editing UI | Medium |
 | **19** | Multi-user collaboration | Low |
@@ -410,8 +410,9 @@ things that make it fragile and expensive to reason about.
 | **21** | Sound Walk Composer (Routes + OSRM) | High |
 | **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons) | High |
 | **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
+| **23** | **Physical Loudness Model** — design agreed, four phases, open questions listed in the spec | High |
 
-**Spec for 22A/22B:** `FEATURE_22_PWA_AND_UI_RESTYLE.md`
+**Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23)
 
 **Also outstanding, unrelated to caching:** the local branch and the forgotten stash both hold
 abandoned distance-envelope work and are the only things keeping ~2.9 GB of accidentally committed
@@ -422,4 +423,5 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 **Last Updated:** 2026-11-08 (Service worker cache-busting deadlock found, reproduced, fixed,
 deployed and verified on a device. Added *How a Change Reaches the Phone*, the cleanup backlog, and
-the scratch folder convention. Repaired `.gitignore` — it had silently stopped excluding anything.)
+the scratch folder convention. Repaired `.gitignore` — it had silently stopped excluding anything.
+Specified Feature 23, the physical loudness model, superseding Feature 17.)
