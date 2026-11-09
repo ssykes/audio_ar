@@ -355,6 +355,11 @@ query-string fallback contradicts it. Fix the contradiction.
 - Never commit the service worker files **without also staging an HTML file**. The pre-commit hook
   exits early when no HTML is staged, so the deploy timestamp gets baked into history permanently
   and the canonical reset value is lost.
+- **The hook only strips stamps from HTML attributes** (`src=`, `href=`). A stamp inside an inline
+  script string survives it. On 2026-11-09 `navigator.serviceWorker.register('sw.js?v=…')` was
+  committed with the timestamp baked in and had to be reverted by hand — the same trap as above,
+  reached from the other direction. After committing any HTML page, check it:
+  `git show HEAD:map_player.html | findstr "?v="` should print nothing.
 
 ### 🧹 Cleanup backlog
 
