@@ -1905,7 +1905,7 @@ class MapEditorApp extends MapAppShared {
                 oscillatorType: sound.oscillatorType || 'sine',
                 frequency: sound.frequency || 440,
                 detune: sound.detune || 0,
-                volume: waypoint.volume > 0.1 ? waypoint.volume : 1.0  // Only set if not muted
+                volume: waypoint.volume ?? 1.0  // 0 is a deliberate mute — never substitute a level
             };
 
             waypoint.audio = audioConfig;
@@ -1988,7 +1988,7 @@ class MapEditorApp extends MapAppShared {
                 oscillatorType: sound.oscillatorType || 'sine',
                 frequency: sound.frequency || 440,
                 detune: sound.detune || 0,
-                volume: area.volume > 0.1 ? area.volume : 1.0  // Only set if not muted
+                volume: area.volume ?? 1.0  // 0 is a deliberate mute — never substitute a level
             };
 
             area.audio = audioConfig;
@@ -2542,8 +2542,10 @@ function openSlideout(type, id, name, meta, color) {
 
         // Populate common fields
         slideoutName.value = waypoint.name || '';
-        slideoutVolume.value = waypoint.volume || 0.8;
-        slideoutVolumeValue.textContent = `${Math.round((waypoint.volume || 0.8) * 100)}%`;
+        // ?? not || — a volume of 0 is a deliberate mute, not a missing value
+        const wpVolume = waypoint.volume ?? 0.8;
+        slideoutVolume.value = wpVolume;
+        slideoutVolumeValue.textContent = `${Math.round(wpVolume * 100)}%`;
         slideoutActivationRadius.value = waypoint.activationRadius || 20;
         slideoutActivationRadiusValue.textContent = `${waypoint.activationRadius || 20}m`;
         slideoutLoop.checked = waypoint.loop !== false;
@@ -2653,8 +2655,10 @@ function openSlideout(type, id, name, meta, color) {
 
         // Populate common fields
         slideoutName.value = area.name || '';
-        slideoutVolume.value = area.volume || 0.8;
-        slideoutVolumeValue.textContent = `${Math.round((area.volume || 0.8) * 100)}%`;
+        // ?? not || — a volume of 0 is a deliberate mute, not a missing value
+        const areaVolume = area.volume ?? 0.8;
+        slideoutVolume.value = areaVolume;
+        slideoutVolumeValue.textContent = `${Math.round(areaVolume * 100)}%`;
         slideoutLoop.checked = area.loop !== false;
         slideoutSortOrder.value = area.sortOrder || 0;
         slideoutLat.textContent = meta || '--';
