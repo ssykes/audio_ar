@@ -28,8 +28,9 @@ Source code (implementation)
 | **FEATURES.md** | Feature catalog (Features 1-16 completed) | Reference existing features, plan new ones |
 | **FEATURE_*.md** | Deep-dive specs | Implementation details, debugging |
 | **LAZY_*.md** | Lazy loading architecture | Audio optimization work |
-| **CLOUDFLARE_*.md** | Server/CDN configuration | Deploy issues, cache problems |
-| **SERVICE_WORKER_*.md** | Offline mode | SW caching, deploy verification |
+| **🚚 *How a Change Reaches the Phone* (below)** | **Deploy, caching, service worker** | **Any cache or deploy problem — read this first** |
+| **CLOUDFLARE_*.md** | Server/CDN configuration | ⚠️ Superseded by the section above |
+| **SERVICE_WORKER_*.md** | Offline mode | ⚠️ Superseded by the section above |
 
 ---
 
@@ -269,9 +270,12 @@ site reads from.** Do not go looking for a second server.
 
 ### ✅ Defect 1: the service worker defeated its own cache-busting
 
-**Fixed in `7f3b85c` (2026-11-08). Not yet deployed and not yet verified on a device — until it
-is, everything below still describes live production behaviour.** Reproduced in a browser first:
-the same request served a stale copy under the old rule and the current copy under the new one.
+**Fixed in `7f3b85c`, deployed as `20261108153406`, and confirmed on a device 2026-11-08** — a
+wording change reached the picker page with no cache clearing and no help. Reproduced in a browser
+first: the same request served a stale copy under the old rule and the current copy under the new.
+
+Devices that installed the app *before* that deploy still carry the old worker and need one manual
+clear to escape. Anything installed after it is fine.
 
 The catch-all branch of the fetch handler is **cache-first even when online**, and when the exact
 URL misses it **strips the query string and tries again**. So a request for the freshly versioned
@@ -295,8 +299,8 @@ inconsistent from one test to the next.
 
 ### ✅ Defect 2: that inline registration URL was malformed
 
-**Fixed in the same commit.** The registration no longer builds its own suffix, so the deploy
-script's pattern has something well-formed to stamp.
+**Fixed in the same commit and verified on the live server.** The address is well formed, and the
+2026-11-08 deploy stamped it cleanly — confirming the script handles a bare filename correctly.
 
 `map_player.html` builds a worker address containing **two question marks** — the deploy script's
 pattern matched a bare filename inside code that was already appending its own version suffix, and
@@ -333,6 +337,39 @@ query-string fallback contradicts it. Fix the contradiction.
   exits early when no HTML is staged, so the deploy timestamp gets baked into history permanently
   and the canonical reset value is lost.
 
+### 🧹 Cleanup backlog
+
+All verified 2026-11-08. **None of it is urgent** — the caching path works today. These are the
+things that make it fragile and expensive to reason about.
+
+**Service worker**
+
+- **Two registration paths.** The picker loads the shared updater script; the player registers the
+  worker inline. Unify on the shared one. The inconsistency is what made symptoms look random.
+- **Two offline fallback pages** are built in two different places. Keep the self-contained one.
+- The wake-lock helper is precached to every phone but never called (see Known Issues).
+- **Keep the stripped-query lookup.** It is the offline fallback and it is correct — it simply must
+  never run *ahead* of the network again.
+
+**Deploy script**
+
+- **It edits your working tree.** This one choice causes the permanently dirty tree, the pre-commit
+  hook, and that hook's early-exit trap. Stamp only the throwaway copies and all three disappear
+  together — the hook can be deleted outright. *Highest-value change on this list.*
+- It stamps everything twice; the second pass is a no-op for seven of the eight pages. Collapse it.
+- Its patterns match a bare filename **anywhere**, including inside strings, comments and prose.
+  That already corrupted live code once. Anchor them to attribute context, or drop the first pass.
+- It verifies one file by grepping the server for one hardcoded word. Rename that word and every
+  future deploy falsely reports old code and re-uploads.
+- Its corruption check reads the first fifteen lines looking for common words. False alarms train
+  you to ignore the real one.
+- Sound file discovery finds nothing, though nineteen files sit in the folder. New audio silently
+  does not ship.
+- A failed database migration prints a green success. The summary cannot be trusted.
+- The closing Cloudflare advice names a setting this account does not have, and following its
+  intent would disable cache-busting. Delete it.
+- Display versions increment on every deploy (`v2.733`). They count deploys, not releases.
+
 ---
 
 ## ✅ Completed Features Summary
@@ -364,8 +401,8 @@ query-string fallback contradicts it. Fix the contradiction.
 
 | Feature | Description | Priority |
 |---------|-------------|----------|
-| **16B** | Service Worker Refactor (constants, helpers, cache opt) | Medium |
-| **17** | Distance Envelope Behavior | High |
+| **16B** | Service worker + deploy script cleanup — see *Cleanup backlog* above | Medium |
+| **17** | Distance Envelope Behavior — **inspect the abandoned envelope branch and stash first** | High |
 | **17B** | Map Editor UI Refactor — **phase 1 done** (`theme.css` token extraction, `dab9441`) | High |
 | **18** | Behavior editing UI | Medium |
 | **19** | Multi-user collaboration | Low |
@@ -376,6 +413,13 @@ query-string fallback contradicts it. Fix the contradiction.
 
 **Spec for 22A/22B:** `FEATURE_22_PWA_AND_UI_RESTYLE.md`
 
+**Also outstanding, unrelated to caching:** the local branch and the forgotten stash both hold
+abandoned distance-envelope work and are the only things keeping ~2.9 GB of accidentally committed
+audio reachable. Inspect them before deleting either — see the envelope note under Feature 17.
+Local `main` has also diverged from the remote (1 ahead, 9 behind).
+
 ---
 
-**Last Updated:** 2026-10-13 (Added Feature 22 spec reference, Known Issues, theme.css)
+**Last Updated:** 2026-11-08 (Service worker cache-busting deadlock found, reproduced, fixed,
+deployed and verified on a device. Added *How a Change Reaches the Phone*, the cleanup backlog, and
+the scratch folder convention. Repaired `.gitignore` — it had silently stopped excluding anything.)
