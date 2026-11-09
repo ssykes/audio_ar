@@ -93,6 +93,12 @@ They are two *independent* tasks — do them separately, they share no code.
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
 8. **Feature 18: Behavior UI** - Visual timeline
 
+> **⚠️ About to start Feature 23?** Ask the open questions in `FEATURE_23_PHYSICAL_LOUDNESS.md`
+> §5 and §6 **before writing any code** — the lazy-loading radius and its ceiling, artificial
+> sources such as oscillators, whether the dynamic-range knob belongs to the device or to the
+> soundscape, the gunshot limiter ceiling, and the near-field clamp. They were left open
+> deliberately on 2026-11-08 and the answers change the schema.
+
 ---
 
 ## 🐛 Known Issues
