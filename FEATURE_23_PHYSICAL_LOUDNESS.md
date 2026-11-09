@@ -1,7 +1,7 @@
 # Feature 23: Physical Loudness Model
 
-**Status:** 📋 Planned — design agreed, not started
-**Date:** 2026-11-08
+**Status:** 🔨 Phase 0 implemented 2026-11-09 — **not yet verified on a walk, not yet deployed**
+**Date:** 2026-11-08 (design) · 2026-11-09 (Phase 0)
 **Priority:** High
 **Supersedes:** Feature 17 (Distance Envelope) for waypoint loudness. See *Relationship to Feature 17*.
 
@@ -104,6 +104,16 @@ the physics decides how far it carries.
 | 7 | Areas confirmed to use **no panner** — gain only. They are out of scope for the spatialiser changes. |
 | 8 | Global knobs live on the **player**, with defaults, so a listener never has to configure anything. |
 
+### Decisions taken 2026-11-09 (Phase 0)
+
+| # | Decision |
+|---|---|
+| 9 | **Phase 0 infers each source's level from its activation radius**: `L1m = ambient + 20·log10(radius)`. The radius an artist already drew is read as "audible out to here", so existing walks keep roughly their reach and only the *shape* of the falloff changes. Phase 1 replaces this with an artist-stated preset. A per-source `sourceLevelDb` override is already honoured if set, but nothing populates it yet. |
+| 10 | **Near-field clamp `d_near` = 1 m**, not the 0.5 m suggested in §6. Roughly the closest anyone naturally stands, and it keeps a real sense of approach without an absurd peak. |
+| 11 | **No hard cutoff.** Level falls continuously with distance, and a cosine fade over the last 20 m ends exactly where the lazy loader disposes the source, so disposal is never audible. Reach is therefore still capped by the load zones until Phase 3 — for a default 20 m waypoint that means audible to ~60 m instead of silence at 40 m. |
+| 12 | **One listener control in Phase 0: louder/quieter on the player**, in 3 dB steps, ±12 dB, saved on the device only. The `calibration = 0.25` constant stays inside the model; the trim multiplies on top of it at the shared output stage, ahead of the limiter, so waypoint sources and area beds move together. |
+| 13 | **Deferred, deliberately:** the gunshot limiter ceiling (§6) cannot bite until presets exist in Phase 1. The reverb bands (§7) are untouched and must be retuned *after* the walk test, not before. |
+
 ---
 
 ## 4. What each existing control becomes
@@ -115,6 +125,14 @@ the physics decides how far it carries.
 | — | — | **New:** source preset + custom dB |
 | — | — | **New:** dynamic range `k`, calibration — player-side |
 | `fadeZoneWidth` (areas, 5 m) | Edge fade | Unchanged |
+
+**Note on decision 2 (0 = mute), 2026-11-09:** the code did not actually honour it. Five places read
+a volume of 0 as "no value supplied" and substituted a default, so a muted waypoint or area played
+at 80% — and in the editor's preview, at *full* volume, because the guard there was
+`volume > 0.1 ? volume : 1.0`. All five are fixed. The saved data was never wrong: the client
+payload, the API models and the repositories all use nullish defaults, so 0 survived the round trip
+and only the read-back lied. This matters for Phase 0's walk test — a waypoint the artist had
+"quieted" was in fact being played loudly, which is part of why levels sounded arbitrary.
 
 ---
 
@@ -148,6 +166,22 @@ Proposal: a per-waypoint flag or a `source_kind` of `physical | artificial`. Art
 skip the derived radius and use the manual value, and may want a different falloff entirely
 (linear, or none). **Do not build this yet** — but do not let the schema or the model make it
 impossible. Add the field now, implement later.
+
+**Answered by the artist 2026-11-09.** There are two kinds of waypoint, and the physical model is
+*not* being replaced:
+
+| Kind | What it is | Falloff |
+|---|---|---|
+| **Physical** (the default for future soundscapes) | A sound happening in the world | The continuous curve from §2. No plateau, no edge. This is what Phase 0 built and it stays. |
+| **Contained** — the "blue circle" waypoint | A zone that *holds* a sound; the natural home for oscillators and other unnatural sources | Silence outside. A fixed **3 m band** beyond the radius fades in on approach and out on departure, and inside the radius the level keeps rising to the configured volume at the centre. The band is a softening of that ramp, not a separate zone. |
+
+So the 3 m band belongs to the contained kind only. It is not a revision of the physical curve, and
+the two must not be conflated: a contained waypoint has an edge by design, a physical one has none.
+
+Still open, and now blocking Phase 1 rather than Phase 3: the field that distinguishes them, its
+name, its default for existing rows, and whether the contained kind also gets a source level in dB
+or keeps a plain 0-1 volume. The contained shape needs no schema beyond the kind itself, so it can
+be built as soon as the field exists.
 
 ### 5.3 Where do the global knobs actually live?
 
@@ -193,6 +227,10 @@ Options — pick one:
 - Per-source headroom, so very loud sources are scaled before the limiter.
 - Accept it: a gunshot *should* be overwhelming, and the flattening is arguably correct.
 
+**Still open as of 2026-11-09.** It blocks Phase 1 (the first phase in which a source can be given a
+level), not Phase 0 — Phase 0 infers every level from a radius the artist already chose, so nothing
+can reach 140 dB yet.
+
 **Inverse square alone over-predicts range.** Real sound at kilometres is limited by air absorption
 and terrain, not by the inverse square law. Feature 14 already implements distance-based filtering
 (air absorption) — the two need to be reconciled rather than double-counted. A maximum audible
@@ -200,6 +238,7 @@ range per preset may be the pragmatic answer.
 
 **Near-field singularity.** `20·log10(d)` diverges as d → 0. Clamp with `d_near`; suggest **0.5 m**
 (arm's length) so leaning into a source doesn't produce infinite gain.
+**Resolved 2026-11-09: `d_near` = 1 m** (decision 10).
 
 ---
 
@@ -221,6 +260,11 @@ Once sounds carry to hundreds of metres, both far bands activate for the first t
 sounds to become much wetter than anything previously experienced, and expect to retune these four
 numbers. Note they are absolute distances, not relative to the source's own scale — "full wet at
 60 m" may be right for a busker and wrong for a gunshot.
+
+**As of Phase 0 (2026-11-09):** a default waypoint is now audible to ~60 m, so the *far* band is
+fully in play and the *distant* band is only reached at the very end of the fade-out. None of the
+four numbers has been touched — deliberately, so the walk test hears the unmodified bands and the
+retuning is driven by what is actually heard rather than by guesswork.
 
 ---
 
@@ -266,12 +310,34 @@ Nine live files plus schema and one migration. Roughly 250-400 lines.
 
 Each phase is independently shippable and independently revertible.
 
-**Phase 0 — engine only. No schema, no editor, no persistence.**
+**Phase 0 — engine only. No schema, no editor, no persistence.** ✅ **implemented 2026-11-09**
 Neutralise the panner's distance attenuation (set `rolloffFactor = 0`, keeping HRTF for direction)
 and replace the quadratic fade with inverse-square. Leave `volume` and `radius` semantics untouched.
 Two files: `spatial_audio.js`, and `spatial_audio_app.js` only if the pass-through blocks it.
 **This alone should fix the faintness complaint.** Verify on a walk before continuing.
 Then listen at distance and retune the reverb bands (§7).
+
+What actually changed, 2026-11-09 — four files, not two:
+
+| File | Change |
+|---|---|
+| `spatial_audio.js` → **v6.3** | Model constants and four pure functions (`sourceLevelFromRadius`, `levelAtDistance`, `physicalGain`, `fadeOutMultiplier`). One `updateGainByDistance` on `OscillatorSource`, inherited by every source type — the duplicate on `GpsSoundSource` is deleted, so decision 6 is satisfied. `rolloffFactor = 0` in **both** panner setups (`SoundSource.init` had 1, `SampleSource.init` had 1.5 — they disagreed, which is why the two source types behaved differently). Gain is now ramped with `setTargetAtTime` instead of written per frame, and the computed target is kept on `lastComputedGain` for logging. New `SpatialAudioEngine.setOutputTrimDb()`. |
+| `spatial_audio_app.js` → **v3.3** | New `_getDisposeDistance(sound)` is the single source of the disposal distance; `_getSoundZone` now derives its threshold from it and returns it. Both gain call sites pass it. Zone debug logs no longer claim a 20 m fade zone, and the un-throttled per-frame FADE ZONE line is gone. |
+| `map_player.html` / `map_player.js` | Two icon-bar buttons (quieter/louder, 3 dB steps) and a **Level** readout in the status bar, persisted to `player_output_trim_db` on the device and applied after the engine is built. |
+
+Two pre-existing bugs fixed in passing because they would have corrupted the walk test:
+
+- The "initial gain" debug line read `sound.gainNode`, which does not exist, so it always printed
+  `0.000`. It now reads the source's computed gain.
+- `isFinite(null)` is `true` in JavaScript. The first cut of `fadeOutMultiplier` treated a null
+  disposal distance as "dispose at 0 m" and silenced the source — which is what streams pass.
+  Caught by the arithmetic check, not by reading.
+
+**Found and NOT fixed (out of scope):** streams are never disposed. `ZoneConfig.stream` has no
+`preloadMargin`, so `_getSoundZone` computes `unloadDistance` and `disposeThreshold` as `NaN` for
+them, and `distance > NaN` is always false. A streamed source therefore stays in memory forever.
+Pre-existing, unrelated to loudness, and `_getDisposeDistance` returns `null` for streams so the new
+fade does not interact with it. Fix separately.
 
 **Phase 1 — source presets, in memory only.**
 Add the preset dropdown and custom dB field to the editor panel. Do not persist. Confirms the
@@ -308,9 +374,59 @@ slider, a walk-past animation, an ambient noise bed, the dynamic-range and calib
 limiter indicator. It models the arithmetic only, not the live engine.
 
 If it has been deleted, the constants in §2 and the formulae above are sufficient to rebuild it.
+**It still exists.** An earlier note here claimed `scratch/` was empty on 2026-11-09 — that was
+wrong: the folder is gitignored, so a file-pattern search skips it. List the directory instead.
 
 **Phase 0 acceptance:** standing 20 m from a waypoint, the sound is roughly 20 dB below its level
 at 1 m — not 33 dB — and remains faintly audible well past 40 m rather than cutting out.
+
+### Phase 0 checks, 2026-11-09
+
+Throwaway scripts in `scratch/` (gitignored, disposable), all requiring the real source files
+through their `module.exports` branch — no browser, and no re-implementation of the model:
+
+```
+node scratch/verify-loudness.js    # 17 checks on the pure arithmetic, plus an old-vs-new table
+node scratch/smoke-engine.js       # 36 checks driving the real methods against a stub AudioContext
+node scratch/verify-volume-zero.js # 20 checks that a volume of 0 survives save → load → playback
+node scratch/repro-area-volume.js  # runs one muted area through HEAD and the working tree
+```
+
+`repro-area-volume.js` exists because a bug was reported from the simulator — an area set to 0%
+still played at full volume — and it settles which build was being heard. It extracts the committed
+files with `git show HEAD:…` and runs the *same* area config through both. Result: the deployed code
+builds the area source with gain **0.8** from a stored volume of **0**, reproducing the report; the
+working tree builds it with **0** and the area is silent. Waypoints were never affected, because
+their level is multiplied in on every frame rather than captured once when the source is created.
+
+They cover: the near clamp, monotonic falloff, audibility past 40 m, silence at the disposal point
+and not before, derived reach equal to the radius for 10/20/30/50 m, no NaN or Infinity from a
+missing or zero radius, both panners reporting `rolloffFactor = 0`, oscillator and GPS sources now
+agreeing at the same distance, a moved GPS source following its own position, `volume` behaving as
+a trim with 0 still muting, and the trim clamping to ±12 dB and reaching the master gain.
+
+Measured for a default 20 m waypoint (inferred level 76 dB at 1 m, disposed at 60 m), gain relative
+to standing 1 m away:
+
+| Distance | Old model | New model | Old gain | New gain |
+|---|---|---|---|---|
+| 1 m | 0 dB | 0 dB | 0.761 | 0.570 |
+| 5 m | −18.8 dB | −9.1 dB | 0.088 | 0.200 |
+| 10 m | −27.8 dB | −13.0 dB | 0.031 | 0.128 |
+| 20 m | −41.0 dB | **−16.9 dB** | 0.0068 | 0.081 |
+| 30 m | −56.6 dB | −19.2 dB | 0.0011 | 0.063 |
+| 40 m | silent | −20.8 dB | 0 | 0.052 |
+| 50 m | silent | −28.1 dB | 0 | 0.022 |
+| 60 m | silent | silent (disposed) | 0 | 0 |
+
+The acceptance criterion is met in arithmetic — 24 dB more at 20 m, audible to ~60 m instead of
+cutting out at 40 m. **It is not yet met in the field.** Note the close end is slightly *quieter*
+than before (0.57 vs 0.76 at 1 m): that is the dynamic range being spent on distance instead of on
+proximity, and it is what the louder/quieter control is for.
+
+Still to be judged by ear on a walk, and deliberately not pre-tuned: the four reverb bands (§7),
+now that the far and distant bands are reachable for the first time — outdoor `maxWet` is only
+0.15, so the wet levels may turn out to be far too subtle at 60 m rather than too strong.
 
 ---
 

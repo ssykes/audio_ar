@@ -2,10 +2,12 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.2 (Area Debug Cleanup)
- * @depends spatial_audio.js v6.2+
+ * @version 3.3 (Feature 23 Phase 0: Physical Loudness)
+ * @depends spatial_audio.js v6.3+
  *
  * Changelog:
+ * - v3.3: FEATURE 23 Phase 0: gain calls pass the disposal distance so the engine can fade a
+ *         source out where it is thrown away. Zone debug labels no longer claim a 20m fade zone.
  * - v3.2: Removed non-essential debug logging from AreaManager
  * - v3.1: Replaced 1/N area mixing with depth-weighted crossfade (distanceToEdge/maxDepth)
  * - v3.0: Added Martinez intersection-based crossfade for overlapping polygon areas
@@ -25,10 +27,11 @@
  *
  * FEATURE 13: ZONE LAYOUT (for 20m activation radius, 10m preload, 10m hysteresis)
  * =================================================
- * 0-20m:   ACTIVE ZONE      → Load + Play (gain fades at edge)
+ * 0-20m:   ACTIVE ZONE      → Load + Play
  * 20-30m:  PRELOAD ZONE     → Load muted (10m = ~6 sec walk time @ 4mph)
- * 30-40m:  HYSTERESIS ZONE  → Keep loaded, still playing (faded out)
+ * 30-40m:  HYSTERESIS ZONE  → Keep loaded, still playing
  * >40m:    DISPOSE ZONE     → Dispose + free memory
+ * (FEATURE 23: zones are the load lifecycle only — loudness is set by distance, see ZoneConfig)
  *
  * HYSTERESIS (prevents rapid cycling at boundaries):
  * - Disposal threshold: unloadDistance + hysteresis (40m + 10m = 50m)
@@ -294,19 +297,24 @@ class Sound {
  *
  * ZONE LAYOUT (for 30m activation radius, 20m preload, 10m hysteresis):
  * ================================================================
- * 0-30m:   ACTIVE ZONE      → Load + Play (full volume)
- * 30-50m:  PRELOAD ZONE     → Load + Play (faded based on distance)
- * 50-60m:  HYSTERESIS ZONE  → Keep loaded, still playing (faded out)
+ * 0-30m:   ACTIVE ZONE      → Load + Play
+ * 30-50m:  PRELOAD ZONE     → Load + Play
+ * 50-60m:  HYSTERESIS ZONE  → Keep loaded, still playing
  * >60m:    DISPOSE ZONE     → Dispose + free memory
  *
- * CRITICAL: preloadMargin MUST match or exceed the fade zone (20m) in spatial_audio.js
- * This ensures sounds are loaded BEFORE user enters the fade zone, not after.
+ * FEATURE 23: these zones govern the LOAD lifecycle only. Loudness comes from the physical model
+ * in spatial_audio.js and depends on distance alone, so a sound is quietly audible on both sides
+ * of the radius instead of being full volume inside it and fading across it.
+ *
+ * preloadMargin still has to be large enough that a sound is loaded before it becomes audible —
+ * roughly its activation radius under the physical model. 20m gives ~15 seconds of walking time
+ * to fetch and decode it.
  */
 const ZoneConfig = {
     // Buffers (MP3/WAV): Standard 3-zone lazy loading
     buffer: {
         activeMultiplier: 1.0,    // Active within 100% of activation radius (plays throughout)
-        preloadMargin: 20,        // Fixed 20m preload (MUST match fade zone: 20m)
+        preloadMargin: 20,        // Fixed 20m preload (load lead time before a sound is audible)
         unloadMargin: 10,         // Fixed 10m hysteresis (dispose 10m after preload zone)
         hysteresis: 10            // Prevent rapid load/unload cycles
     },
@@ -967,20 +975,22 @@ class SpatialAudioApp {
                     sound.lon
                 );
 
-                // Update gain based on distance (fade zone handles smooth transitions)
-                // CRITICAL: Must call this even when outside fade zone to mute the sound
+                // Update gain from distance (FEATURE 23: physical falloff, no fade zone)
+                // CRITICAL: Must call this at any distance — it is what silences a sound that
+                // has drifted out of range
+                const disposeDistance = this._getDisposeDistance(sound);
                 source.updateGainByDistance(
                     this.listener.lat,
                     this.listener.lon,
-                    sound.volume  // Max volume at close range
+                    sound.volume,        // Per-waypoint trim
+                    disposeDistance      // Where the fade-out must complete
                 );
 
                 // Debug: Log gain after update (throttled)
-                if (source.gain && Math.random() < 0.05) {
-                    const fadeZone = 20;
-                    const inFadeZone = distance > sound.activationRadius && distance <= (sound.activationRadius + fadeZone);
-                    const zone = distance < sound.activationRadius ? '🔊 ACTIVE' : (inFadeZone ? '🌗 FADE' : '❌ OUTSIDE');
-                    console.log(`[AudioApp] ${sound.id} gain: ${source.gain.gain.value.toFixed(3)} @ ${distance.toFixed(1)}m (${zone})`);
+                if (source.lastComputedGain !== undefined && Math.random() < 0.05) {
+                    const state = distance < sound.activationRadius ? '🔊 ACTIVE' : '🌗 BEYOND RADIUS';
+                    const fade = disposeDistance === null ? '' : `, fades out by ${disposeDistance}m`;
+                    console.log(`[AudioApp] ${sound.id} gain: ${source.lastComputedGain.toFixed(3)} @ ${distance.toFixed(1)}m (${state}${fade})`);
                 }
             }
             
@@ -1141,6 +1151,26 @@ class SpatialAudioApp {
     }
 
     /**
+     * FEATURE 23: Distance at which a sound is thrown away.
+     *
+     * The engine fades a source to silence over its last few metres so disposal is never audible.
+     * Streams are excluded: they stop at the pause boundary instead, and their disposal threshold
+     * is not derived from preloadMargin (see the stream branch of _getSoundZone).
+     *
+     * @param {Sound} sound - Sound object
+     * @returns {number|null} Distance in metres, or null for no distance-based fade
+     * @private
+     */
+    _getDisposeDistance(sound) {
+        if (sound.type === 'stream') {
+            return null;
+        }
+        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
+        const activationRadius = sound.activationRadius || 30;
+        return activationRadius + config.preloadMargin + config.unloadMargin + config.hysteresis;
+    }
+
+    /**
      * FEATURE 13: Determine which zone a sound is in based on distance and type
      * @param {Sound} sound - Sound object
      * @param {number} distance - Distance to sound in meters
@@ -1150,7 +1180,8 @@ class SpatialAudioApp {
      *   shouldPlay: boolean,
      *   shouldDispose: boolean,
      *   isInstant: boolean,
-     *   keepAlive: boolean
+     *   keepAlive: boolean,
+     *   disposeDistance: number|null
      * }}
      * @private
      */
@@ -1168,7 +1199,7 @@ class SpatialAudioApp {
             const inActiveZone = distance < activationRadius;
             
             // === HYSTERESIS: Prevent rapid create/destroy cycles ===
-            const disposeThreshold = unloadDistance + config.hysteresis;
+            const disposeThreshold = this._getDisposeDistance(sound);
             const wasInactive = sound.currentZone === 'inactive';
             const shouldDispose = wasInactive 
                 ? distance > disposeThreshold
@@ -1180,7 +1211,8 @@ class SpatialAudioApp {
                 shouldPlay: inActiveZone,
                 shouldDispose: shouldDispose,
                 isInstant: true,  // Skip preload
-                keepAlive: false
+                keepAlive: false,
+                disposeDistance: disposeThreshold
             };
         }
 
@@ -1204,7 +1236,8 @@ class SpatialAudioApp {
                 shouldPlay: inActiveZone,
                 shouldDispose: shouldDispose,
                 isInstant: false,
-                keepAlive: inPauseZone  // Keep connection alive in pause zone
+                keepAlive: inPauseZone,  // Keep connection alive in pause zone
+                disposeDistance: null   // Streams stop at the pause boundary, not by distance
             };
         }
 
@@ -1215,7 +1248,7 @@ class SpatialAudioApp {
         // === HYSTERESIS: Prevent rapid load/dispose cycles at boundary ===
         // Only dispose if sound was already in hysteresis zone AND user walked further
         // This prevents cycling when user stands near the disposal boundary
-        const disposeThreshold = unloadDistance + config.hysteresis;
+        const disposeThreshold = this._getDisposeDistance(sound);
         const wasInHysteresisZone = sound.currentZone === 'hysteresis';
         const shouldDispose = wasInHysteresisZone
             ? distance > disposeThreshold  // Use hysteresis if was in hysteresis zone
@@ -1234,7 +1267,8 @@ class SpatialAudioApp {
             shouldPlay: inActiveZone,
             shouldDispose: shouldDispose,
             isInstant: false,
-            keepAlive: false
+            keepAlive: false,
+            disposeDistance: disposeThreshold
         };
     }
 
@@ -1258,7 +1292,11 @@ class SpatialAudioApp {
             const distance = this.getSoundDistance(sound.id);
             const zone = this._getSoundZone(sound, distance);
             const activationRadius = sound.activationRadius || 30;
-            const fadeZone = 20;  // Match spatial_audio.js fade zone
+            // FEATURE 23: the loudness curve is continuous, so the distances that matter here are
+            // where loading starts and where the source is finally thrown away
+            const zoneConfig = ZoneConfig[sound.type] || ZoneConfig.buffer;
+            const preloadStart = activationRadius + (zoneConfig.preloadMargin || 0);
+            const disposeDistance = zone.disposeDistance;
 
             // DEBUG: Log each sound's state
             if (this.onDebugLog) {
@@ -1283,19 +1321,19 @@ class SpatialAudioApp {
             // Log when sound is within activation radius (should play)
             if (zone.shouldPlay && this.onDebugLog) {
                 const state = sound.isLoaded ? (sound.isPlaying ? '✅ PLAYING' : '⏸️ STOPPED') : '⏳ NOT LOADED';
-                this.onDebugLog(`🔊 WITHIN RADIUS (${distance.toFixed(1)}m < ${activationRadius}m): ${sound.id} | ${state} | gain=${sound.gainNode ? sound.gainNode.gain.value.toFixed(3) : 'N/A'}`);
+                const gain = sound.sourceNode && sound.sourceNode.lastComputedGain !== undefined
+                    ? sound.sourceNode.lastComputedGain.toFixed(3)
+                    : 'N/A';
+                this.onDebugLog(`🔊 WITHIN RADIUS (${distance.toFixed(1)}m < ${activationRadius}m): ${sound.id} | ${state} | gain=${gain}`);
             }
 
-            // Log when sound is in fade zone (just outside activation radius)
-            const inFadeZone = distance > activationRadius && distance <= (activationRadius + fadeZone);
-            if (inFadeZone && this.onDebugLog) {
-                this.onDebugLog(`🌗 FADE ZONE: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | fadeZone=${fadeZone}m | isLoaded=${sound.isLoaded} | isPlaying=${sound.isPlaying}`);
-            }
-
-            // Log when sound is well outside (beyond fade zone)
-            const wellOutside = distance > (activationRadius + fadeZone);
-            if (wellOutside && zone.zone === 'hysteresis' && this.onDebugLog && Math.random() < 0.05) {
-                this.onDebugLog(`❌ OUTSIDE: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | fadeZone=${fadeZone}m | shouldDispose=${zone.shouldDispose}`);
+            // Log when sound is beyond its radius but still loaded and quietly audible
+            // (FEATURE 23: there is no fade zone any more — level just keeps falling with distance)
+            const beyondRadius = distance > activationRadius
+                && (disposeDistance === null || distance <= disposeDistance);
+            if (beyondRadius && this.onDebugLog && Math.random() < 0.05) {
+                const fadeNote = disposeDistance === null ? 'no distance fade' : `fades out by ${disposeDistance}m`;
+                this.onDebugLog(`🌗 BEYOND RADIUS: ${sound.id} | distance=${distance.toFixed(1)}m | radius=${activationRadius}m | ${fadeNote} | loaded=${sound.isLoaded} | playing=${sound.isPlaying}`);
             }
 
             // CRITICAL: Clear isDisposed when entering active/preload zone
@@ -1331,7 +1369,7 @@ class SpatialAudioApp {
                     if (!sound.isLoaded) {
                         toPreload.push(sound);
                         if (this.onDebugLog) {
-                            this.onDebugLog(`📦 PRELOAD ZONE: ${sound.id} queued for preload (${distance.toFixed(1)}m, ${activationRadius}m < d < ${activationRadius + fadeZone}m)`);
+                            this.onDebugLog(`📦 PRELOAD ZONE: ${sound.id} queued for preload (${distance.toFixed(1)}m, ${activationRadius}m < d < ${preloadStart}m)`);
                         }
                     } else if (!sound.isPlaying) {
                         // Already loaded but not playing - start it (shouldn't happen, but handle it)
@@ -1407,10 +1445,10 @@ class SpatialAudioApp {
 
                 sound.isPlaying = true;
                 
-                // CRITICAL: Immediately apply distance-based gain (handles fade zone)
-                // This ensures sound starts at correct volume if listener is already in fade zone
+                // CRITICAL: Immediately apply distance-based gain
+                // This ensures sound starts at the level its distance calls for, not at full
                 this._applyDistanceGain(sound);
-                
+
                 if (this.onDebugLog) {
                     this.onDebugLog(`✅ ${sound.id} started (was preloaded)`);
                 }
@@ -1461,7 +1499,7 @@ class SpatialAudioApp {
                     lat: sound.lat,
                     lon: sound.lon,
                     loop: sound.loop,
-                    gain: sound.gain !== undefined ? sound.gain : sound.volume,
+                    gain: 0,  // Start muted; _applyDistanceGain sets the real level (no burst)
                     activationRadius: sound.activationRadius,
                     wave: sound.oscillatorType || 'sine',
                     freq: sound.frequency || 440
@@ -1521,7 +1559,7 @@ class SpatialAudioApp {
                 lat: sound.lat,
                 lon: sound.lon,
                 loop: sound.loop,
-                gain: sound.volume,
+                gain: 0,  // Start muted; _applyDistanceGain sets the real level (no full-volume burst)
                 activationRadius: sound.activationRadius,
                 isStream: sound.type === 'stream'
             });
@@ -1576,7 +1614,7 @@ class SpatialAudioApp {
     }
 
     /**
-     * Apply distance-based gain to a sound (fade zone handling)
+     * Apply distance-based gain to a sound (FEATURE 23: physical loudness model)
      * Called immediately after loading to ensure correct initial volume
      * @param {Sound} sound - Sound to update
      * @private
@@ -1594,18 +1632,18 @@ class SpatialAudioApp {
             sound.lon
         );
 
-        // Apply gain based on distance (fade zone handles smooth transitions)
+        // Apply gain from distance (FEATURE 23: physical falloff, no fade zone)
         sound.sourceNode.updateGainByDistance(
             this.listener.lat,
             this.listener.lon,
-            sound.volume  // Max volume at close range
+            sound.volume,                          // Per-waypoint trim
+            this._getDisposeDistance(sound)        // Where the fade-out must complete
         );
 
         if (this.onDebugLog) {
-            const gain = sound.gainNode ? sound.gainNode.gain.value : 0;
-            const inFadeZone = distance > sound.activationRadius && distance <= (sound.activationRadius + 20);
-            const zone = distance < sound.activationRadius ? '🔊 ACTIVE' : (inFadeZone ? '🌗 FADE' : '❌ OUTSIDE');
-            this.onDebugLog(`🎚️ ${sound.id} initial gain: ${gain.toFixed(3)} @ ${distance.toFixed(1)}m (${zone})`);
+            const gain = sound.sourceNode.lastComputedGain || 0;
+            const state = distance < sound.activationRadius ? '🔊 ACTIVE' : '🌗 BEYOND RADIUS';
+            this.onDebugLog(`🎚️ ${sound.id} initial gain: ${gain.toFixed(3)} @ ${distance.toFixed(1)}m (${state})`);
         }
     }
 
@@ -2066,17 +2104,22 @@ class AreaManager {
 
         for (const areaConfig of areaConfigs) {
             try {
+                // `volume` is the area's level: it is what the editor edits and what the areas
+                // table stores. The API model also returns a `gain`, but there is no such column,
+                // so it always arrives as a 0.5 default and would silently override the slider.
+                const areaLevel = areaConfig.volume ?? 0.8;   // ?? not || — 0 is a deliberate mute
+
                 const areaSource = new AreaSoundSource(this.engine, areaConfig.id, {
                     areaId: areaConfig.id,
                     polygon: areaConfig.polygon,
                     soundUrl: areaConfig.soundUrl,
                     type: areaConfig.type || 'file',
-                    volume: areaConfig.volume || 0.8,
+                    volume: areaLevel,
                     loop: areaConfig.loop !== false,
                     fadeZoneWidth: areaConfig.fadeZoneWidth || 5.0,
                     overlapMode: areaConfig.overlapMode || 'mix',
                     order: areaConfig.order || 0,
-                    gain: areaConfig.gain !== undefined ? areaConfig.gain : areaConfig.volume || 0.8,
+                    gain: areaLevel,
                     oscillatorType: areaConfig.waveform || 'sine',
                     frequency: areaConfig.frequency || 440,
                     detune: areaConfig.detune || 0

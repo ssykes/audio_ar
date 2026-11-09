@@ -435,6 +435,66 @@ class MapPlayerApp extends MapAppShared {
         if (debugUpdateBtn) {
             debugUpdateBtn.addEventListener('click', this._forceSWUpdate.bind(this));
         }
+
+        // FEATURE 23: output level (louder / quieter), saved on this device only
+        const quieterBtn = document.getElementById('quieterBtn');
+        if (quieterBtn) {
+            quieterBtn.addEventListener('click', () => this._adjustOutputTrim(-3));
+        }
+        const louderBtn = document.getElementById('louderBtn');
+        if (louderBtn) {
+            louderBtn.addEventListener('click', () => this._adjustOutputTrim(+3));
+        }
+
+        this._applyOutputTrim();
+    }
+
+    /**
+     * FEATURE 23: Read the saved output trim and push it to the engine and the status bar.
+     *
+     * The physical loudness model fixes absolute levels, so this is the listener's one
+     * correction for their own headphones and ears. It lives on the device, never on the server.
+     * @private
+     */
+    _applyOutputTrim() {
+        const stored = parseFloat(localStorage.getItem('player_output_trim_db'));
+        this.outputTrimDb = isFinite(stored) ? Math.max(-12, Math.min(12, stored)) : 0;
+
+        if (this.app && this.app.engine && this.app.engine.setOutputTrimDb) {
+            this.app.engine.setOutputTrimDb(this.outputTrimDb);
+        }
+        this._updateLevelStatus();
+    }
+
+    /**
+     * FEATURE 23: Move the output trim by a step and remember it on this device.
+     * @param {number} deltaDb - Step in dB
+     * @private
+     */
+    _adjustOutputTrim(deltaDb) {
+        const db = Math.max(-12, Math.min(12, (this.outputTrimDb || 0) + deltaDb));
+        this.outputTrimDb = db;
+        localStorage.setItem('player_output_trim_db', String(db));
+
+        if (this.app && this.app.engine && this.app.engine.setOutputTrimDb) {
+            this.app.engine.setOutputTrimDb(db);
+        }
+        this._updateLevelStatus();
+
+        const label = (db >= 0 ? '+' : '-') + Math.abs(db).toFixed(0) + ' dB';
+        this.debugLog('🔉 Output level: ' + label);
+        this._showToast('🔉 ' + label, 'info');
+    }
+
+    /**
+     * FEATURE 23: Show the current output trim in the status bar.
+     * @private
+     */
+    _updateLevelStatus() {
+        const el = document.getElementById('levelStatus');
+        if (!el) return;
+        const db = this.outputTrimDb || 0;
+        el.textContent = (db >= 0 ? '+' : '-') + Math.abs(db).toFixed(0) + ' dB';
     }
 
     /**
@@ -1147,6 +1207,9 @@ class MapPlayerApp extends MapAppShared {
             }
 
             console.log('[MapPlayer] ✅ Soundscape started');
+
+            // FEATURE 23: the engine is built during start(), so the saved trim is applied now
+            this._applyOutputTrim();
 
             // === SESSION 3: Load Areas from soundscape into AreaManager (AFTER start) ===
             // This ensures AreaManager exists and listener position is initialized

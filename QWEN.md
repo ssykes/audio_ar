@@ -53,13 +53,14 @@ Source code (implementation)
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
-| `spatial_audio.js` | v6.2 | 2026-04-03 (Area Debug Cleanup) |
-| `spatial_audio_app.js` | v3.2 | 2026-04-03 (Area Debug Cleanup) |
+| `spatial_audio.js` | v6.3 | 2026-11-09 (Feature 23 Phase 0: physical loudness) |
+| `spatial_audio_app.js` | v3.3 | 2026-11-09 (Feature 23 Phase 0: disposal-distance pass-through) |
 | `map_shared.js` | v6.9+ | 2026-04-03 (Sim waypoint zone logging) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-10-13 (offline fallback page; `theme.css` precached) |
 | `deploy.ps1` | - | 2026-10-13 (`theme.css` registered) |
 | `FEATURE_22_PWA_AND_UI_RESTYLE.md` | v1.0 | 2026-10-13 (Task A + Task B spec) |
+| `FEATURE_23_PHYSICAL_LOUDNESS.md` | v1.1 | 2026-11-09 (Phase 0 implemented; decisions 9-13) |
 | `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 (Feature 16B spec) |
 
 **⚠️ Dead files — do not edit:** `map_editor_v2.*`, `map_editor_old.*`, `map_editor_mockup.*`.
@@ -87,17 +88,18 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
 2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
 3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-4. **Feature 23: Physical Loudness Model** - Waypoints are faint until you're on top of them. Design agreed 2026-11-08, spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17.
+4. **Feature 23: Physical Loudness Model** - **Phase 0 implemented 2026-11-09, NOT deployed, NOT yet verified on a walk.** Waypoints were faint until you were on top of them; the engine now uses one physical falloff curve and the spatialiser no longer attenuates on top of it. Spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Next step is a walk test, then retune the reverb bands — not more code.**
 5. **Feature 20: Cached Streaming** - Session cache (~7h)
 6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
 8. **Feature 18: Behavior UI** - Visual timeline
 
-> **⚠️ About to start Feature 23?** Ask the open questions in `FEATURE_23_PHYSICAL_LOUDNESS.md`
-> §5 and §6 **before writing any code** — the lazy-loading radius and its ceiling, artificial
-> sources such as oscillators, whether the dynamic-range knob belongs to the device or to the
-> soundscape, the gunshot limiter ceiling, and the near-field clamp. They were left open
-> deliberately on 2026-11-08 and the answers change the schema.
+> **⚠️ About to continue Feature 23?** Phase 0 is done. What is still open, and which phase each
+> one blocks, is in `FEATURE_23_PHYSICAL_LOUDNESS.md` §5 and §6: the gunshot limiter ceiling
+> (**blocks Phase 1**), then the lazy-loading radius and its ceiling, artificial sources such as
+> oscillators, and whether the dynamic-range knob belongs to the device or to the soundscape
+> (**all block Phase 2/3 and change the schema**). The near-field clamp is resolved: 1 m.
+> Ask before writing code — do not assume Phase 0's answers carry over.
 
 ---
 
@@ -111,9 +113,20 @@ They are two *independent* tasks — do them separately, they share no code.
 - 🟠 **`wake_lock_helper.js` is dead code** - zero call sites, yet it is loaded by `map_player.html` and precached to every phone
 - 🟠 **`offline.html` is broken** - its "Open App" button targets the same nonexistent file, and it is not in `FILES_TO_CACHE`
 - 🟡 **Docs are unreliable about which editor file is live.** `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md` and `FEATURES.md` both claim `map_editor_v2.html` is in production. It is **dead**; the live editor is `map_editor.html`. Verify with `grep "location.href.*map_editor" index.html soundscape_picker.html`
+- 🟠 **Streamed sources are never disposed.** `ZoneConfig.stream` has no `preloadMargin`, so the zone maths yields `NaN` for their unload and disposal distances and `distance > NaN` is never true — a stream stays in memory for the whole session. Found 2026-11-09 while wiring Feature 23 Phase 0; **deliberately not fixed**, it is unrelated to loudness. `spatial_audio_app.js` → `_getSoundZone`, stream branch
+- 🟡 **`gain_vs_distance.html` documents the pre-Feature-23 curve.** It hard-codes the old quadratic fade and its 20 m fade zone, so anything quoted from it is now wrong. Regenerate or delete it
+
+**Fixed 2026-11-09, in the working tree, NOT yet deployed:**
+
+- 🔴 **The area volume slider has never done anything.** Areas carry **two** level fields. The editor edits `volume`, and that is what the `areas` table stores. But `api/models/Area.js` also declares a `gain`, and **there is no `gain` column** — so `fromRow` fills in its 0.5 default on every read, and the area loader preferred `gain` over `volume`. Result: every area played at 50% no matter where the slider was. Fixed 2026-11-09 by making `volume` authoritative in the loader; the phantom field is still returned by the API and should be deleted from the model (**not done** — server-side, needs an API restart). Reproduced at three slider settings by `scratch/repro-area-volume.js`: deployed code gives 50% / 50% / 50% for a slider at 0% / 30% / 100%; working tree gives 0% / 30% / 100%.
+- ⚠️ **Area levels will jump by ~60% when this is deployed.** Every area has been playing at 0.5 while its stored `volume` said something else (usually 0.8). Mixes balanced by ear before 2026-11-09 need re-checking.
+- ✅ **A volume of 0 was separately read as "no value" in five places.** The slider looked like it reset to 80% on reopening, and muted sources were played loudly. The saved value was always correct — the client payload, the API models and the repositories all use nullish defaults, so 0 survives the round trip. The bug was in the read-back: `volume || 0.8` in the editor form (waypoints and areas), `volume > 0.1 ? volume : 1.0` in the editor's audio config (waypoints and areas), `areaConfig.volume || 0.8` in the area loader, and `options.gain || default` in three places in the engine. **This fix alone did not repair areas** — the phantom `gain` above was still overriding it, which is why the first report of "still not fixed" was correct. `scratch/verify-volume-zero.js` (20 checks).
+- ✅ **A source could burst at full volume when it started.** A source is created before its distance is known, so it briefly holds its creation level; the new smoothing ramp then glided *down* from there instead of snapping. Entering a waypoint produced an abrupt loud hit. Fixed: the first level application snaps, later ones ramp, and both creation paths now start muted.
+- **Waypoints were never affected by the area bug.** A waypoint's level is multiplied in on every frame from `volume`; an area's is captured once, when its source is created, from `gain`.
+- **Because nothing is deployed, the live site still has all of this.** To tell which build a page is running, look for the engine's load line in the console: `Loading v6.1...` / `v6.2 (Area Debug Cleanup) loaded` is the old code, `Loading v6.3...` is the fix. A hard refresh is not enough on a locally served page if the script URL carries an old cache-busting stamp.
 
 **Resolved:** all lazy loading bugs fixed
-- ✅ Preload margin matches fade zone (20m)
+- ✅ Preload margin matches fade zone (20m) — *the fade zone itself is gone as of Feature 23 Phase 0; the 20 m margin now buys load lead time before a sound becomes audible. See the `ZoneConfig` comment*
 - ✅ Preloaded sounds start playing immediately
 - ✅ Hysteresis prevents rapid load/dispose cycles
 - ✅ Zone naming clarified ('unload' → 'hysteresis')
@@ -416,7 +429,7 @@ things that make it fragile and expensive to reason about.
 | **21** | Sound Walk Composer (Routes + OSRM) | High |
 | **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons) | High |
 | **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
-| **23** | **Physical Loudness Model** — design agreed, four phases, open questions listed in the spec | High |
+| **23** | **Physical Loudness Model** — Phase 0 implemented 2026-11-09 (engine only, not deployed). Walk test + reverb retune next; Phases 1-3 blocked on the open questions in the spec | High |
 
 **Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23)
 
@@ -427,7 +440,12 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-08 (Service worker cache-busting deadlock found, reproduced, fixed,
-deployed and verified on a device. Added *How a Change Reaches the Phone*, the cleanup backlog, and
-the scratch folder convention. Repaired `.gitignore` — it had silently stopped excluding anything.
-Specified Feature 23, the physical loudness model, superseding Feature 17.)
+**Last Updated:** 2026-11-09 (Feature 23 Phase 0 implemented in the audio engine — one physical
+falloff curve, spatialiser reduced to direction only, no hard cutoff, louder/quieter control on the
+player. Also fixed a volume-of-0 bug in five places across the editor, the player and the engine:
+muted sounds were being played loudly, while the saved value was correct all along. Verified by
+three throwaway `scratch/` scripts (17 + 36 + 20 checks), **nothing heard on a walk and nothing
+deployed**. Decisions 9-13 recorded in the spec; the stream-disposal `NaN` defect found and left
+alone. Previous entry: 2026-11-08 — service worker cache-busting deadlock found, reproduced,
+fixed, deployed and verified on a device; added *How a Change Reaches the Phone*, the cleanup
+backlog and the scratch folder convention; repaired `.gitignore`; specified Feature 23.)

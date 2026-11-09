@@ -2,8 +2,15 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 6.2 (Area Debug Cleanup)
+ * @version 6.3 (Feature 23 Phase 0: Physical Loudness)
  * @changelog
+ *   v6.3 - FEATURE 23 Phase 0: distance loudness now follows the inverse square law from a
+ *          single source level. The panner keeps direction only (rolloffFactor 0) so the two
+ *          attenuations are no longer multiplied. Hard cutoff at radius+20m replaced by a
+ *          continuous curve plus a final fade ending where the source is disposed. Both gain
+ *          implementations converge on one method; the old radius fade is gone.
+ *          Also fixed: a source or area set to volume 0 was played at full volume, because
+ *          every `options.gain || default` read a deliberate mute as a missing value.
  *   v6.2 - Removed non-essential debug logging from AreaSoundSource
  *   v6.1 - Added depth-weighted crossfade for overlapping areas (AreaSoundSource.calculateMaxDepth)
  *   v6.0 - Added Martinez intersection crossfade methods (martinezIntersection, getCrossfadePosition, raySegmentIntersection)
@@ -11,7 +18,7 @@
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v6.1...');
+console.log('[spatial_audio.js] Loading v6.3...');
 
 /**
  * GPS Utility Functions
@@ -604,6 +611,81 @@ class EngineListener {
 }
 
 /**
+ * FEATURE 23: Physical loudness model
+ *
+ * A source is described by one number — its real-world level in dB SPL at 1 m. How far it
+ * carries is derived from that number and the ambient noise floor, never configured. The
+ * listener-side controls are the dynamic range fraction and the device calibration.
+ *
+ * Phase 0 uses these constants as-is. Phase 1 adds per-waypoint source levels (presets);
+ * Phase 2 persists them; Phase 3 derives the load radius from them.
+ */
+const PHYSICAL_MODEL = {
+    referenceLevelDb: 65,   // conversation at 1 m — the anchor output gain is measured against
+    ambientLevelDb: 50,     // typical street; a source below this is effectively inaudible
+    dynamicRangeK: 0.65,    // fraction of the real dynamic range retained
+    calibration: 0.25,      // output gain for a 65 dB source at 1 m
+    nearClampM: 1,          // loudness stops rising inside this distance
+    fadeOutSpanM: 20        // length of the final fade before a source is disposed
+};
+
+/**
+ * Real-world level of a source inferred from its activation radius.
+ *
+ * Phase 0 stand-in until per-waypoint presets exist: the radius an artist already drew is read
+ * as "audible out to here", so existing walks keep roughly their current reach and only the
+ * shape of the falloff changes. Phase 1 replaces this with an artist-stated level.
+ *
+ * @param {number} radius - Activation radius in metres
+ * @returns {number} Level in dB SPL at 1 m
+ */
+function sourceLevelFromRadius(radius) {
+    const r = Number(radius);
+    return PHYSICAL_MODEL.ambientLevelDb + 20 * Math.log10(isFinite(r) && r >= 1 ? r : 1);
+}
+
+/**
+ * Level reaching the listener, in dB SPL.
+ * @param {number} distance - Distance in metres
+ * @param {number} sourceLevelDb - Source level at 1 m
+ * @returns {number} dB SPL at the listener
+ */
+function levelAtDistance(distance, sourceLevelDb) {
+    const d = Math.max(PHYSICAL_MODEL.nearClampM, distance);
+    return sourceLevelDb - 20 * Math.log10(d);
+}
+
+/**
+ * Output gain for a source at a given distance, before the per-waypoint volume trim.
+ * @param {number} distance - Distance in metres
+ * @param {number} sourceLevelDb - Source level at 1 m
+ * @returns {number} Linear gain
+ */
+function physicalGain(distance, sourceLevelDb) {
+    const level = levelAtDistance(distance, sourceLevelDb);
+    const db = PHYSICAL_MODEL.dynamicRangeK * (level - PHYSICAL_MODEL.referenceLevelDb);
+    return PHYSICAL_MODEL.calibration * Math.pow(10, db / 20);
+}
+
+/**
+ * Final fade so a source sinks to silence where it is disposed instead of clicking off.
+ * Cosine-shaped: no slope discontinuity at either end.
+ *
+ * @param {number} distance - Distance in metres
+ * @param {number} fadeOutEnd - Distance at which the source is thrown away
+ * @returns {number} Multiplier, 0..1
+ */
+function fadeOutMultiplier(distance, fadeOutEnd) {
+    // Not isFinite() alone: isFinite(null) is true and would silence the source
+    if (typeof fadeOutEnd !== 'number' || !isFinite(fadeOutEnd)) return 1;
+    const start = fadeOutEnd - PHYSICAL_MODEL.fadeOutSpanM;
+    if (distance <= start) return 1;
+    if (distance >= fadeOutEnd) return 0;
+    const progress = (distance - start) / PHYSICAL_MODEL.fadeOutSpanM;
+    return 0.5 * (1 + Math.cos(Math.PI * progress));
+}
+
+/**
  * SoundSource - Base class for all sound emitters
  */
 class SoundSource {
@@ -622,11 +704,15 @@ class SoundSource {
         this.dryGain = null;
         this.wetGain = null;
         this.currentWetValue = 0;
+
+        // FEATURE 23: gain the model last asked for (the node itself ramps towards it)
+        this.lastComputedGain = 0;
+        this.gainApplied = false;   // first application snaps, later ones ramp
     }
 
     init() {
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.5;  // Increased from 0.3 for louder playback
+        this.gain.gain.value = this.options.gain ?? 0.5;  // ?? not || — 0 is a deliberate mute
         
         // Create wet/dry split for reverb
         this.dryGain = this.engine.ctx.createGain();
@@ -639,7 +725,9 @@ class SoundSource {
         this.panner.distanceModel = 'inverse';
         this.panner.refDistance = 1;
         this.panner.maxDistance = 10000;
-        this.panner.rolloffFactor = 1;
+        // FEATURE 23: the panner is for direction only. Any rolloff here multiplies with
+        // updateGainByDistance and squares the falloff.
+        this.panner.rolloffFactor = 0;
         this.setPosition(this.x, this.z);
     }
 
@@ -745,74 +833,71 @@ class OscillatorSource extends SoundSource {
     }
 
     /**
-     * FEATURE 14: Update gain based on distance (fade zone handling)
-     * Same implementation as GpsSoundSource for consistent behavior
-     * @param {number} listenerLat - Listener latitude
-     * @param {number} listenerLon - Listener longitude
-     * @param {number} targetGain - Target gain at close range
-     * @returns {boolean} True if within activation radius
+     * Distance from the listener in metres.
+     * Subclasses that track their own position override this and inherit everything else.
      */
-    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.8) {  // Increased from 0.5 for louder playback
-        // Guard: Check if gain node exists
-        if (!this.gain) {
-            console.warn(`[OscillatorSource] ${this.id}: gain node missing, skipping update`);
-            return false;
-        }
-
-        // Calculate distance using GPS coordinates
-        const dist = GPSUtils.distance(
+    getDistance(listenerLat, listenerLon) {
+        return GPSUtils.distance(
             this.options.lat || 0,
             this.options.lon || 0,
             listenerLat,
             listenerLon
         );
+    }
 
-        console.log(`[OscillatorSource] ${this.id}: distance=${dist.toFixed(1)}m, activationRadius=${this.activationRadius}m, targetGain=${targetGain}`);
+    /**
+     * FEATURE 23: Set gain from the physical loudness model.
+     *
+     * The one place loudness is decided for every source type — the panner contributes
+     * direction only. GpsSoundSource used to carry a near-identical copy of this method; it now
+     * inherits it and overrides only getDistance.
+     *
+     * @param {number} listenerLat - Listener latitude
+     * @param {number} listenerLon - Listener longitude
+     * @param {number} volume - Per-waypoint trim, 0..1. 0 mutes, 1 is unity
+     * @param {number} [fadeOutEnd] - Distance at which the source is disposed. The last
+     *   PHYSICAL_MODEL.fadeOutSpanM metres fade to silence so disposal is never audible
+     * @returns {boolean} True if within the activation radius
+     */
+    updateGainByDistance(listenerLat, listenerLon, volume = 1.0, fadeOutEnd = null) {
+        // Guard: Check if gain node exists
+        if (!this.gain) {
+            console.warn(`[${this.constructor.name}] ${this.id}: gain node missing, skipping update`);
+            return false;
+        }
 
-        // Apply 2-meter floor: never calculate gain for closer than 2 meters
-        const gainDistance = Math.max(dist, 2);
+        const dist = this.getDistance(listenerLat, listenerLon);
 
-        // === HYBRID FADE ZONE (20m transition) ===
-        const fadeZone = 20; // meters
-        const fadeStart = Math.max(0, this.activationRadius - fadeZone);
+        // Phase 0 infers the source level from the activation radius; Phase 1 will supply it
+        const sourceLevelDb = this.sourceLevelDb !== undefined
+            ? this.sourceLevelDb
+            : sourceLevelFromRadius(this.activationRadius);
 
-        if (gainDistance < fadeStart) {
-            // Full volume zone (inside activation radius, away from edge)
-            const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
-            this.gain.gain.value = targetGain * distanceBoost;
+        const gain = physicalGain(dist, sourceLevelDb)
+            * fadeOutMultiplier(dist, fadeOutEnd)
+            * volume;
 
-            // Apply distance-based reverb wet mix
-            this._updateReverbWetMix(dist);
-
-            // Debug: Log gain changes (throttled to avoid spam)
-            if (Math.random() < 0.05) {
-                console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
-            }
-            console.log(`[OscillatorSource] ${this.id}: FULL volume zone, gain=${(targetGain * distanceBoost).toFixed(3)}`);
+        // Ramp rather than write the value directly: the level is recomputed every frame and a
+        // step between frames is audible as a click. lastComputedGain is the target, for logging.
+        this.lastComputedGain = gain;
+        const t = this.engine.ctx.currentTime;
+        this.gain.gain.cancelScheduledValues(t);
+        if (this.gainApplied) {
+            this.gain.gain.setTargetAtTime(gain, t, 0.1);
         } else {
-            // FADE ZONE: Smooth transition from fadeStart to activationRadius+fadeZone
-            const totalFadeDistance = fadeZone * 2;
-            const distFromFadeStart = Math.max(0, dist - fadeStart);
-            const fadeProgress = Math.min(1, distFromFadeStart / totalFadeDistance);
+            // The first application snaps. A source is created before its distance is known, so
+            // ramping here would audibly decay from whatever gain it was created with.
+            this.gain.gain.setValueAtTime(gain, t);
+            this.gainApplied = true;
+        }
 
-            // Smooth exponential fade: 100% → 0% over 40m
-            const exponentialFade = Math.pow(1 - fadeProgress, 2);  // Quadratic falloff
+        // Apply distance-based reverb wet mix
+        this._updateReverbWetMix(dist);
 
-            const currentGain = targetGain * exponentialFade;
-            this.gain.gain.value = currentGain;
-
-            // Apply distance-based reverb wet mix
-            this._updateReverbWetMix(dist);
-
-            // Beyond fade zone: silent
-            if (dist >= this.activationRadius + fadeZone) {
-                this.gain.gain.value = 0;
-                this.wetGain.gain.value = 0;
-                this.dryGain.gain.value = 0;
-                console.log(`[OscillatorSource] ${this.id}: OUTSIDE fade zone (${dist.toFixed(1)}m >= ${this.activationRadius + fadeZone}m), gain=0`);
-            } else {
-                console.log(`[OscillatorSource] ${this.id}: IN fade zone, gain=${currentGain.toFixed(3)}`);
-            }
+        // Debug: Log gain changes (throttled to avoid spam)
+        if (Math.random() < 0.02) {
+            const level = levelAtDistance(dist, sourceLevelDb);
+            console.log(`[Audio] ${this.id} ${dist.toFixed(1)}m: source=${sourceLevelDb.toFixed(0)}dB, level=${level.toFixed(1)}dB, gain=${gain.toFixed(3)}, wet=${(this.currentWetValue * 100).toFixed(0)}%`);
         }
 
         return dist < this.activationRadius;
@@ -926,61 +1011,6 @@ class GpsSoundSource extends OscillatorSource {
 
     getDistance(listenerLat, listenerLon) {
         return GPSUtils.distance(this.gpsLat, this.gpsLon, listenerLat, listenerLon);
-    }
-
-    updateGainByDistance(listenerLat, listenerLon, targetGain = 0.8) {  // Increased from 0.5 for louder playback
-        const dist = this.getDistance(listenerLat, listenerLon);
-
-        // Apply 2-meter floor: never calculate gain for closer than 2 meters
-        // This is the realistic "closest approach" and gives us maximum volume here
-        const gainDistance = Math.max(dist, 2);
-
-        if (this.gain) {
-            // === HYBRID FADE ZONE (20m transition) ===
-            // Works with any activation radius
-            const fadeZone = 20; // meters
-            const fadeStart = Math.max(0, this.activationRadius - fadeZone);
-
-            if (gainDistance < fadeStart) {
-                // Full volume zone (inside activation radius, away from edge)
-                // Boost gain when very close (< 2m) for maximum volume at closest approach
-                const distanceBoost = dist < 2 ? 1.5 : 1.0;  // +3.5dB boost when within 2m
-                this.gain.gain.value = targetGain * distanceBoost;
-
-                // Apply distance-based reverb wet mix
-                // Closer = drier, farther = wetter (within the activation radius)
-                this._updateReverbWetMix(dist);
-
-                // Debug: Log gain changes (throttle to avoid spam)
-                if (Math.random() < 0.05) {
-                    console.log(`[Audio] ${dist.toFixed(1)}m, gain: ${(targetGain * distanceBoost).toFixed(2)}, wet: ${(this.currentWetValue * 100).toFixed(0)}% (full volume zone)`);
-                }
-            } else {
-                // FADE ZONE: Smooth transition from fadeStart to activationRadius+fadeZone
-                // Total fade distance: 20m inside + 20m outside = 40m total
-                const totalFadeDistance = fadeZone * 2;
-                const distFromFadeStart = Math.max(0, dist - fadeStart);
-                const fadeProgress = Math.min(1, distFromFadeStart / totalFadeDistance);
-
-                // Smooth exponential fade: 100% → 0% over 40m
-                // Using pure exponential for smoothness (no hybrid complexity)
-                const exponentialFade = Math.pow(1 - fadeProgress, 2);  // Quadratic falloff
-
-                const currentGain = targetGain * exponentialFade;
-                this.gain.gain.value = currentGain;
-
-                // Apply distance-based reverb wet mix
-                this._updateReverbWetMix(dist);
-
-                // Beyond fade zone: silent
-                if (dist >= this.activationRadius + fadeZone) {
-                    this.gain.gain.value = 0;
-                    this.wetGain.gain.value = 0;
-                    this.dryGain.gain.value = 0;
-                }
-            }
-        }
-        return dist < this.activationRadius;
     }
 
     /**
@@ -1133,7 +1163,7 @@ class SampleSource extends GpsSoundSource {
 
     init() {
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 0.8;  // Increased from 0.5 for louder playback
+        this.gain.gain.value = this.options.gain ?? 0.8;  // ?? not || — 0 is a deliberate mute
 
         this.panner = this.engine.ctx.createPanner();
         this.panner.panningModel = 'HRTF';
@@ -1146,11 +1176,12 @@ class SampleSource extends GpsSoundSource {
             rolloffFactor: this.panner.rolloffFactor
         });
 
-        // Use inverse square law for realistic distance falloff
+        // FEATURE 23: the panner is for direction only. Distance falloff lives entirely in
+        // updateGainByDistance — any rolloff here multiplies with it and squares the curve.
         this.panner.distanceModel = 'inverse';
         this.panner.refDistance = 1;
         this.panner.maxDistance = 100;
-        this.panner.rolloffFactor = 1.5;
+        this.panner.rolloffFactor = 0;
 
         this.setPosition(this.x, this.z);
 
@@ -1528,7 +1559,7 @@ class AreaSoundSource extends SampleSource {
     init() {
         // Create gain node (volume control only, no spatialization)
         this.gain = this.engine.ctx.createGain();
-        this.gain.gain.value = this.options.gain || 1.0;
+        this.gain.gain.value = this.options.gain ?? 1.0;  // ?? not || — 0 is a deliberate mute
 
         // Create wet/dry split for reverb
         this.dryGain = this.engine.ctx.createGain();
@@ -1969,6 +2000,29 @@ class SpatialAudioEngine {
         this.reverbOutputGain = null;  // Controls overall reverb output level
         this.currentReverbPreset = null;
         this.reverbEnabled = options.reverbEnabled !== false;  // Default true, can disable
+
+        // FEATURE 23: device-local output trim in dB (see setOutputTrimDb)
+        this.outputTrimDb = 0;
+    }
+
+    /**
+     * FEATURE 23: Device-local output trim, in dB.
+     *
+     * The physical model fixes absolute levels, so this is the listener's one correction for
+     * their own headphones and ears. Applied at the shared output stage ahead of the limiter, so
+     * waypoint sources and area beds move together.
+     *
+     * @param {number} db - Trim in dB, clamped to ±12
+     * @returns {number} The trim actually applied
+     */
+    setOutputTrimDb(db) {
+        const value = Number(db);
+        this.outputTrimDb = isFinite(value) ? Math.max(-12, Math.min(12, value)) : 0;
+        if (this.masterGain) {
+            this.masterGain.gain.value = Math.pow(10, this.outputTrimDb / 20);
+        }
+        console.log(`[SpatialAudioEngine] Output trim: ${this.outputTrimDb >= 0 ? '+' : ''}${this.outputTrimDb.toFixed(1)} dB`);
+        return this.outputTrimDb;
     }
 
     /**
@@ -2031,9 +2085,9 @@ class SpatialAudioEngine {
             console.log('[SpatialAudioEngine] Created new AudioContext');
         }
         
-        // Master gain
+        // Master gain (FEATURE 23: carries the device-local output trim)
         this.masterGain = this.ctx.createGain();
-        this.masterGain.gain.value = 1.0;  // Increased from 0.8 for louder playback
+        this.setOutputTrimDb(this.outputTrimDb);
 
         // Dynamics compressor to prevent clipping from multiple concurrent sources
         // This allows individual sources to be boosted without worrying about digital distortion
@@ -2826,7 +2880,8 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         SpatialAudioEngine, SoundSource, OscillatorSource,
         GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, AreaSoundSource, SoundPresets,
-        GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker
+        GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker,
+        PHYSICAL_MODEL, sourceLevelFromRadius, levelAtDistance, physicalGain, fadeOutMultiplier
     };
 } else {
     window.SpatialAudioEngine = SpatialAudioEngine;
@@ -2845,7 +2900,12 @@ if (typeof module !== 'undefined' && module.exports) {
     window.setReverbEnvironment = setReverbEnvironment;
     window.getReverbForDistance = getReverbForDistance;
     window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
-    console.log('[spatial_audio.js] v6.2 (Area Debug Cleanup) loaded');
+    window.PHYSICAL_MODEL = PHYSICAL_MODEL;
+    window.sourceLevelFromRadius = sourceLevelFromRadius;
+    window.levelAtDistance = levelAtDistance;
+    window.physicalGain = physicalGain;
+    window.fadeOutMultiplier = fadeOutMultiplier;
+    console.log('[spatial_audio.js] v6.3 (Feature 23 Phase 0: Physical Loudness) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');
