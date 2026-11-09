@@ -497,8 +497,8 @@
             <span><span class="icon">🎧</span> Choose Soundscape</span>
             <a class="new-soundscape-link" id="newSoundscapeLink">+ New Soundscape</a>
         </h1>
-        <p class="subtitle">Select an experience to play</p>
-        
+        <p class="subtitle">Select a soundscape to play</p>
+
         <ul id="soundscapeList">
             <li class="loading">Loading soundscapes...</li>
         </ul>
@@ -553,9 +553,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20261013151848 loaded correctly
+                    // GUARD: Verify download_manager.js?v=20261108154439 loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20261013151848 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20261108154439 failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1295,7 +1295,7 @@
                     this._debugLog(`[picker] ❌ Item not found for ${soundscapeId}`, 'error');
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20261013151848
+                // Note: Full soundscape data is already stored by download_manager.js?v=20261108154439
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }
