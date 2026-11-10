@@ -1206,23 +1206,25 @@ class SpatialAudioApp {
      * @private
      */
     _debugLogZoneDistribution() {
+        // Zone names must match what _getSoundZone actually returns, or the counts stay at zero
         const byType = {
-            buffer: { active: 0, preload: 0, unload: 0 },
+            buffer: { active: 0, preload: 0, hysteresis: 0 },
             oscillator: { active: 0, inactive: 0 },
-            stream: { active: 0, paused: 0, unloaded: 0 }
+            stream: { active: 0, paused: 0, hysteresis: 0 }
         };
 
         this.sounds.forEach(sound => {
-            if (byType[sound.type]) {
-                byType[sound.type][sound.currentZone]++;
+            const counts = byType[sound.type];
+            if (counts && counts[sound.currentZone] !== undefined) {
+                counts[sound.currentZone]++;
             }
         });
 
         if (this.onDebugLog) {
             this.onDebugLog(`📊 Zone Distribution:`);
-            this.onDebugLog(`  Buffers: ${byType.buffer.active} active, ${byType.buffer.preload} preload, ${byType.buffer.unload} unload`);
-            this.onDebugLog(`  Oscillators: ${byType.oscillator.active} active`);
-            this.onDebugLog(`  Streams: ${byType.stream.active} active, ${byType.stream.paused} paused, ${byType.stream.unloaded} unloaded`);
+            this.onDebugLog(`  Buffers: ${byType.buffer.active} active, ${byType.buffer.preload} preload, ${byType.buffer.hysteresis} hysteresis`);
+            this.onDebugLog(`  Oscillators: ${byType.oscillator.active} active, ${byType.oscillator.inactive} inactive`);
+            this.onDebugLog(`  Streams: ${byType.stream.active} active, ${byType.stream.paused} paused, ${byType.stream.hysteresis} hysteresis`);
         }
     }
 
@@ -1429,10 +1431,14 @@ class SpatialAudioApp {
 
             // Log when sound is beyond its radius but still loaded and quietly audible
             // (FEATURE 23: there is no fade zone any more — level just keeps falling with distance)
+            const fadeEnd = this._getAcousticFadeEnd(sound);
             const beyondRadius = distance > activationRadius
                 && (disposeDistance === null || distance <= disposeDistance);
             if (beyondRadius && this.onDebugLog && Math.random() < 0.05) {
-                const fadeNote = disposeDistance === null ? 'no distance fade' : `fades out by ${disposeDistance}m`;
+                // The fade completes where the sound is fetched, well short of disposal
+                const fadeNote = fadeEnd === null
+                    ? 'no distance fade'
+                    : `silent by ${fadeEnd}m, disposed by ${disposeDistance}m`;
                 this.onDebugLog(`🌗 BEYOND RADIUS: ${sound.id} | distance=${distance.toFixed(1)}m | radius=${activationRadius}m | ${fadeNote} | loaded=${sound.isLoaded} | playing=${sound.isPlaying}`);
             }
 

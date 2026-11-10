@@ -49,7 +49,7 @@ Source code (implementation)
 | File | Version | Last Updated |
 |------|---------|--------------|
 | `map_player.html` | v7.2 | 2026-03-18 |
-| `map_editor.html` | v6.119+ | 2026-11-09 ("How far it carries" selector; volume fixes in `map_editor.js`) |
+| `map_editor.html` | v6.119+ | 2026-11-09 (**Contained** checkbox; radius hint; volume fixes in `map_editor.js`) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
@@ -88,7 +88,7 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
 2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
 3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-4. **Feature 23: Physical Loudness Model** - **Phase 0 implemented 2026-11-09, partly deployed (13:09), NOT yet verified on a walk.** Waypoints were faint until you were on top of them; the engine now uses one physical falloff curve and the spatialiser no longer attenuates on top of it. Spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Also built, in memory only:** a second kind of waypoint — *contained*, the "blue circle" — which holds its sound inside the radius with a 3 m soft band and a peak at the centre. Ticked with a **Contained** checkbox in the waypoint panel. **The radius slider stays for both kinds** — for a physical waypoint it *is* the loudness/reach control (a deliberate departure from the spec, which intended the reverse; presets should later move this slider, not replace it). Default radius **20 m** everywhere. **Not persisted**, so the checkbox reverts on reload. Adding a column for it is the next schema change. **Approach now mirrors departure:** a source goes silent exactly where it is fetched, so walking back in swells it up across the same band (buffer preload margin 20 m → 40 m). **Next step is a walk test, then retune the reverb bands — not more code.**
+4. **Feature 23: Physical Loudness Model** - **Phase 0 deployed and confirmed in the simulator 2026-11-09; never heard on a walk.** One physical falloff curve, spatialiser reduced to direction, no hard cutoff, louder/quieter control on the player, plus a second *contained* waypoint kind (in memory only). Spec: [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Next step is a walk test, then retune the reverb bands — not more code.** See the handover list below for every open thread.
 5. **Feature 20: Cached Streaming** - Session cache (~7h)
 6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
@@ -100,6 +100,41 @@ They are two *independent* tasks — do them separately, they share no code.
 > oscillators, and whether the dynamic-range knob belongs to the device or to the soundscape
 > (**all block Phase 2/3 and change the schema**). The near-field clamp is resolved: 1 m.
 > Ask before writing code — do not assume Phase 0's answers carry over.
+
+---
+
+## 📌 Session handover — 2026-11-09 evening
+
+### Where things stand
+
+- **Live build:** deploy stamp `20261109175443` (17:54). Contains *everything* from today: the loudness model, the contained kind, the symmetric fade, the preload fix, the area-volume fix, and the corrected simulator readout.
+- **Git:** `feature/sound-area`, pushed. Git and the server agree apart from cache-busting stamps in the working tree, which is normal.
+- **Confirmed by ear in the simulator:** a physical waypoint is now heard about **40 m outside its circle**, swelling smoothly, and departure mirrors approach. The area volume slider moves the level.
+- **NOT confirmed:** anything on a real walk; **streams** (their handling changed as a side effect of the preload fix and has never been exercised); **contained waypoints on the phone** (the choice is not persisted, so the player always sees physical); the area-volume fix on a phone rather than in the simulator.
+- ⚠️ **Every area is now ~60% louder than it was.** They had all been playing at a fixed 50% regardless of the slider. Any mix balanced by ear before today needs re-checking.
+
+### TODO — the little things, in the order I'd take them
+
+1. **Decide the dynamic-range fraction.** Currently 0.65: at the circle's edge a sound is 14% of its centre level. 0.50 gives 22%, 0.40 gives 30%. This is the single number controlling how early a sound is heard on approach. Cheapest path: a temporary slider in the simulator, dial it by ear, then hard-code it. Spec §5.3 also asks whether it belongs to the device or the soundscape.
+2. **Quiet the console before any walk test.** Per-frame panner position, listener heading and avatar distance lines drown everything useful; on a phone the debug modal fills in minutes. Keep the lifecycle lines, drop the rest.
+3. **Feature 22A: wake lock.** An incoming call or the notification shade still kills audio and GPS silently mid-walk, with no re-acquire. Fix this *before* investing in a long walk test, or the test may produce nothing.
+4. **Walk test**, then retune the four reverb bands (spec §7 — two of them have never been audible in the project's history; outdoor `maxWet` is only 0.15, so they may be far too subtle rather than too strong).
+5. **Persist the contained kind** — one column on waypoints. **Blocked:** the migration runner fails with `Peer authentication failed for user "postgres"` and then prints a green success. Fix that or apply the SQL by hand.
+6. **Phase 1 presets** — blocked on the gunshot question (spec §6): at 140 dB it pins the limiter for ~800 m and has no distance dynamics at all. Pick a lower preset, per-source headroom, or accept it. Note the artist's decision that presets should **move the radius slider**, not replace it.
+7. **Phase 3: derive the fetch distance from the source's real level**, clamped (spec §5.1). Urgent-ish because the radius now does double duty — it is both the loudness control and what decides when a sound is fetched (radius + 40 m). A 500 m gunshot would try to load half a kilometre away.
+8. **Delete the phantom level field from the API's area model.** There is no such column; the model invents 0.5 on every read. The client now ignores it, but the server still sends and logs it. Server-side change, needs an API restart.
+9. **Streams are never disposed** — their zone config lacks a fetch margin, so the disposal threshold computes to `NaN` and no distance exceeds it. Deliberately left alone twice today.
+10. **Verify offline downloads on the phone.** All five soundscape caches in the dev browser hold **zero items**, so offline playback is unproven there. Phone storage is separate.
+11. Small and cosmetic: `gain_vs_distance.html` still documents the retired curve (regenerate or delete); a CSS comment in `map_editor.html` absorbs a fresh version stamp on every deploy because it names a file; `wake_lock_helper.js` is dead code precached to every phone; the deploy script's sound-file discovery finds nothing though nineteen files sit in the folder.
+12. **Housekeeping, when you have an afternoon:** the abandoned envelope branch and the forgotten stash are the only things keeping ~2.9 GB of accidentally committed audio reachable, and local `main` has diverged from its remote. Inspect before deleting either.
+
+### Traps learned today — read before debugging anything here
+
+- **Verify a deploy by hash, not by header or piped search.** Both lied today and produced a false "three files didn't upload" report. Details in *How a Change Reaches the Phone*.
+- **After renaming anything, search for the old name.** A syntax check passes clean while the call site still points at a name that no longer exists. This shipped once today and broke the edit panel.
+- **A falsy default is a bug wherever 0 is meaningful.** Five separate places read a deliberate mute as "no value". The area case was worse: a field with no database column was inventing a default that overrode the slider entirely.
+- **The simulator's debug output has been wrong more than once.** It now reports the real fetch, silence and disposal distances and the actual level. Trust it, but check it against the spec if something looks odd.
+- **Two vocabularies exist for source type** — the editor and API say `file`/`streaming`, the audio layer says `buffer`/`stream`. They are reconciled in one place now (`Sound.normaliseType`); anything new must go through it.
 
 ---
 
@@ -116,8 +151,7 @@ They are two *independent* tasks — do them separately, they share no code.
 - 🟠 **Streamed sources are never disposed.** `ZoneConfig.stream` has no `preloadMargin`, so the zone maths yields `NaN` for their unload and disposal distances and `distance > NaN` is never true — a stream stays in memory for the whole session. Found 2026-11-09 while wiring Feature 23 Phase 0; **deliberately not fixed**, it is unrelated to loudness. `spatial_audio_app.js` → `_getSoundZone`, stream branch
 - 🟡 **`gain_vs_distance.html` documents the pre-Feature-23 curve.** It hard-codes the old quadratic fade and its 20 m fade zone, so anything quoted from it is now wrong. Regenerate or delete it
 
-**Fixed 2026-11-09.** The first two bullets are in the working tree only; the rest shipped in the
-16:19 deploy:
+**Fixed 2026-11-09 — all of it deployed in the 17:54 build:**
 
 - 🔴 **Preloading never ran, so sounds only loaded once you were inside the radius.** Two vocabularies for one thing: the editor, the API and the simulator label a file waypoint `'file'`, while the preload step only proceeds for `'buffer'` and otherwise returns silently. Only the active-zone path could load anything, which fires inside the radius — reported from the simulator as "loading happens at the circumference", correctly. The player escaped it by accident (it omits the type, which defaulted to the right word) **except** for soundscapes with behaviors, which use a second builder that does say `'file'`. Fixed by normalising the type once, where a sound is constructed; anything unrecognised becomes a file, which is the safe direction. **Side effect to watch:** `'streaming'` never matched `'stream'` either, so streams were being fetched, played and disposed by distance instead of paused and kept alive. That is now corrected and is untested. `spatial_audio_app.js` → `Sound.normaliseType`
 - 🟡 **The simulator's waypoint log described a model that no longer exists.** It computed its own fade-zone bands (radius ±20 m) and printed "FULL VOLUME ZONE" / "FADE ZONE" / "OUTSIDE (silent)", and its gain column always printed `?` because the accessor it called had never been implemented. Twice on 2026-11-09 these lines were pasted as evidence while diagnosing something else. It now reads the real values — fetch distance, silence distance, disposal distance, kind, and level as a percentage of peak — which is what distinguishes "not loaded" from "loaded but quiet".
@@ -343,6 +377,21 @@ Invoke-WebRequest -Uri "https://ssykes.net/map_player.js" -UseBasicParsing |
 # CF-Cache-Status should be DYNAMIC or MISS, never HIT. Age should be absent.
 ```
 
+**To confirm a file actually arrived, compare hashes — not headers, not a piped search.**
+Learned 2026-11-09 after falsely reporting that a deploy had skipped three scripts. Two
+measurements lied:
+
+- `curl -s <url> | findstr /C:"marker"` printed nothing for three large scripts, while the same
+  marker was found instantly after `curl -s -o file <url>` and searching the file. Piping a large
+  response into `findstr` silently drops matches — download it first.
+- `Last-Modified` headers named the *new* deploy for one set of files and the *old* one for the
+  rest, then **swapped** when re-read minutes later, with no deploy in between. They also
+  contradicted the deploy log's own upload order. A header that changes which file it belongs to
+  is not evidence.
+
+What settled it: `certutil -hashfile` on the local file versus a downloaded copy — identical MD5 for
+all three. When the deploy log says `[OK]` and the hash matches, the file is there; stop looking.
+
 **Ignore the Cloudflare advice the deploy script prints when it finishes.** It recommends a caching
 setting that does not exist on this account, and the intent behind it — making the edge ignore query
 strings — would disable cache-busting outright. The script also never purges Cloudflare; it only
@@ -437,7 +486,7 @@ things that make it fragile and expensive to reason about.
 | **21** | Sound Walk Composer (Routes + OSRM) | High |
 | **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons) | High |
 | **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
-| **23** | **Physical Loudness Model** — Phase 0 implemented 2026-11-09 (engine only, not deployed). Walk test + reverb retune next; Phases 1-3 blocked on the open questions in the spec | High |
+| **23** | **Physical Loudness Model** — Phase 0 **deployed and simulator-verified 2026-11-09**. Walk test + reverb retune next; the contained kind needs a column; Phases 1-3 blocked on the open questions in the spec | High |
 
 **Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23)
 
@@ -448,20 +497,17 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-09 (Feature 23 Phase 0 implemented in the audio engine — one physical
-falloff curve, spatialiser reduced to direction only, no hard cutoff, louder/quieter control on the
-player. Then three bugs found from the simulator: **area volume had never worked at any setting**
-(the API returns a level field the areas table has no column for, so it invented 0.5 and the loader
-preferred it over the slider), a volume of 0 was read as "no value" in five places, and a source
-started at its creation level so entering a waypoint banged. All fixed. Also built the **contained**
-waypoint kind in memory only — a peak at the centre, ~2% at the edge of a 20 m circle, silence 3 m
-outside — chosen in the editor, **not persisted**. Committed as `e092ad7`, `a2f81e7`, `04fc268`
-(the last undoes a deploy timestamp this session accidentally committed inside the player's inline
-worker registration; the pre-commit hook only strips stamps from HTML attributes). Verified by five
-throwaway `scratch/` scripts (17 + 39 + 20 + 17 checks plus a before/after reproduction that runs
-the committed code side by side with the working tree). **A deploy ran at 13:09 mid-session, so the
-live site has Phase 0 and the first volume fixes but not the area-level, burst or contained-kind
-work. Nothing has been heard on a walk.** Previous entry: 2026-11-08 — service worker
-cache-busting deadlock found, reproduced, fixed, deployed and verified on a device; added *How a
-Change Reaches the Phone*, the cleanup backlog and the scratch folder convention; repaired
-`.gitignore`; specified Feature 23.)
+**Last Updated:** 2026-11-09 evening — **see "📌 Session handover" above first; it carries the
+current state and every open TODO.** Feature 23 Phase 0 was implemented, deployed (stamp
+`20261109175443`) and confirmed by ear in the simulator: one physical falloff curve, spatialiser
+reduced to direction, no hard cutoff, approach mirrors departure, louder/quieter control on the
+player, plus a **contained** waypoint kind (in memory only). Five bugs were found and fixed on the
+way — preloading never ran because of a type-name mismatch, the area volume slider had never done
+anything, a volume of 0 was read as "no value" in five places, sources burst at full volume on
+entry, and the simulator's own debug output described a retired model. Committed as `e092ad7`,
+`a2f81e7`, `04fc268`, `c27a9ad`, `99098f0` and one final log-correction commit. Verified by six
+throwaway `scratch/` scripts (62 + 17 + 17 + 20 checks, a before/after reproduction, and an
+approach-curve table). **Nothing has been heard on a walk.** Previous entry: 2026-11-08 — service
+worker cache-busting deadlock found, reproduced, fixed, deployed and verified on a device; added
+*How a Change Reaches the Phone*, the cleanup backlog and the scratch folder convention; repaired
+`.gitignore`; specified Feature 23.

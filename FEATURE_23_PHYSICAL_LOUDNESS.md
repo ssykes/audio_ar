@@ -1,6 +1,8 @@
 # Feature 23: Physical Loudness Model
 
-**Status:** 🔨 Phase 0 implemented 2026-11-09 — **not yet verified on a walk, not yet deployed**
+**Status:** 🔨 Phase 0 implemented, deployed (stamp `20261109175443`) and **confirmed by ear in the
+simulator** 2026-11-09 — a physical waypoint is heard about 40 m outside its circle, swelling
+smoothly, with departure mirroring approach. **Still never verified on a walk.**
 **Date:** 2026-11-08 (design) · 2026-11-09 (Phase 0)
 **Priority:** High
 **Supersedes:** Feature 17 (Distance Envelope) for waypoint loudness. See *Relationship to Feature 17*.
