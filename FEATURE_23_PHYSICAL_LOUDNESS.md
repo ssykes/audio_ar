@@ -159,6 +159,21 @@ loadRadius = clamp(derived d_max, minLoadRadius, maxLoadRadius)
 This is the riskiest part of the feature. QWEN.md records that every lazy-loading bug was fixed;
 changing what radius means reopens that. Must be verified on a real walk, not in a browser.
 
+**Partly overtaken by events, 2026-11-09.** One invariant is now enforced rather than proposed: *a
+source goes silent exactly where it is fetched*. Walking out, it fades to nothing across the band
+ending at the load boundary; walking back in, it is created silent at that same boundary and swells
+up across the identical band. Disposal sits further out again, in silence, so it cannot be heard.
+Before this, the fade ended at the *disposal* distance while loading began 20 m earlier, so a sound
+that had been thrown away stayed inaudible until well inside the radius on the way back — reported
+from the simulator as "it doesn't start until I'm entering the waypoint". The fade band also never
+reaches inside the radius now, so it cannot eat into the circle where the sound is meant to be heard.
+
+Consequence: the buffer preload margin went from 20 m to **40 m**, which keeps the audible reach
+the same shape it was (fade from radius+20 to radius+40) while making approach and departure
+mirror images. It also doubles the fetch lead time to roughly 30 seconds of walking. The
+`minLoadRadius` / `maxLoadRadius` clamping proposed above is still Phase 3 work and still needed
+once a source's level is stated rather than inferred.
+
 ### 5.2 Artificial sources
 
 The artist wants oscillators and other unnatural sources with a hand-defined listening radius.
@@ -182,6 +197,71 @@ Still open, and now blocking Phase 1 rather than Phase 3: the field that disting
 name, its default for existing rows, and whether the contained kind also gets a source level in dB
 or keeps a plain 0-1 volume. The contained shape needs no schema beyond the kind itself, so it can
 be built as soon as the field exists.
+
+**Built in memory 2026-11-09, not persisted.** The artist chose *"a peak you have to walk to"*, at
+about 2% of the configured volume at the circle's edge. One quadratic runs from the full configured
+volume at the centre to silence 3 m beyond the radius, so the band is the soft start of that ramp
+rather than a separate zone:
+
+```
+gain(d) = volume · (1 − d / (radius + 3))²      for d ≤ radius + 3, else 0
+```
+
+No plateau, no hard edge, no infinite peak at the centre, and the configured volume is the level at
+the centre — for this kind, `volume` is the peak itself rather than a trim on a physical level.
+The load lifecycle is untouched: a contained source still loads 20 m out and is disposed 40 m out,
+but it is silent beyond radius + 3 either way, so neither boundary is audible.
+
+**Consequence of a fixed 3 m band: the edge level depends on the circle's size.** Measured, as a
+percentage of the configured volume:
+
+| Radius | At the edge | Halfway to the centre |
+|---|---|---|
+| 5 m | 14.1% | 47.3% |
+| 10 m | 5.3% | 37.9% |
+| 20 m | **1.7%** | 31.9% |
+| 40 m | 0.5% | 28.6% |
+| 100 m | 0.1% | 26.5% |
+
+The requested ~2% is what a default 20 m circle gives. A small circle therefore has a much softer
+edge and a large one a much sharper approach. If one consistent feel is wanted regardless of size,
+the band has to scale with the radius (say 15% of it) instead of being fixed — a one-line change,
+not yet made because the artist asked for a fixed 3 m.
+
+Where it lives: the envelope and its 3 m band are in the engine next to the physical model; a source
+carries a `falloff` of `physical` (default) or `contained`; the app layer passes it through from the
+waypoint; and the editor's waypoint panel has a **Contained** checkbox, unchecked by default. It is
+hidden for areas, which keep their own edge fade and depth crossfade. **The choice is not saved** —
+there is no column for it — so every waypoint reverts to physical on reload. That is deliberate, per
+the in-memory-first decision; persisting it is the schema change described above.
+
+**The radius slider stays for both kinds** (artist's decision, 2026-11-09), because it means
+something in both cases — just different things, so a hint under the slider says which is in force:
+
+| Kind | What the radius is | Hint shown |
+|---|---|---|
+| Physical (Contained unticked) | How loud the source is and how far it carries, via the inference in decision 9 | "How far the sound carries before it fades out" |
+| Contained (ticked) | The wall that holds the sound | "The circle that holds the sound" |
+| Area | Not applicable — the slider is hidden | — |
+
+This is a **deliberate departure from the spec's original plan**, which was the reverse: state what
+the source *is* in dB and let the reach be derived, with the radius demoted to a loading detail.
+Phase 0's stand-in inference happens to run the relationship the artist's way, so it stays. When
+presets arrive (Phase 1) they should **move this slider**, not replace it.
+
+An earlier pass hid the slider for physical waypoints and defaulted new ones to a 5 m circle; that
+was reverted the same day, because with the radius driving loudness a 5 m default infers ~64 dB —
+audible to about 5 m and ~8 dB quieter at the centre than the 20 m default. The default is **20 m**
+everywhere: new waypoints, the panel's fallback, and the markup.
+
+⚠️ **Still to watch:** this one number is both the acoustic reach and the thing that decides when a
+sound is fetched (radius + 40 m). Normal circles are fine; a 500 m gunshot would try to load half a
+kilometre away. That is what the `maxLoadRadius` clamp in §5.1 is for, and it is still Phase 3 work.
+
+Verified by `scratch/verify-contained.js` (17 checks): the shape, monotonic approach, silence beyond
+the band, the peak equalling the configured volume, a muted contained source staying silent,
+degenerate radii, and a physical source still audible at 45 m where a contained one is silent.
+Approach/departure symmetry is covered by `scratch/smoke-engine.js` (50 checks).
 
 ### 5.3 Where do the global knobs actually live?
 

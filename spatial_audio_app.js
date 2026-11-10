@@ -195,6 +195,10 @@ class Sound {
         this.volume = config.volume !== undefined ? config.volume : 1.0;
         this.loop = config.loop || false;
 
+        // === FEATURE 23: Falloff Kind ===
+        // 'physical' radiates with distance; 'contained' holds the sound inside the radius
+        this.falloff = config.falloff === 'contained' ? 'contained' : 'physical';
+
         // === FEATURE 13: Audio Type Discriminator ===
         this.type = config.type || 'buffer';  // 'buffer' | 'oscillator' | 'stream'
 
@@ -306,15 +310,17 @@ class Sound {
  * in spatial_audio.js and depends on distance alone, so a sound is quietly audible on both sides
  * of the radius instead of being full volume inside it and fading across it.
  *
- * preloadMargin still has to be large enough that a sound is loaded before it becomes audible —
- * roughly its activation radius under the physical model. 20m gives ~15 seconds of walking time
- * to fetch and decode it.
+ * FEATURE 23: the fade band and this margin are tied together. A source goes silent exactly where
+ * it is fetched, so walking in swells it up across the same band that walking out faded it down
+ * across. The band itself is 20m wide and sits inside this margin, so the margin must be at least
+ * that wide. 40m keeps the audible reach the shape it was before, and gives ~30 seconds of walking
+ * time to fetch and decode a sound before it can be heard.
  */
 const ZoneConfig = {
     // Buffers (MP3/WAV): Standard 3-zone lazy loading
     buffer: {
         activeMultiplier: 1.0,    // Active within 100% of activation radius (plays throughout)
-        preloadMargin: 20,        // Fixed 20m preload (load lead time before a sound is audible)
+        preloadMargin: 40,        // Fetch distance = where the sound goes silent (see above)
         unloadMargin: 10,         // Fixed 10m hysteresis (dispose 10m after preload zone)
         hysteresis: 10            // Prevent rapid load/unload cycles
     },
@@ -776,7 +782,8 @@ class SpatialAudioApp {
                     lon: sound.lon,
                     loop: sound.loop,
                     gain: sound.volume,
-                    activationRadius: sound.activationRadius
+                    activationRadius: sound.activationRadius,
+                    falloff: sound.falloff
                 });
 
                 console.log('[SpatialAudioApp] createSampleSource returned:', source ? 'SUCCESS' : 'NULL');
@@ -978,18 +985,18 @@ class SpatialAudioApp {
                 // Update gain from distance (FEATURE 23: physical falloff, no fade zone)
                 // CRITICAL: Must call this at any distance — it is what silences a sound that
                 // has drifted out of range
-                const disposeDistance = this._getDisposeDistance(sound);
+                const fadeEnd = this._getAcousticFadeEnd(sound);
                 source.updateGainByDistance(
                     this.listener.lat,
                     this.listener.lon,
-                    sound.volume,        // Per-waypoint trim
-                    disposeDistance      // Where the fade-out must complete
+                    sound.volume,   // Per-waypoint trim
+                    fadeEnd         // Where it goes silent, and where it is fetched on the way in
                 );
 
                 // Debug: Log gain after update (throttled)
                 if (source.lastComputedGain !== undefined && Math.random() < 0.05) {
                     const state = distance < sound.activationRadius ? '🔊 ACTIVE' : '🌗 BEYOND RADIUS';
-                    const fade = disposeDistance === null ? '' : `, fades out by ${disposeDistance}m`;
+                    const fade = fadeEnd === null ? '' : `, silent by ${fadeEnd}m, fades in from there`;
                     console.log(`[AudioApp] ${sound.id} gain: ${source.lastComputedGain.toFixed(3)} @ ${distance.toFixed(1)}m (${state}${fade})`);
                 }
             }
@@ -1168,6 +1175,30 @@ class SpatialAudioApp {
         const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
         const activationRadius = sound.activationRadius || 30;
         return activationRadius + config.preloadMargin + config.unloadMargin + config.hysteresis;
+    }
+
+    /**
+     * FEATURE 23: Distance at which a sound goes silent.
+     *
+     * This is the LOAD boundary, not the disposal boundary, and that is what makes approach and
+     * departure symmetric: a source is fetched at this distance and created silent, so walking in
+     * swells it up across exactly the band that walking out faded it down across. Disposal happens
+     * further out again, by which point the source is already silent.
+     *
+     * Sources fetched only inside their radius get a short band beyond it rather than a fade that
+     * eats into the circle. Streams stop at their pause boundary and take no distance fade.
+     *
+     * @param {Sound} sound - Sound object
+     * @returns {number|null} Distance in metres, or null for no distance-based fade
+     * @private
+     */
+    _getAcousticFadeEnd(sound) {
+        if (sound.type === 'stream') {
+            return null;
+        }
+        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
+        const activationRadius = sound.activationRadius || 30;
+        return activationRadius + Math.max(config.preloadMargin || 0, 5);
     }
 
     /**
@@ -1501,6 +1532,7 @@ class SpatialAudioApp {
                     loop: sound.loop,
                     gain: 0,  // Start muted; _applyDistanceGain sets the real level (no burst)
                     activationRadius: sound.activationRadius,
+                    falloff: sound.falloff,
                     wave: sound.oscillatorType || 'sine',
                     freq: sound.frequency || 440
                 });
@@ -1561,6 +1593,7 @@ class SpatialAudioApp {
                 loop: sound.loop,
                 gain: 0,  // Start muted; _applyDistanceGain sets the real level (no full-volume burst)
                 activationRadius: sound.activationRadius,
+                falloff: sound.falloff,
                 isStream: sound.type === 'stream'
             });
 
@@ -1636,8 +1669,8 @@ class SpatialAudioApp {
         sound.sourceNode.updateGainByDistance(
             this.listener.lat,
             this.listener.lon,
-            sound.volume,                          // Per-waypoint trim
-            this._getDisposeDistance(sound)        // Where the fade-out must complete
+            sound.volume,                      // Per-waypoint trim
+            this._getAcousticFadeEnd(sound)    // Where it goes silent, and where it was fetched
         );
 
         if (this.onDebugLog) {
@@ -1712,7 +1745,8 @@ class SpatialAudioApp {
                 lon: sound.lon,
                 loop: sound.loop,
                 gain: 0,  // Start muted, will set correct gain below
-                activationRadius: sound.activationRadius
+                activationRadius: sound.activationRadius,
+                falloff: sound.falloff
             });
 
             if (source) {

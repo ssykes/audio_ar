@@ -49,13 +49,13 @@ Source code (implementation)
 | File | Version | Last Updated |
 |------|---------|--------------|
 | `map_player.html` | v7.2 | 2026-03-18 |
-| `map_editor.html` | v6.119+ | 2026-03-18 |
+| `map_editor.html` | v6.119+ | 2026-11-09 ("How far it carries" selector; volume fixes in `map_editor.js`) |
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
-| `spatial_audio.js` | v6.3 | 2026-11-09 (Feature 23 Phase 0: physical loudness) |
-| `spatial_audio_app.js` | v3.3 | 2026-11-09 (Feature 23 Phase 0: disposal-distance pass-through) |
-| `map_shared.js` | v6.9+ | 2026-04-03 (Sim waypoint zone logging) |
+| `spatial_audio.js` | v6.3 | 2026-11-09 (Feature 23 Phase 0: physical loudness; contained envelope) |
+| `spatial_audio_app.js` | v3.3 | 2026-11-09 (Feature 23 Phase 0: disposal-distance pass-through, falloff kind) |
+| `map_shared.js` | v6.9+ | 2026-11-09 (sim passes the falloff kind through) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-10-13 (offline fallback page; `theme.css` precached) |
 | `deploy.ps1` | - | 2026-10-13 (`theme.css` registered) |
@@ -88,7 +88,7 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
 2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
 3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-4. **Feature 23: Physical Loudness Model** - **Phase 0 implemented 2026-11-09, NOT deployed, NOT yet verified on a walk.** Waypoints were faint until you were on top of them; the engine now uses one physical falloff curve and the spatialiser no longer attenuates on top of it. Spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Next step is a walk test, then retune the reverb bands — not more code.**
+4. **Feature 23: Physical Loudness Model** - **Phase 0 implemented 2026-11-09, partly deployed (13:09), NOT yet verified on a walk.** Waypoints were faint until you were on top of them; the engine now uses one physical falloff curve and the spatialiser no longer attenuates on top of it. Spec in [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Also built, in memory only:** a second kind of waypoint — *contained*, the "blue circle" — which holds its sound inside the radius with a 3 m soft band and a peak at the centre. Ticked with a **Contained** checkbox in the waypoint panel. **The radius slider stays for both kinds** — for a physical waypoint it *is* the loudness/reach control (a deliberate departure from the spec, which intended the reverse; presets should later move this slider, not replace it). Default radius **20 m** everywhere. **Not persisted**, so the checkbox reverts on reload. Adding a column for it is the next schema change. **Approach now mirrors departure:** a source goes silent exactly where it is fetched, so walking back in swells it up across the same band (buffer preload margin 20 m → 40 m). **Next step is a walk test, then retune the reverb bands — not more code.**
 5. **Feature 20: Cached Streaming** - Session cache (~7h)
 6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
@@ -447,10 +447,18 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 **Last Updated:** 2026-11-09 (Feature 23 Phase 0 implemented in the audio engine — one physical
 falloff curve, spatialiser reduced to direction only, no hard cutoff, louder/quieter control on the
-player. Also fixed a volume-of-0 bug in five places across the editor, the player and the engine:
-muted sounds were being played loudly, while the saved value was correct all along. Verified by
-three throwaway `scratch/` scripts (17 + 36 + 20 checks), **nothing heard on a walk and nothing
-deployed**. Decisions 9-13 recorded in the spec; the stream-disposal `NaN` defect found and left
-alone. Previous entry: 2026-11-08 — service worker cache-busting deadlock found, reproduced,
-fixed, deployed and verified on a device; added *How a Change Reaches the Phone*, the cleanup
-backlog and the scratch folder convention; repaired `.gitignore`; specified Feature 23.)
+player. Then three bugs found from the simulator: **area volume had never worked at any setting**
+(the API returns a level field the areas table has no column for, so it invented 0.5 and the loader
+preferred it over the slider), a volume of 0 was read as "no value" in five places, and a source
+started at its creation level so entering a waypoint banged. All fixed. Also built the **contained**
+waypoint kind in memory only — a peak at the centre, ~2% at the edge of a 20 m circle, silence 3 m
+outside — chosen in the editor, **not persisted**. Committed as `e092ad7`, `a2f81e7`, `04fc268`
+(the last undoes a deploy timestamp this session accidentally committed inside the player's inline
+worker registration; the pre-commit hook only strips stamps from HTML attributes). Verified by five
+throwaway `scratch/` scripts (17 + 39 + 20 + 17 checks plus a before/after reproduction that runs
+the committed code side by side with the working tree). **A deploy ran at 13:09 mid-session, so the
+live site has Phase 0 and the first volume fixes but not the area-level, burst or contained-kind
+work. Nothing has been heard on a walk.** Previous entry: 2026-11-08 — service worker
+cache-busting deadlock found, reproduced, fixed, deployed and verified on a device; added *How a
+Change Reaches the Phone*, the cleanup backlog and the scratch folder convention; repaired
+`.gitignore`; specified Feature 23.)

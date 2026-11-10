@@ -805,7 +805,8 @@ class MapEditorApp extends MapAppShared {
             type: 'file',  // Default type to 'file'
             volume: 0.8,
             loop: true,
-            activationRadius: 20,
+            activationRadius: 20,  // For a physical waypoint this sets how loud it is and how far it carries
+            falloff: 'physical',   // FEATURE 23: default; 'contained' keeps the sound inside the circle
             color: '#00d9ff',
             sortOrder: 0
         };
@@ -2142,6 +2143,7 @@ const slideoutVolume = document.getElementById('slideoutVolume');
 const slideoutVolumeValue = document.getElementById('slideoutVolumeValue');
 const slideoutActivationRadius = document.getElementById('slideoutActivationRadius');
 const slideoutActivationRadiusValue = document.getElementById('slideoutActivationRadiusValue');
+const slideoutContained = document.getElementById('slideoutContained');
 const slideoutLoop = document.getElementById('slideoutLoop');
 const slideoutSortOrder = document.getElementById('slideoutSortOrder');
 const slideoutLat = document.getElementById('slideoutLat');
@@ -2290,6 +2292,8 @@ function getFormData() {
     if (selectedItemType === 'Waypoint') {
         data.lat = slideoutLat.textContent;
         data.lon = slideoutLon.textContent;
+        // FEATURE 23: held in memory only — the server has no column for it yet
+        data.falloff = (slideoutContained && slideoutContained.checked) ? 'contained' : 'physical';
     }
 
     // Add type-specific fields
@@ -2385,6 +2389,30 @@ if (slideoutActivationRadius) {
     slideoutActivationRadius.addEventListener('input', (e) => {
         slideoutActivationRadiusValue.textContent = `${e.target.value}m`;
     });
+}
+
+/**
+ * FEATURE 23: The radius matters for both kinds of waypoint, but it does not mean the same thing,
+ * so the hint under the slider says which one is in force. Areas have no radius at all.
+ */
+function updateRadiusField() {
+    if (!slideoutActivationRadius) return;
+    const isWaypoint = selectedItemType === 'Waypoint';
+    slideoutActivationRadius.parentElement.parentElement.style.display = isWaypoint ? 'flex' : 'none';
+
+    const hint = document.getElementById('slideoutRadiusHint');
+    if (!hint) return;
+    if (!isWaypoint) {
+        hint.textContent = '';
+    } else if (slideoutContained && slideoutContained.checked) {
+        hint.textContent = 'The circle that holds the sound';
+    } else {
+        hint.textContent = 'How far the sound carries before it fades out';
+    }
+}
+
+if (slideoutContained) {
+    slideoutContained.addEventListener('change', updateRadiusField);
 }
 
 // Type selector change handler
@@ -2548,6 +2576,7 @@ function openSlideout(type, id, name, meta, color) {
         slideoutVolumeValue.textContent = `${Math.round(wpVolume * 100)}%`;
         slideoutActivationRadius.value = waypoint.activationRadius || 20;
         slideoutActivationRadiusValue.textContent = `${waypoint.activationRadius || 20}m`;
+        if (slideoutContained) slideoutContained.checked = waypoint.falloff === 'contained';
         slideoutLoop.checked = waypoint.loop !== false;
         slideoutSortOrder.value = waypoint.sortOrder || 0;
         slideoutLat.textContent = (typeof waypoint.lat === 'number' ? waypoint.lat.toFixed(6) : waypoint.lat) || '--';
@@ -2557,7 +2586,8 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.style.display = 'block';
         slideoutTypeSection.style.display = 'block';
         slideoutVolume.parentElement.style.display = 'flex';
-        slideoutActivationRadius.parentElement.parentElement.style.display = 'flex';
+        if (slideoutContained) slideoutContained.parentElement.style.display = 'flex';
+        updateRadiusField();
         slideoutLoop.parentElement.style.display = 'flex';
         slideoutSortOrder.parentElement.style.display = 'flex';
         slideoutLat.parentElement.style.display = 'flex';
@@ -2668,7 +2698,8 @@ function openSlideout(type, id, name, meta, color) {
         slideoutType.style.display = 'block';
         slideoutTypeSection.style.display = 'block';
         slideoutVolume.parentElement.style.display = 'flex';
-        slideoutActivationRadius.parentElement.parentElement.style.display = 'none'; // Hide for areas
+        updateRadiusField();  // hidden for areas: they have no activation radius
+        if (slideoutContained) slideoutContained.parentElement.style.display = 'none'; // Hide for areas
         slideoutLoop.parentElement.style.display = 'flex';
         slideoutSortOrder.parentElement.style.display = 'flex';
         slideoutLat.parentElement.style.display = 'flex';

@@ -1349,6 +1349,9 @@ class MapAppShared {
                 volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
                 loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop,
                 type: wp.type || 'file',
+                // FEATURE 23: 'physical' radiates with distance, 'contained' holds the sound
+                // inside the radius. Not persisted yet, so it defaults to physical on reload.
+                falloff: wp.falloff || 'physical',
                 // Oscillator properties
                 oscillatorType: wp.waveform || 'sine',
                 frequency: wp.frequency || 440,

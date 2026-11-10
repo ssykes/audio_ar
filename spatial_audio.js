@@ -668,21 +668,57 @@ function physicalGain(distance, sourceLevelDb) {
 }
 
 /**
- * Final fade so a source sinks to silence where it is disposed instead of clicking off.
- * Cosine-shaped: no slope discontinuity at either end.
+ * Final fade so a source sinks to silence at the edge of where it is heard, instead of clicking
+ * off. Cosine-shaped: no slope discontinuity at either end.
+ *
+ * The same band runs in both directions. Walking away, the source fades to silence across it;
+ * walking back, the source is fetched at that same distance and created silent, so it swells up
+ * across the identical band. Disposal happens further out again, where the source is already
+ * silent, so it can never be heard.
  *
  * @param {number} distance - Distance in metres
- * @param {number} fadeOutEnd - Distance at which the source is thrown away
+ * @param {number} fadeOutEnd - Distance at which the source goes silent
+ * @param {number} [radius] - Activation radius; the fade never reaches inside it
  * @returns {number} Multiplier, 0..1
  */
-function fadeOutMultiplier(distance, fadeOutEnd) {
+function fadeOutMultiplier(distance, fadeOutEnd, radius) {
     // Not isFinite() alone: isFinite(null) is true and would silence the source
     if (typeof fadeOutEnd !== 'number' || !isFinite(fadeOutEnd)) return 1;
-    const start = fadeOutEnd - PHYSICAL_MODEL.fadeOutSpanM;
+    const inner = isFinite(radius) && radius > 0 ? radius : 0;
+    const end = Math.max(fadeOutEnd, inner);
+    // A source fetched only inside its radius gets a short band beyond it, never a fade that
+    // eats into the circle where the sound is meant to be heard
+    const span = Math.min(PHYSICAL_MODEL.fadeOutSpanM, Math.max(1, end - inner));
+    const start = end - span;
     if (distance <= start) return 1;
-    if (distance >= fadeOutEnd) return 0;
-    const progress = (distance - start) / PHYSICAL_MODEL.fadeOutSpanM;
+    if (distance >= end) return 0;
+    const progress = (distance - start) / span;
     return 0.5 * (1 + Math.cos(Math.PI * progress));
+}
+
+/**
+ * FEATURE 23: Width of the soft band beyond a contained waypoint's radius.
+ * The band is not a separate zone — it is the gentle start of the ramp to the centre.
+ */
+const CONTAINED_BAND_M = 3;
+
+/**
+ * FEATURE 23: The contained envelope — a peak you have to walk to.
+ *
+ * One quadratic runs from the full configured volume at the centre to silence CONTAINED_BAND_M
+ * beyond the radius. Nothing is audible outside that, and at the circle's edge the level is only
+ * a couple of percent of the configured volume, so almost all of the circle is quiet approach.
+ *
+ * @param {number} distance - Distance in metres
+ * @param {number} radius - Activation radius in metres
+ * @returns {number} Multiplier, 0..1
+ */
+function containedEnvelope(distance, radius) {
+    const span = Math.max(1, Number(radius) || 1) + CONTAINED_BAND_M;
+    const d = Math.max(0, distance);
+    if (d >= span) return 0;
+    const remaining = 1 - d / span;
+    return remaining * remaining;
 }
 
 /**
@@ -783,6 +819,8 @@ class OscillatorSource extends SoundSource {
         this.oscillator = null;
         // FEATURE 14: Support activation radius for distance-based fading
         this.activationRadius = options.activationRadius || 20;
+        // FEATURE 23: 'physical' radiates with distance, 'contained' holds the sound inside the radius
+        this.falloff = options.falloff === 'contained' ? 'contained' : 'physical';
     }
 
     init() {
@@ -855,8 +893,9 @@ class OscillatorSource extends SoundSource {
      * @param {number} listenerLat - Listener latitude
      * @param {number} listenerLon - Listener longitude
      * @param {number} volume - Per-waypoint trim, 0..1. 0 mutes, 1 is unity
-     * @param {number} [fadeOutEnd] - Distance at which the source is disposed. The last
-     *   PHYSICAL_MODEL.fadeOutSpanM metres fade to silence so disposal is never audible
+     * @param {number} [fadeOutEnd] - Distance at which the source goes silent, which is also the
+     *   distance it is fetched at when walking back in. The band either side of it fades in and
+     *   out symmetrically, and never reaches inside the activation radius
      * @returns {boolean} True if within the activation radius
      */
     updateGainByDistance(listenerLat, listenerLon, volume = 1.0, fadeOutEnd = null) {
@@ -868,14 +907,21 @@ class OscillatorSource extends SoundSource {
 
         const dist = this.getDistance(listenerLat, listenerLon);
 
-        // Phase 0 infers the source level from the activation radius; Phase 1 will supply it
-        const sourceLevelDb = this.sourceLevelDb !== undefined
-            ? this.sourceLevelDb
-            : sourceLevelFromRadius(this.activationRadius);
-
-        const gain = physicalGain(dist, sourceLevelDb)
-            * fadeOutMultiplier(dist, fadeOutEnd)
-            * volume;
+        let gain;
+        let sourceLevelDb = null;
+        if (this.falloff === 'contained') {
+            // A contained waypoint holds its sound inside the radius, so the configured volume is
+            // the peak at the centre and there is nothing to fade out before disposal
+            gain = containedEnvelope(dist, this.activationRadius) * volume;
+        } else {
+            // Phase 0 infers the source level from the activation radius; Phase 1 will supply it
+            sourceLevelDb = this.sourceLevelDb !== undefined
+                ? this.sourceLevelDb
+                : sourceLevelFromRadius(this.activationRadius);
+            gain = physicalGain(dist, sourceLevelDb)
+                * fadeOutMultiplier(dist, fadeOutEnd, this.activationRadius)
+                * volume;
+        }
 
         // Ramp rather than write the value directly: the level is recomputed every frame and a
         // step between frames is audible as a click. lastComputedGain is the target, for logging.
@@ -896,8 +942,10 @@ class OscillatorSource extends SoundSource {
 
         // Debug: Log gain changes (throttled to avoid spam)
         if (Math.random() < 0.02) {
-            const level = levelAtDistance(dist, sourceLevelDb);
-            console.log(`[Audio] ${this.id} ${dist.toFixed(1)}m: source=${sourceLevelDb.toFixed(0)}dB, level=${level.toFixed(1)}dB, gain=${gain.toFixed(3)}, wet=${(this.currentWetValue * 100).toFixed(0)}%`);
+            const described = sourceLevelDb === null
+                ? 'contained'
+                : `source=${sourceLevelDb.toFixed(0)}dB, level=${levelAtDistance(dist, sourceLevelDb).toFixed(1)}dB`;
+            console.log(`[Audio] ${this.id} ${dist.toFixed(1)}m: ${described}, gain=${gain.toFixed(3)}, wet=${(this.currentWetValue * 100).toFixed(0)}%`);
         }
 
         return dist < this.activationRadius;
@@ -2881,7 +2929,8 @@ if (typeof module !== 'undefined' && module.exports) {
         SpatialAudioEngine, SoundSource, OscillatorSource,
         GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, AreaSoundSource, SoundPresets,
         GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker,
-        PHYSICAL_MODEL, sourceLevelFromRadius, levelAtDistance, physicalGain, fadeOutMultiplier
+        PHYSICAL_MODEL, sourceLevelFromRadius, levelAtDistance, physicalGain, fadeOutMultiplier,
+        CONTAINED_BAND_M, containedEnvelope
     };
 } else {
     window.SpatialAudioEngine = SpatialAudioEngine;
@@ -2901,6 +2950,8 @@ if (typeof module !== 'undefined' && module.exports) {
     window.getReverbForDistance = getReverbForDistance;
     window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
     window.PHYSICAL_MODEL = PHYSICAL_MODEL;
+    window.CONTAINED_BAND_M = CONTAINED_BAND_M;
+    window.containedEnvelope = containedEnvelope;
     window.sourceLevelFromRadius = sourceLevelFromRadius;
     window.levelAtDistance = levelAtDistance;
     window.physicalGain = physicalGain;

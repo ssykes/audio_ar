@@ -1126,7 +1126,9 @@ class MapPlayerApp extends MapAppShared {
                     lon: wp.lon,
                     activationRadius: wp.activationRadius,
                     volume: wp.volume !== undefined ? wp.volume : this.soundConfig.volume,
-                    loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop
+                    loop: wp.loop !== undefined ? wp.loop : this.soundConfig.loop,
+                    // FEATURE 23: not persisted yet, so this is 'physical' until the kind is stored
+                    falloff: wp.falloff || 'physical'
                 };
             });
 

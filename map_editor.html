@@ -58,7 +58,7 @@
     </style>
     
     <style>
-        /* Design tokens live in theme.css?v=20261013151848 (linked in <head>) */
+        /* Design tokens live in theme.css?v=20261109155700 (linked in <head>) */
 
         * {
             margin: 0;
@@ -1130,11 +1130,19 @@
                             </div>
                         </div>
                         
+                        <div class="slideout-field">
+                            <label class="slideout-checkbox">
+                                <input type="checkbox" id="slideoutContained">
+                                <span>Contained <span style="opacity:0.6;font-weight:normal;">(trial — not saved yet)</span></span>
+                            </label>
+                        </div>
+
                         <div class="slideout-field-row">
                             <div class="slideout-field">
                                 <label for="slideoutActivationRadius">Activation Radius</label>
                                 <input type="range" id="slideoutActivationRadius" min="5" max="100" step="1" value="20">
                                 <span class="slideout-field-value" id="slideoutActivationRadiusValue">20m</span>
+                                <span id="slideoutRadiusHint" style="display:block;opacity:0.6;font-size:0.85em;margin-top:2px;"></span>
                             </div>
                         </div>
                         
