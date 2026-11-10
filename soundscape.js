@@ -251,6 +251,53 @@ class SoundScape {
 }
 
 /**
+ * Start one member of a behavior.
+ *
+ * Executors used to reach straight into the audio node and then mark the member as
+ * playing whether or not anything had actually started. Two consequences. A member
+ * that was loaded but whose audio failed to start was reported as performing, and the
+ * distance-zone logic skips anything it believes is already playing -- so it was never
+ * retried and stayed silent for the rest of the session. And a member that *was*
+ * playing got started a second time, which tears down its buffer and rebuilds it at
+ * zero gain, so every behavior audibly dipped the group it was supposed to coordinate.
+ *
+ * Loading, gain and the distance model all belong to the app layer, so the app supplies
+ * them as hooks and this only reports what happened. Without hooks there is no safe way
+ * to start anything: nothing is started and no flag is touched, which leaves the member
+ * free to be started normally when the walker reaches it.
+ *
+ * @param {object} sound - The member
+ * @param {object|null} hooks - App-supplied start/stop
+ * @returns {boolean} True only if the member is genuinely sounding
+ */
+function startBehaviorMember(sound, hooks) {
+    if (!sound) return false;
+    if (!hooks || typeof hooks.start !== 'function') {
+        if (!startBehaviorMember.warned) {
+            startBehaviorMember.warned = true;
+            console.warn('[BehaviorExecutor] No start hook supplied by the app - members will be left for the distance-zone logic to start');
+        }
+        return false;
+    }
+    return hooks.start(sound) === true;
+}
+
+/**
+ * Stop one member of a behavior. Safe to call on a member that never started.
+ *
+ * @param {object} sound - The member
+ * @param {object|null} hooks - App-supplied start/stop
+ */
+function stopBehaviorMember(sound, hooks) {
+    if (!sound) return;
+    if (!hooks || typeof hooks.stop !== 'function') {
+        sound.isPlaying = false;
+        return;
+    }
+    hooks.stop(sound);
+}
+
+/**
  * BehaviorExecutor - Runtime coordinator for executing behaviors
  *
  * Created at runtime from stored behavior specs.
@@ -263,28 +310,29 @@ class BehaviorExecutor {
      * @param {SoundBehavior|object} spec - Behavior specification
      * @param {Sound[]} sounds - Array of Sound instances
      * @param {SpatialAudioEngine} audioEngine - Audio engine instance
+     * @param {{start: Function, stop: Function}} [hooks] - App-supplied member start/stop
      * @returns {BehaviorExecutor} Type-specific executor
      */
-    static create(spec, sounds, audioEngine) {
+    static create(spec, sounds, audioEngine, hooks) {
         // Get type from spec (handle both SoundBehavior and plain object)
         const type = spec.type || (spec instanceof SoundBehavior ? spec.type : null);
 
         switch (type) {
             case 'tempo_sync':
-                return new TempoSyncExecutor(spec, sounds, audioEngine);
+                return new TempoSyncExecutor(spec, sounds, audioEngine, hooks);
             case 'time_sync':
-                return new TimeSyncExecutor(spec, sounds, audioEngine);
+                return new TimeSyncExecutor(spec, sounds, audioEngine, hooks);
             case 'reverb_group':
-                return new ReverbGroupExecutor(spec, sounds, audioEngine);
+                return new ReverbGroupExecutor(spec, sounds, audioEngine, hooks);
             case 'random_sequence':
-                return new RandomSequenceExecutor(spec, sounds, audioEngine);
+                return new RandomSequenceExecutor(spec, sounds, audioEngine, hooks);
             case 'volume_group':
-                return new VolumeGroupExecutor(spec, sounds, audioEngine);
+                return new VolumeGroupExecutor(spec, sounds, audioEngine, hooks);
             case 'filter_group':
-                return new FilterGroupExecutor(spec, sounds, audioEngine);
+                return new FilterGroupExecutor(spec, sounds, audioEngine, hooks);
             default:
                 // No behavior type or unknown type = default (start all together)
-                return new DefaultExecutor(spec, sounds, audioEngine);
+                return new DefaultExecutor(spec, sounds, audioEngine, hooks);
         }
     }
 }
@@ -297,10 +345,11 @@ class BehaviorExecutor {
  * - Unknown behavior type
  */
 class DefaultExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
     }
 
     /**
@@ -308,12 +357,7 @@ class DefaultExecutor {
      */
     start() {
         console.log('[BehaviorExecutor] DefaultExecutor: starting all sounds together');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                sound.sourceNode.start();
-            }
-            sound.isPlaying = true;
-        });
+        this.sounds.forEach(sound => startBehaviorMember(sound, this.hooks));
     }
 
     /**
@@ -321,12 +365,7 @@ class DefaultExecutor {
      */
     stop() {
         console.log('[BehaviorExecutor] DefaultExecutor: stopping all sounds');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 
@@ -339,10 +378,11 @@ class DefaultExecutor {
  * - loop: Whether to loop the pattern (default: true)
  */
 class TempoSyncExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.bpm = spec.config?.bpm || 120;
         this.offsets = spec.config?.offsets || [0];
         this.loop = spec.config?.loop !== false;
@@ -360,11 +400,8 @@ class TempoSyncExecutor {
                 const delay = offset * beatTime * 1000; // Convert to ms
                 setTimeout(() => {
                     const sound = this.sounds[i];
-                    if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                        sound.sourceNode.start();
-                    }
-                    sound.isPlaying = true;
-                    console.log(`[BehaviorExecutor] TempoSync: sound ${sound.id} started at offset ${offset}`);
+                    const started = startBehaviorMember(sound, this.hooks);
+                    console.log(`[BehaviorExecutor] TempoSync: sound ${sound.id} at offset ${offset} ${started ? 'started' : 'not started - left for the distance-zone logic'}`);
                 }, delay);
             }
         });
@@ -372,12 +409,7 @@ class TempoSyncExecutor {
 
     stop() {
         console.log('[BehaviorExecutor] TempoSyncExecutor: stopping');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 
@@ -389,10 +421,11 @@ class TempoSyncExecutor {
  * - stagger: Delay between each sound in ms (default: 0 = all together)
  */
 class TimeSyncExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.startTime = spec.config?.startTime || 0;
         this.stagger = spec.config?.stagger || 0;
     }
@@ -403,23 +436,15 @@ class TimeSyncExecutor {
         this.sounds.forEach((sound, i) => {
             const delay = this.startTime + (i * this.stagger);
             setTimeout(() => {
-                if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                    sound.sourceNode.start();
-                }
-                sound.isPlaying = true;
-                console.log(`[BehaviorExecutor] TimeSync: sound ${sound.id} started (delay=${delay}ms)`);
+                const started = startBehaviorMember(sound, this.hooks);
+                console.log(`[BehaviorExecutor] TimeSync: sound ${sound.id} (delay=${delay}ms) ${started ? 'started' : 'not started - left for the distance-zone logic'}`);
             }, delay);
         });
     }
 
     stop() {
         console.log('[BehaviorExecutor] TimeSyncExecutor: stopping');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 
@@ -434,10 +459,11 @@ class TimeSyncExecutor {
  * Future: Implement shared reverb bus for group processing
  */
 class ReverbGroupExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.reverb = spec.config?.reverb || 'outdoor';
         this.mix = spec.config?.mix || 0.3;
     }
@@ -445,23 +471,13 @@ class ReverbGroupExecutor {
     start() {
         console.log(`[BehaviorExecutor] ReverbGroupExecutor: applying ${this.reverb} reverb (mix=${this.mix})`);
         // For now, just start all sounds - reverb is handled per-sound
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                sound.sourceNode.start();
-            }
-            sound.isPlaying = true;
-        });
+        this.sounds.forEach(sound => startBehaviorMember(sound, this.hooks));
         // TODO: Future - route all sounds through shared reverb bus
     }
 
     stop() {
         console.log('[BehaviorExecutor] ReverbGroupExecutor: stopping');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 
@@ -474,10 +490,11 @@ class ReverbGroupExecutor {
  * - probability: Chance of trigger per interval (0.0 - 1.0, default: 0.5)
  */
 class RandomSequenceExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.interval = spec.config?.interval || 1000;
         this.maxPolyphony = spec.config?.maxPolyphony || 3;
         this.probability = spec.config?.probability || 0.5;
@@ -497,18 +514,15 @@ class RandomSequenceExecutor {
             if (available.length === 0) return;
 
             const sound = available[Math.floor(Math.random() * available.length)];
-            if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                sound.sourceNode.start();
-            }
-            sound.isPlaying = true;
+            // Only count and schedule a release for a member that really started. Counting
+            // one that did not would leave it flagged as playing, shrinking the pool it is
+            // drawn from until the sequence runs out of members to choose.
+            if (!startBehaviorMember(sound, this.hooks)) return;
             this.activeSounds++;
 
             // Stop after a short duration (prevent infinite loop for samples)
             setTimeout(() => {
-                if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                    sound.sourceNode.stop();
-                }
-                sound.isPlaying = false;
+                stopBehaviorMember(sound, this.hooks);
                 this.activeSounds--;
             }, 500);
         }, this.interval);
@@ -517,12 +531,7 @@ class RandomSequenceExecutor {
     stop() {
         console.log('[BehaviorExecutor] RandomSequenceExecutor: stopping');
         if (this.timer) clearInterval(this.timer);
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
         this.activeSounds = 0;
     }
 }
@@ -536,10 +545,11 @@ class RandomSequenceExecutor {
  * - targetVolume: Target volume (0.0 - 1.0, default: 1.0)
  */
 class VolumeGroupExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.curve = spec.config?.curve || 'linear';
         this.fade = spec.config?.fade || 1000;
         this.targetVolume = spec.config?.targetVolume !== undefined ? spec.config.targetVolume : 1.0;
@@ -550,10 +560,7 @@ class VolumeGroupExecutor {
 
         // Start all sounds
         this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                sound.sourceNode.start();
-            }
-            sound.isPlaying = true;
+            if (!startBehaviorMember(sound, this.hooks)) return;
 
             // Apply volume fade
             if (sound.gainNode) {
@@ -579,12 +586,7 @@ class VolumeGroupExecutor {
 
     stop() {
         console.log('[BehaviorExecutor] VolumeGroupExecutor: stopping');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 
@@ -599,10 +601,11 @@ class VolumeGroupExecutor {
  * - sweepTime: Sweep duration in ms (default: 2000)
  */
 class FilterGroupExecutor {
-    constructor(spec, sounds, audioEngine) {
+    constructor(spec, sounds, audioEngine, hooks) {
         this.spec = spec;
         this.sounds = sounds;
         this.audioEngine = audioEngine;
+        this.hooks = hooks || null;
         this.filterType = spec.config?.filter || 'lowpass';
         this.frequency = spec.config?.frequency || 1000;
         this.Q = spec.config?.Q || 1;
@@ -614,10 +617,7 @@ class FilterGroupExecutor {
         console.log(`[BehaviorExecutor] FilterGroupExecutor: applying ${this.filterType} filter @ ${this.frequency}Hz`);
 
         this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.start === 'function') {
-                sound.sourceNode.start();
-            }
-            sound.isPlaying = true;
+            if (!startBehaviorMember(sound, this.hooks)) return;
 
             // Apply filter if panner exists
             if (sound.pannerNode) {
@@ -631,12 +631,7 @@ class FilterGroupExecutor {
 
     stop() {
         console.log('[BehaviorExecutor] FilterGroupExecutor: stopping');
-        this.sounds.forEach(sound => {
-            if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
-                sound.sourceNode.stop();
-            }
-            sound.isPlaying = false;
-        });
+        this.sounds.forEach(sound => stopBehaviorMember(sound, this.hooks));
     }
 }
 

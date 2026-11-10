@@ -1756,6 +1756,67 @@ class SpatialAudioApp {
     }
 
     /**
+     * Start one member of a behavior, on behalf of an executor.
+     *
+     * These rules are what stop a behavior from corrupting the state the distance-zone
+     * logic depends on. A member that is not loaded yet is left alone — the zone logic
+     * starts it when the walker arrives, and flagging it early makes that logic skip it
+     * as already playing, so it never sounds. A member already playing is left alone —
+     * starting it again tears down its buffer and rebuilds it at zero gain, dipping the
+     * very group the behavior is meant to coordinate. And the flag is only set once the
+     * start has genuinely succeeded, so a member whose audio failed to start stays
+     * eligible for a retry instead of being written off as performing.
+     *
+     * @param {Sound} sound - Member to start
+     * @returns {boolean} True only if the member is genuinely sounding
+     * @private
+     */
+    _startBehaviorMember(sound) {
+        if (!sound.isLoaded || !sound.sourceNode) {
+            return false;
+        }
+        if (sound.isPlaying) {
+            return true;
+        }
+
+        try {
+            if (typeof sound.sourceNode.start === 'function' && sound.sourceNode.start() === false) {
+                return false;
+            }
+        } catch (error) {
+            if (this.onDebugLog) {
+                this.onDebugLog(`⚠️ ${sound.id} behavior start failed: ${error.message}`);
+            }
+            return false;
+        }
+
+        sound.isPlaying = true;
+
+        // Sources are created muted so they cannot burst, and nothing raises the level
+        // until the distance gain is applied — so an executor start must apply it.
+        this._applyDistanceGain(sound);
+        return true;
+    }
+
+    /**
+     * Stop one member of a behavior, on behalf of an executor. Safe on a member that
+     * never started, and leaves it loaded so the zone logic can restart it later.
+     *
+     * @param {Sound} sound - Member to stop
+     * @private
+     */
+    _stopBehaviorMember(sound) {
+        if (sound.sourceNode && typeof sound.sourceNode.stop === 'function') {
+            try {
+                sound.sourceNode.stop();
+            } catch (error) {
+                // Already stopped, or never started. Clearing the flag below is what matters.
+            }
+        }
+        sound.isPlaying = false;
+    }
+
+    /**
      * Notify UI of position update
      * @private
      */
@@ -2030,8 +2091,14 @@ class SpatialAudioApp {
                     return;
                 }
 
-                // Create executor and start
-                const executor = BehaviorExecutor.create(behaviorSpec, behaviorSounds, this.engine);
+                // Create executor and start.
+                // The executors coordinate *when* members sound; loading, gain and the
+                // distance model stay here, so they get them as hooks rather than reaching
+                // into the audio nodes themselves.
+                const executor = BehaviorExecutor.create(behaviorSpec, behaviorSounds, this.engine, {
+                    start: (sound) => this._startBehaviorMember(sound),
+                    stop: (sound) => this._stopBehaviorMember(sound)
+                });
                 executor.start();
             });
         }

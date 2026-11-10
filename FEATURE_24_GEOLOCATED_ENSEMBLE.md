@@ -18,11 +18,14 @@ Nothing here is scheduled, and none of it folds into current work.
   incoming call produces nothing.
 - Items 1-13 of the handover TODO all outrank everything in this document.
 
-**One exception, and it is not really an exception.** Scoping this feature surfaced three concrete
-defects — the deploy script never uploads sound files (§11.1), the behavior executors contradict the
-distance model (§11.3), and loops restart rather than looping (§4). Those have been **promoted into
-`QWEN.md`'s Known Issues and handover TODO on their own merits.** They are current work whether or not
-Feature 24 is ever built, and they are not gated on it. Do not read their presence here as coupling.
+**One exception, and it is not really an exception.** Scoping this feature surfaced two concrete
+defects — the deploy script never uploaded sound files (§11.1), and the coordination rules could leave
+a sound permanently silent (§11.3). Both were promoted into `QWEN.md`'s Known Issues and handover TODO
+on their own merits, and **both are now fixed**; neither is deployed. They are current work whether or
+not Feature 24 is ever built, and they are not gated on it. Do not read their presence here as coupling.
+
+A third claim from the same session — that loops restart instead of looping — was **verified and
+withdrawn**; it was never true. See §4. It is noted here because it was briefly committed.
 
 Everything else in this document waits until the user explicitly asks for it.
 
@@ -81,18 +84,24 @@ is already good, and the imperfections described below actually help.
 into range of it, not at the moment the piece starts. Walk into a quartet and you hear four players
 each at a different bar, joining one at a time. They never lock.
 
-Three effects compound it:
+Two effects compound it:
 
-1. **Random speed wobble.** Every part is given a tiny random speed variation each time it starts —
-   deliberate, to stop loops sounding mechanical. It is under a twentieth of one percent, but over a
-   three-minute loop that is tens of milliseconds, and it re-randomises on every repeat.
-2. **Loops restart rather than continuing.** A part reaching its end is started again a moment later,
-   losing a few milliseconds each cycle. The lock decays over time even if it began perfect.
-3. **Entry is staggered by walking.** Parts are fetched individually as the walker approaches each
+1. **Random speed wobble.** Every part is given a tiny random speed variation when its source is
+   created — deliberate, to stop loops sounding mechanical. It is under a twentieth of one percent
+   and constant for the life of that source, so a single looping part stays internally in time. But
+   it is chosen **independently per source**, so two musicians carrying parts of one piece drift
+   against each other by up to roughly half a second over four minutes — and a part that is disposed
+   and reloaded during a walk comes back with a fresh variation.
+2. **Entry is staggered by walking.** Parts are fetched individually as the walker approaches each
    one, so a late-arriving player pops in mid-phrase.
 
-For drones and ambience, all three are features. For anything with a groove, they are audible as
-flams and phasing.
+**Not a factor — checked and withdrawn.** Looping is already native, gapless and sample-accurate: the
+buffer node's own loop flag is set, so a part does not restart at the end of each cycle and does not
+lose time. An earlier version of this section claimed it did; that was wrong, it was verified against
+the real source class, and the withdrawal is recorded in `QWEN.md` → *Known Issues*.
+
+For drones and ambience, both are features. For anything with a groove, they are audible as flams and
+phasing.
 
 ---
 
@@ -120,8 +129,8 @@ ensemble feel like it exists independently of the listener.
 |---|---|---|
 | Enter a musician's range | Starts from their own beginning | Starts at the playhead position |
 | Leave and come back | Starts again from the beginning | Never stopped counting; resumes in time |
-| A part reaches its end | Restarts a moment later, losing time each cycle | Loops in place; the lock holds |
-| Random speed wobble | Applied to every part | Off for locked groups; kept everywhere else |
+| A part reaches its end | Already loops in place, natively and gaplessly | Unchanged — nothing to do |
+| Random speed wobble | Chosen independently per source, so parts drift apart | Off for locked groups; kept everywhere else |
 | Group loading in | Parts fetched individually as approached | Group loads as a unit |
 
 ### 5.4 How the system knows five waypoints are one ensemble
@@ -136,6 +145,8 @@ Two caveats, verified 2026-11-09:
   every member the moment they are told, whether or not the walker is in range, and they use ordinary
   browser timers rather than the audio clock. They would both fight the distance-based loading and
   drift over time. Treat them as a sketch of the right shape, **not** as something to build on directly.
+  (The separate bug that let them silence a member was reproduced and fixed on 2026-11-09 — see §11.3 —
+  but these two properties are still true, and fixing them properly *is* the shared playhead in §5.)
 
 Two routes to an editing surface:
 
@@ -314,35 +325,44 @@ simulator with headphones before building anything.
 
 ## 11. Bugs, issues and TODOs
 
-> **§11.1 and §11.3 are not Feature 24 work.** Both have been promoted into `QWEN.md` → *Known Issues*
-> and the handover TODO, where they stand on their own merits as current work. They are reproduced here
-> only because this is where they were found. §11.7 below **is** Feature 24 work and is not authorised.
+> **§11.1 and §11.3 are not Feature 24 work.** Both were promoted into `QWEN.md` → *Known Issues* and
+> the handover TODO, where they stand on their own merits as current work, and **both are now fixed**;
+> neither is deployed. They are reproduced here only because this is where they were found. §11.2 is an
+> invariant to preserve, not a defect. §11.4-§11.6 are inherited.
+> §11.7 below **is** Feature 24 work and is not authorised.
 
-### 11.1 🔴 Deploy sound discovery finds nothing — VERIFIED, one-line fix, do first
+### 11.1 ✅ FIXED — deploy sound discovery found nothing
 
-The publish script has a step meant to find sound files in the audio folder and upload them. It uses a
-filter form that only takes effect when the search is also told to look *inside* the folder, and it is
-not. So the search matches nothing.
+The publish script has a step meant to find sound files in the audio folder and upload them. It used a
+filter form that only takes effect when the search is also pointed *inside* the folder, and it was not.
+So the search matched nothing.
 
 **Measured 2026-11-09 by running both forms against the real folder:**
 
 | Form | Files found |
 |---|---|
-| The one the script uses | **0** |
+| The one the script used | **0** |
 | The corrected form | **18** |
 
 The folder holds 19 files, so one is not an audio file.
 
-**Why this is dangerous rather than merely broken:** the script prints "No sound files found" in grey
-and continues, **reporting overall success.** The site works today because those files are already on
-the server from earlier. Drop in a new sound and publish, and it never arrives — nothing warns you.
+**Why this was dangerous rather than merely broken:** the script printed "No sound files found" in grey
+and continued, **reporting overall success.** The site kept working because those files were already on
+the server from earlier. Drop in a new sound and publish, and it never arrived — nothing warned you.
 
 With whole-file waypoints that is one missing sound: obvious and easy to trace. With 120 segments it is
-an ensemble going silent partway through a piece, on a walk, with 120 candidates to debug.
+an ensemble going silent partway through a piece, on a walk, with 120 candidates to debug. That is why
+this was the one prerequisite allowed to jump the queue.
 
-**Fix before any new audio work, segmented or not.** Note the deploy script's summary is already known
-to print success over real failures (a failed database migration reports green), so "the deploy said OK"
-is not evidence of anything. Verify new audio by hash.
+**Fixed in the deploy script.** The search is now pointed inside the folder
+and re-verified to find all 18. The fix went past the one-liner: it hashes what is already on the server
+and uploads only what differs, prints an `uploaded / unchanged / failed` tally coloured by result,
+treats a failed probe as "send everything" rather than "nothing to do", and the empty-folder case now
+shouts in red. Parse-checked clean. **Not yet exercised by a real deploy.**
+
+Still worth remembering: the script's overall summary is known to print success over real failures (a
+failed database migration reports green), so "the deploy said OK" is not evidence of anything. **Verify
+new audio by hash** — which is now exactly what the sound step does.
 
 ### 11.2 🟠 Missing audio must keep failing loudly — invariant, do not "fix"
 
@@ -360,25 +380,45 @@ would try to interpret a page of HTML as audio and fail confusingly. The audio l
 **Consequence for this feature:** see §6.6 and D5. Segmentation multiplies the number of files that can
 be missing, and the system is designed to fail loudly on each one.
 
-### 11.3 🟠 Existing coordination rules are unusable as-is — and can silence a sound
+### 11.3 ✅ FIXED — coordination rules could silence a sound; they also bypass lazy loading
 
-Two separate problems, found by reading on 2026-11-09. **Not reproduced.**
+Reproduced and fixed 2026-11-09 evening. **Not deployed.** Full detail in `QWEN.md` → *Known Issues* →
+"Fixed 2026-11-09 evening".
 
-**a) They contradict the distance model.** The groupings that already exist in the data model start
-every member unconditionally — regardless of where the walker is — and use browser timers rather than
-the audio clock. They predate Feature 23. **Do not build on them**; treat as a shape hint only (§5.4).
+**What was wrong.** All seven coordination rules set a member's playing flag *outside* the guard that
+checks a source exists, so a member was reported as performing when nothing had started. The dead-end
+needs **loaded but with no audio actually running** — the state preloading leaves behind when its start
+attempt fails, because it records the member as loaded *before* trying to start it. The false flag then
+lands the member in the zone classifier's "already loaded and playing — do nothing" branch, permanently.
 
-**b) They can leave a sound permanently silent.** They set the "is playing" flag *outside* the guard
-that checks a source actually exists. A member that has not loaded yet is therefore marked as playing
-when nothing started. If that member was **preloaded but not yet started** — exactly the state the 40 m
-preload margin produces — it then fails both routes that could start it: the unmute path skips it
-because the flag claims it is already playing, and the load path returns early for the same reason.
-Result: a silent musician that the system believes is performing.
+Two more defects fell out of verifying it: starting an already-playing member tore its buffer down and
+rebuilt it at zero gain (an audible dip in the group being coordinated), and no executor start applied
+the distance level, so even a successful one entered silent until the next frame.
 
-**Currently unreachable.** The editor has no interface for creating these rules, so no soundscape has
-any. This is dormant code on a live path — it fires the moment the behavior editing UI (Feature 18)
-lands, or the moment rules arrive by hand or through the API. **Feature 18 should not proceed without
-fixing this first.**
+**Correction on the record.** An earlier write-up of this blamed "a sound that was preloaded but not
+yet started." That was wrong and had not been verified — preloading starts playback immediately, so the
+state does not normally exist, and for a member that is *not loaded* the flag blocks nothing. Recorded
+here because the wrong version was briefly committed.
+
+**What was fixed.** The guard now lives in the app layer, which owns loading, gain and the distance
+model, and is handed to the executors as start/stop hooks. A member is flagged only when its start
+genuinely succeeded; unstarted and already-playing members are left alone; the distance level is
+applied on entry. Executors given no hooks start nothing rather than claiming otherwise. 56 checks
+across two throwaway scripts — 24 failures before the fix, 0 after.
+
+**What was deliberately left alone**, both recorded in *Known Issues*:
+- **Group volume has no effect.** Its fade writes the same gain node the loudness model rewrites every
+  frame, cancelling scheduled values first. Fixing it needs a decision about what the control should
+  mean, not a patch.
+- **Executors still bypass lazy loading** — they start every member regardless of distance, so a
+  soundscape carrying rules holds its whole group in memory. **Loudness is unaffected**: the per-frame
+  distance gain applies to any loaded sound. Fixing this properly *is* the shared playhead (§5), so it
+  waits for Feature 24 rather than being patched around.
+
+**Still dormant.** The editor has no interface for creating these rules, so no soundscape carries any.
+The fix matters because it fires the moment Feature 18 lands, or the moment rules arrive by hand or
+through the API — and §5.4 treats the existing rules as a shape hint, so a broken hint would have been
+copied forward.
 
 ### 11.4 🟠 Contained kind is not persisted — inherited blocker
 
@@ -403,7 +443,7 @@ Their type handling changed as a side effect of that fix and has never been test
 ### 11.7 TODO list for this feature (when authorised)
 
 **Prerequisites — do not start the feature until these are done:**
-- [ ] Fix §11.1 (one line)
+- [x] Fix §11.1 — **done 2026-11-09**, working tree, not yet exercised by a real deploy
 - [ ] Complete the Feature 23 walk test and reverb retune
 - [ ] Feature 22A wake lock — otherwise a long ensemble walk test produces nothing
 - [ ] Run the §9 recording-alignment gate
@@ -413,7 +453,7 @@ Their type handling changed as a side effect of that fix and has never been test
 - [ ] One playhead per locked group, driven by the audio clock
 - [ ] A part starts at the playhead position, not at its own beginning
 - [ ] Out of range = muted, not rewound
-- [ ] Seamless looping in place
+- [x] ~~Seamless looping in place~~ — **already native and gapless, nothing to do** (verified, §4)
 - [ ] Random speed wobble disabled for locked-group members only
 - [ ] Group loads as a unit when any member comes into range
 - [ ] Declare the group via an area polygon (D2)
@@ -525,13 +565,17 @@ Everything asserted above was checked on 2026-11-09 unless marked otherwise.
 - No segmented playback exists; every sound is whole-file (§6.1)
 - The March cached-streaming design was never built and its chunks are progressive download, not musical
   segments (§6.1)
-- Deploy sound discovery returns 0 files; the corrected form returns 18; the folder holds 19 (§11.1)
+- Deploy sound discovery returned 0 files with the script's form and 18 with the corrected one; the
+  folder holds 19 (§11.1 — **now fixed and re-verified at 18**)
 - Groupings exist in the data model, have no editing screen, start members unconditionally, and use
   browser timers (§5.4, §11.3)
 - Each musician has its own directional panner; distance lives in a separate stage (§3)
 - Air absorption reaches maximum muffling at 80 m (§3, §12.4)
-- Random speed wobble is applied on every start, ~±0.02% (§4)
-- Loops restart rather than continuing seamlessly (§4)
+- Random speed wobble is chosen once per source at ~±0.02% and is **not** re-rolled per loop (§4)
+- Looping is native and gapless — the buffer node's own loop flag is set, the ended event does not fire
+  during playback, and the restart branch cannot run (§4). Verified with 9 checks against the real
+  source class. **This replaces an earlier claim here that loops restart and drift; that claim was
+  wrong, was committed in `ab7911e`, and has been withdrawn**
 - Prefetch margin for recorded sounds is 40 m beyond the radius (§5.3)
 - No cap on simultaneous sources exists in the engine (§3)
 
