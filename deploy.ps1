@@ -536,21 +536,55 @@ Write-Host ""
 # Deploy sound files if they exist
 $soundsPath = Join-Path $LOCAL_PATH "sounds"
 if (Test-Path $soundsPath) {
-    $soundFiles = Get-ChildItem -Path $soundsPath -File -Include *.mp3,*.wav,*.m4a
+    # The include filter only matches when the search is pointed inside the folder,
+    # not at the folder itself. Pointing it at the folder silently finds nothing.
+    $soundFiles = @(Get-ChildItem -Path (Join-Path $soundsPath '*') -File -Include *.mp3,*.wav,*.m4a)
     if ($soundFiles.Count -gt 0) {
+        # Audio is large enough that pushing all of it on every deploy is not affordable,
+        # so compare against what is already on the server and send only what differs.
+        # A probe that fails leaves this empty, which sends everything - it can never be
+        # mistaken for "nothing to do".
+        $remoteSoundHashes = @{}
+        $remoteSoundsDir = "${SERVER_PATH}/sounds"
+        Write-Host "Reading sound files already on the server..." -ForegroundColor Yellow
+        $probeOutput = & ssh -n -o ConnectTimeout=5 $SERVER_USER@$SERVER_HOST "md5sum ${remoteSoundsDir}/*.mp3 ${remoteSoundsDir}/*.wav ${remoteSoundsDir}/*.m4a 2>/dev/null" 2>$null
+        $probeExitCode = $LASTEXITCODE
+        if ($probeExitCode -eq 0) {
+            foreach ($line in $probeOutput) {
+                if ($line -match '^\s*\??\\?([0-9a-fA-F]{32})\s+\*?(.+?)\s*$') {
+                    $remoteSoundHashes[[System.IO.Path]::GetFileName($matches[2]).ToLower()] = $matches[1].ToLower()
+                }
+            }
+            Write-Host "   $($remoteSoundHashes.Count) audio files on the server" -ForegroundColor Gray
+        } else {
+            Write-Host "   Could not read $remoteSoundsDir (exit $probeExitCode) - every sound file will be uploaded" -ForegroundColor Yellow
+        }
+
         Write-Host "Uploading sound files..." -ForegroundColor Yellow
+        $soundUploadedCount = 0
+        $soundSkippedCount = 0
+        $soundFailedCount = 0
         foreach ($soundFile in $soundFiles) {
+            $localHash = (Get-FileHash -Path $soundFile.FullName -Algorithm MD5).Hash.ToLower()
+            $remoteHash = $remoteSoundHashes[$soundFile.Name.ToLower()]
+            if ($remoteHash -and $remoteHash -eq $localHash) {
+                Write-Host "   Unchanged: sounds/$($soundFile.Name) [SKIP]" -ForegroundColor Gray
+                $soundSkippedCount++
+                continue
+            }
             $remoteSoundPath = "${SERVER_USER}@${SERVER_HOST}:${SERVER_PATH}/sounds/"
             Write-Host "   Uploading: sounds/$($soundFile.Name)" -NoNewline
             $scpOutput = & scp $soundFile.FullName $remoteSoundPath 2>&1
             $scpExitCode = $LASTEXITCODE
             if ($scpExitCode -eq 0) {
                 Write-Host " [OK]" -ForegroundColor Green
+                $soundUploadedCount++
             } else {
                 Write-Host " [FAILED]" -ForegroundColor Red
+                $soundFailedCount++
                 Write-Host "   Error details: $scpOutput" -ForegroundColor Red
                 Write-Host "   Exit code: $scpExitCode" -ForegroundColor Red
-                
+
                 # Log additional debugging information
                 Write-Host "   Debug info:" -ForegroundColor Yellow
                 Write-Host "     Local file: $($soundFile.FullName)" -ForegroundColor Yellow
@@ -559,8 +593,11 @@ if (Test-Path $soundsPath) {
                 Write-Host "     File size: $($soundFile.Length) bytes" -ForegroundColor Yellow
             }
         }
+        Write-Host "   Sound files: $soundUploadedCount uploaded, $soundSkippedCount unchanged, $soundFailedCount failed" -ForegroundColor $(if ($soundFailedCount -eq 0) { "Green" } else { "Red" })
     } else {
-        Write-Host "No sound files found in /sounds/ folder" -ForegroundColor Gray
+        Write-Host "WARNING: found no audio in $soundsPath" -ForegroundColor Red
+        Write-Host "         This deploy has shipped no sound files. If the folder is meant to hold" -ForegroundColor Red
+        Write-Host "         audio, something is wrong with how it is being searched." -ForegroundColor Red
     }
 }
 
