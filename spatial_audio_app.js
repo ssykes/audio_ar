@@ -200,7 +200,11 @@ class Sound {
         this.falloff = config.falloff === 'contained' ? 'contained' : 'physical';
 
         // === FEATURE 13: Audio Type Discriminator ===
-        this.type = config.type || 'buffer';  // 'buffer' | 'oscillator' | 'stream'
+        // Callers do not agree on the names: the editor and the API say 'file' and 'streaming',
+        // older code said 'sample', this layer says 'buffer' and 'stream'. Normalise once, here, so
+        // every zone lookup and the preload guard compare against the same three names. A 'file'
+        // waypoint used to skip preloading entirely and only loaded once inside its radius.
+        this.type = Sound.normaliseType(config.type);
 
         // === FEATURE 13: Oscillator-Specific Properties ===
         this.oscillatorType = config.oscillatorType || 'sine';  // 'sine' | 'square' | 'triangle' | 'sawtooth'
@@ -227,6 +231,29 @@ class Sound {
         
         // === FEATURE 14: Distance-Based Audio Filtering (Air Absorption) ===
         this.filterNode = null;  // Low-pass filter for high-frequency loss over distance
+    }
+
+    /**
+     * FEATURE 23: Map every caller's name for a source type onto the three this layer uses.
+     *
+     * Anything unrecognised is treated as a file, which matches the old default and is the safe
+     * case: it gets preloaded rather than skipped.
+     *
+     * @param {string} [type] - Type as supplied by the caller
+     * @returns {'buffer'|'oscillator'|'stream'}
+     */
+    static normaliseType(type) {
+        switch (type) {
+            case 'oscillator':
+            case 'osc':
+                return 'oscillator';
+            case 'stream':
+            case 'streaming':
+            case 'hls':
+                return 'stream';
+            default:
+                return 'buffer';   // 'file', 'sample', 'buffer', undefined
+        }
     }
 
     /**
@@ -648,6 +675,48 @@ class SpatialAudioApp {
             sound.lat,
             sound.lon
         );
+    }
+
+    /**
+     * FEATURE 23: The level currently applied to a sound, for debug readouts.
+     * @param {string} soundId - Sound ID
+     * @returns {number|null} Linear gain, or null if the sound has no live source
+     */
+    getSoundGain(soundId) {
+        const sound = this.sounds.find(s => s.id === soundId);
+        return sound && sound.sourceNode ? sound.sourceNode.lastComputedGain : null;
+    }
+
+    /**
+     * FEATURE 23: The real distances and state behind one sound, for debug readouts.
+     *
+     * The simulator used to work out its own zone labels from the pre-Feature-23 fade zone, so it
+     * reported boundaries that no longer existed and a gain it could not read. Everything here comes
+     * from the same values the audio path uses, so what is logged is what is happening.
+     *
+     * @param {string} soundId - Sound ID
+     * @returns {Object|null} Distances in metres, plus kind, level and lifecycle state
+     */
+    getSoundZoneInfo(soundId) {
+        const sound = this.sounds.find(s => s.id === soundId);
+        if (!sound) return null;
+
+        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
+        const radius = sound.activationRadius || 30;
+        const lead = sound.type === 'stream' ? (config.pauseMargin || 0) : (config.preloadMargin || 0);
+
+        return {
+            distance: this.getSoundDistance(soundId),
+            radius: radius,
+            kind: sound.falloff,
+            type: sound.type,
+            fetchAt: radius + lead,                       // fetched when closer than this
+            silentBeyond: this._getAcousticFadeEnd(sound), // faded to nothing by here
+            disposeBeyond: this._getDisposeDistance(sound),// thrown away beyond here
+            loaded: !!sound.isLoaded,
+            playing: !!sound.isPlaying,
+            gain: this.getSoundGain(soundId)
+        };
     }
 
     /**

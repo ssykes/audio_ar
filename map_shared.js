@@ -1472,8 +1472,9 @@ class MapAppShared {
     }
 
     /**
-     * Log waypoint zone transitions during simulation
-     * Tracks: entering fade zone, reaching max volume zone, passing center, exiting
+     * Log waypoint lifecycle during simulation
+     * Reports the real distances and level from the audio app: where a sound is fetched, where it
+     * goes silent, where it is disposed, and what fraction of its peak it is playing at
      * @private
      */
     _logWaypointZoneTransitions() {
@@ -1483,39 +1484,27 @@ class MapAppShared {
         const listenerLon = this.simListenerLon;
 
         this.waypoints.forEach(wp => {
-            const dist = GPSUtils.distance(wp.lat, wp.lon, listenerLat, listenerLon);
-            const activationRadius = wp.activationRadius || 20;
-            const fadeZone = 20;
-            const fadeStart = Math.max(0, activationRadius - fadeZone);
-            const fadeEnd = activationRadius + fadeZone;
+            const info = this.app.getSoundZoneInfo ? this.app.getSoundZoneInfo(wp.id) : null;
+            const dist = info && info.distance !== null && info.distance !== undefined
+                ? info.distance
+                : GPSUtils.distance(wp.lat, wp.lon, listenerLat, listenerLon);
 
-            // Track previous zone to detect transitions
-            const prevZone = this._wpPrevZones?.[wp.id];
-            let currentZone;
+            // FEATURE 23: report the real lifecycle state. This used to work out its own
+            // "fade zone" bands, which described boundaries the audio path no longer has.
+            const level = info && info.gain !== null && info.gain !== undefined
+                ? `${(info.gain * 100).toFixed(1)}% of peak`
+                : 'no level yet';
+            const state = !info
+                ? 'not in the audio app'
+                : !info.loaded
+                    ? (dist < info.fetchAt ? 'fetching' : 'not fetched')
+                    : (info.gain === 0 ? 'silent' : 'playing');
 
-            if (dist >= fadeEnd) {
-                currentZone = 'outside';
-            } else if (dist > fadeStart) {
-                currentZone = 'fade';
-            } else if (dist >= 2) {
-                currentZone = 'full_volume';
-            } else {
-                currentZone = 'center_boost';
-            }
-
-            // Log zone transitions
-            if (prevZone && prevZone !== currentZone) {
-                const zoneLabels = {
-                    outside: 'OUTSIDE (silent)',
-                    fade: 'FADE ZONE',
-                    full_volume: 'FULL VOLUME ZONE',
-                    center_boost: 'CENTER (<2m, max volume)'
-                };
-
-                const gain = this.app.getSoundGain?.(wp.id);
-                const gainStr = gain !== null && gain !== undefined ? `${(gain * 100).toFixed(0)}%` : '?';
-
-                console.log(`[Sim] 🎵 ${wp.name}: ${zoneLabels[prevZone]} → ${zoneLabels[currentZone]} | dist=${dist.toFixed(1)}m | gain=${gainStr} | radius=${activationRadius}m`);
+            // Log state transitions
+            const prevState = this._wpPrevZones?.[wp.id];
+            if (prevState && prevState !== state) {
+                console.log(`[Sim] 🎵 ${wp.name}: ${prevState} → ${state} | dist=${dist.toFixed(1)}m`
+                    + (info ? ` | radius=${info.radius}m | ${level}` : ''));
             }
 
             // Throttled continuous log (every ~2m of movement)
@@ -1523,15 +1512,19 @@ class MapAppShared {
                 this._wpLastLogDist = this._wpLastLogDist || {};
                 this._wpLastLogDist[wp.id] = dist;
 
-                const gain = this.app.getSoundGain?.(wp.id);
-                const gainStr = gain !== null && gain !== undefined ? `${(gain * 100).toFixed(0)}%` : '?';
-
-                console.log(`[Sim] 🚶 ${wp.name}: ${dist.toFixed(1)}m away | gain=${gainStr} | zone=${dist >= fadeEnd ? 'silent' : dist > fadeStart ? 'fade' : dist >= 2 ? 'full' : 'CENTER'}`);
+                const bounds = info
+                    ? ` | ${info.kind} | radius ${info.radius}m`
+                        + ` | fetched inside ${info.fetchAt}m`
+                        + ` | silent beyond ${info.silentBeyond === null ? 'n/a' : info.silentBeyond + 'm'}`
+                        + ` | disposed beyond ${info.disposeBeyond === null ? 'n/a' : info.disposeBeyond + 'm'}`
+                        + ` | ${level}`
+                    : '';
+                console.log(`[Sim] 🚶 ${wp.name}: ${dist.toFixed(1)}m away | ${state}${bounds}`);
             }
 
-            // Store current zone for next comparison
+            // Store current state for next comparison
             this._wpPrevZones = this._wpPrevZones || {};
-            this._wpPrevZones[wp.id] = currentZone;
+            this._wpPrevZones[wp.id] = state;
         });
     }
 
