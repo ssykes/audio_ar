@@ -2,19 +2,20 @@
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
  *
- * @version 7.3 - Added Force Update button to clear SW cache on mobile
+ * @version 7.5 - Status bar shows how far the audio trails the reported position
  *
  * Features:
  * - Auto-sync on page load (timestamp-based)
  * - Read-only UI (no editing)
  * - GPS/Compass tracking
  * - Icon bar with floating toolbar
- * - Bottom status bar (GPS + Heading + Sounds)
+ * - Bottom status bar (GPS lock + position trail + Heading + Sounds + Level)
  * - Debug modal with copy to clipboard
  * - Debug modal with force update button (clear SW cache)
+ * - Recovers when the page returns to the foreground after a call or the notification shade
  */
 
-console.log('[map_player.js] Loading v7.3...');
+console.log('[map_player.js] Loading v7.5...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -24,6 +25,7 @@ class MapPlayerApp extends MapAppShared {
         // Area visualization (read-only)
         this.drawnItems = null;  // FeatureGroup for area polygons
         this.areaMarkers = new Map();  // Map<areaId, L.Polygon>
+        this.lastGpsUpdateAt = null;  // When a position last arrived, to spot a dead watch
     }
 
     /**
@@ -126,6 +128,15 @@ class MapPlayerApp extends MapAppShared {
         window.addEventListener('offline', () => {
             this.isOnline = false;
             this.debugLog('📴 Network status: Offline');
+        });
+
+        // An incoming call, the notification shade or the screen turning off releases the wake
+        // lock and can suspend the audio context. Nothing recovers on its own, so the walk ends
+        // in silence with no way back short of restarting the player.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this._recoverFromInterruption();
+            }
         });
 
         // Check for selected soundscape from picker
@@ -1005,18 +1016,11 @@ class MapPlayerApp extends MapAppShared {
                     this.lastCompassUpdate = now;
 
                     // Update listener heading
-                    const oldHeading = this.listenerHeading;
                     this.listenerHeading = heading;
                     this.app.listener.setHeading(heading);
 
                     // Update status bar with new heading
                     this._updateStatusBar();
-
-                    // Log significant changes
-                    const headingChange = Math.abs(heading - oldHeading);
-                    if (headingChange > 5) {
-                        console.log(`[MapPlayer] 🧭 Compass: ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}° (Δ${headingChange.toFixed(0)}°)`);
-                    }
 
                     // Update sound positions based on heading
                     this.app._updateSoundPositions();
@@ -1151,6 +1155,7 @@ class MapPlayerApp extends MapAppShared {
             };
 
             this.app.onGPSUpdate = (lat, lon, locked) => {
+                this.lastGpsUpdateAt = Date.now();
                 this._updateListenerMarker(lat, lon, locked);
                 // Auto-center map on GPS update (player mode) - only once at startup
                 // Commented out to prevent map from jumping away from waypoints
@@ -1344,6 +1349,8 @@ class MapPlayerApp extends MapAppShared {
      * @private
      */
     async _requestWakeLock() {
+        if (this.wakeLock) return;  // Already held
+
         try {
             if ('wakeLock' in navigator) {
                 this.wakeLock = await navigator.wakeLock.request('screen');
@@ -1359,6 +1366,62 @@ class MapPlayerApp extends MapAppShared {
         } catch (err) {
             console.warn(`[MapPlayer] ⚠️ Wake lock failed: ${err.message}`);
         }
+    }
+
+    /**
+     * Recover after the page was hidden by a call, the notification shade or the screen turning
+     * off. Re-acquires the wake lock, restarts audio if the browser suspended it, and reports
+     * whether positions are still arriving.
+     *
+     * Resuming an audio context without a user gesture is refused on iOS, so a failed resume asks
+     * for a tap rather than leaving the walk silently dead.
+     * @private
+     */
+    async _recoverFromInterruption() {
+        if (this.state !== 'player' || !this.app) return;
+
+        console.log('[MapPlayer] 🔓 Returned to foreground, recovering...');
+        this.debugLog('🔓 Returned to foreground - recovering');
+
+        await this._requestWakeLock();
+
+        // A watch that stopped while the page was hidden leaves the listener frozen in place,
+        // which sounds exactly like a loudness bug. Say so rather than leaving it to be guessed.
+        if (this.lastGpsUpdateAt) {
+            const staleFor = Math.round((Date.now() - this.lastGpsUpdateAt) / 1000);
+            if (staleFor > 30) {
+                this.debugLog(`⚠️ No position for ${staleFor}s - GPS may have stopped`);
+            } else {
+                this.debugLog(`📍 GPS still updating (last position ${staleFor}s ago)`);
+            }
+        }
+
+        const engine = this.app.engine;
+        if (!engine) return;
+
+        if (engine.getState() === 'running') {
+            this.debugLog('✅ Audio survived the interruption');
+            return;
+        }
+
+        await engine.resume();
+
+        if (engine.getState() === 'running') {
+            this.debugLog('▶️ Audio resumed');
+            return;
+        }
+
+        this.debugLog('👆 Audio still suspended - waiting for a tap');
+        this._showToast('👆 Tap to resume audio', 'info');
+
+        const resumeOnGesture = async () => {
+            document.removeEventListener('pointerdown', resumeOnGesture);
+            document.removeEventListener('keydown', resumeOnGesture);
+            await engine.resume();
+            this.debugLog(`▶️ Audio resumed after tap (state: ${engine.getState()})`);
+        };
+        document.addEventListener('pointerdown', resumeOnGesture);
+        document.addEventListener('keydown', resumeOnGesture);
     }
 
     /**
@@ -1482,14 +1545,23 @@ class MapPlayerApp extends MapAppShared {
 
         if (!gpsStatusEl || !headingStatusEl || !soundsStatusEl) return;
 
-        // GPS status
+        // GPS status. The padlock carries the lock state and the number carries how far the
+        // audio is trailing the reported position, so both fit the space the label used to take.
         if (this.app && this.app.gpsTracker) {
-            if (this.app.gpsTracker.isLocked) {
-                gpsStatusEl.textContent = '🔒 Locked';
+            const isLocked = this.app.gpsTracker.isLocked;
+            if (isLocked) {
                 statusBarEl.classList.add('gps-locked');
             } else {
-                gpsStatusEl.textContent = '🔓 Live';
                 statusBarEl.classList.remove('gps-locked');
+            }
+
+            const lag = this.app.positionLagMetres;
+            if (typeof lag === 'number' && isFinite(lag)) {
+                gpsStatusEl.textContent = `${isLocked ? '🔒' : '🔓'} ${lag >= 10 ? lag.toFixed(0) : lag.toFixed(1)} m`;
+                gpsStatusEl.classList.toggle('lag-high', lag > 10);
+            } else {
+                gpsStatusEl.textContent = isLocked ? '🔒 Locked' : '🔓 Live';
+                gpsStatusEl.classList.remove('lag-high');
             }
         } else {
             gpsStatusEl.textContent = '--';

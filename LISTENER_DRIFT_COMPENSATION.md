@@ -1,9 +1,37 @@
 # Listener Drift Compensation
 
-**Created:** 2026-03-17  
-**Status:** 📋 Planned (Brainstorm/Implementation Notes)  
-**Priority:** Medium (improves UX, not critical)  
+**Created:** 2026-03-17
+**Status:** ⚠️ **Partly superseded 2026-11-12.** The exponential smoothing described here is still
+in use, but **the movement detection below it is not** — see the banner under this block.
+**Priority:** Medium (improves UX, not critical)
 **Estimated Effort:** ~200 lines, 2-3 hours
+
+---
+
+> ## ⚠️ The movement detection in this document was replaced on 2026-11-12
+>
+> What follows describes the original design, kept for the reasoning behind the smoothing itself.
+> **Do not implement or restore the stationary-detection code shown here.**
+>
+> It decided whether the walker was moving by dividing the gap between the smoothed and reported
+> position by the time since movement was last detected. That gap has a ceiling — about 27 m at
+> walking pace with the stationary smoothing setting — while the denominator grows without bound
+> for as long as the walker stands still. To register as moving, the gap had to exceed half a
+> metre *for every second spent standing*. After roughly a minute of standing still, movement
+> could never be detected again for the rest of the session, and the audio trailed the walker by
+> about twenty seconds.
+>
+> Reproduced in `scratch/verify-position-lag.js` (7 checks) and confirmed on a walk. Full write-up
+> in `FEATURE_25_NATURAL_SPATIAL_SOUND.md` → F10.
+>
+> **What replaced it:** travel is measured from the reported positions across a four-second
+> window, with a higher bar to start following than to stop. The accumulated gap is discarded the
+> moment movement begins. The smoothing settings themselves still do the job this document set out
+> for them — standing still is as steady as it was (1.15 m of scatter before, 1.13 m after).
+>
+> Note the irony worth keeping: this document's own problem statement is *"user standing still
+> perceives sound moving"*, and the smoothing written to fix that is what caused the sound to lag
+> by twenty seconds once the user started walking.
 
 ---
 

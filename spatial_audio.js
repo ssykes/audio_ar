@@ -2,8 +2,19 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 6.3 (Feature 23 Phase 0: Physical Loudness)
+ * @version 6.5 (Master bus limits instead of compressing)
  * @changelog
+ *   v6.5 - The shared output stage is now a limiter: hard knee, 20:1, ceiling at -3 dB, 1 ms
+ *          attack, 100 ms release. It was a compressor with a 12 dB knee at 4:1 starting 6 dB
+ *          below full scale, which acted continuously on every moderately loud source. Because
+ *          the stage is shared, how much one sound was squeezed depended on how many others were
+ *          loud at the same moment, so a source's level was not a function of its own distance -
+ *          the one thing the physical loudness model exists to guarantee. Now nothing below the
+ *          ceiling is touched. Expect the mix to be louder and more dynamic than before.
+ *   v6.4 - Removed the randomly sampled per-frame logging: panner position, listener heading,
+ *          distance and level, reverb band, and the polygon vertex dump from the area
+ *          intersection. On a phone these filled the debug panel within minutes and buried the
+ *          lifecycle events. No behaviour change.
  *   v6.3 - FEATURE 23 Phase 0: distance loudness now follows the inverse square law from a
  *          single source level. The panner keeps direction only (rolloffFactor 0) so the two
  *          attenuations are no longer multiplied. Hard cutoff at radius+20m replaced by a
@@ -18,7 +29,7 @@
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v6.3...');
+console.log('[spatial_audio.js] Loading v6.4...');
 
 /**
  * GPS Utility Functions
@@ -353,60 +364,9 @@ const GPSUtils = {
                 console.warn('[GPSUtils] Clip polygon has validation errors:', clipValidation.errors.map(e => e.type).join(', '));
             }
 
-            // Debug: Log polygon details (throttled)
-            if (Math.random() < 0.1) {
-                console.groupCollapsed('[Martinez] Polygon Debug');
-                
-                // Log subject polygon
-                console.log('Subject Polygon:', subjectPolygon.length, 'vertices');
-                subjectPolygon.forEach((p, i) => {
-                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
-                });
-                const subjectArea = Math.abs(this.polygonSignedArea(subjectPolygon));
-                const subjectBounds = this.polygonBounds(subjectPolygon);
-                console.log(`  Area: ${subjectArea.toFixed(8)} deg²`);
-                console.log(`  Bounds: lat[${subjectBounds.minLat.toFixed(6)} to ${subjectBounds.maxLat.toFixed(6)}], lng[${subjectBounds.minLng.toFixed(6)} to ${subjectBounds.maxLng.toFixed(6)}]`);
-                const subjectSizeLat = (subjectBounds.maxLat - subjectBounds.minLat) * 111000;
-                const subjectSizeLng = (subjectBounds.maxLng - subjectBounds.minLng) * 111000 * Math.cos(subjectBounds.minLat * Math.PI / 180);
-                console.log(`  Size: ${subjectSizeLat.toFixed(1)}m × ${subjectSizeLng.toFixed(1)}m`);
-                
-                // Show validation result
-                if (!subjectValidation.valid) {
-                    console.warn(`  ⚠️ Validation: ${subjectValidation.errors.map(e => e.type).join(', ')}`);
-                }
-                
-                // Log clip polygon
-                console.log('Clip Polygon:', clipPolygon.length, 'vertices');
-                clipPolygon.forEach((p, i) => {
-                    console.log(`  [${i}] lat=${p.lat.toFixed(6)}, lng=${p.lng.toFixed(6)}`);
-                });
-                const clipArea = Math.abs(this.polygonSignedArea(clipPolygon));
-                const clipBounds = this.polygonBounds(clipPolygon);
-                console.log(`  Area: ${clipArea.toFixed(8)} deg²`);
-                console.log(`  Bounds: lat[${clipBounds.minLat.toFixed(6)} to ${clipBounds.maxLat.toFixed(6)}], lng[${clipBounds.minLng.toFixed(6)} to ${clipBounds.maxLng.toFixed(6)}]`);
-                const clipSizeLat = (clipBounds.maxLat - clipBounds.minLat) * 111000;
-                const clipSizeLng = (clipBounds.maxLng - clipBounds.minLng) * 111000 * Math.cos(clipBounds.minLat * Math.PI / 180);
-                console.log(`  Size: ${clipSizeLat.toFixed(1)}m × ${clipSizeLng.toFixed(1)}m`);
-                
-                // Show validation result
-                if (!clipValidation.valid) {
-                    console.warn(`  ⚠️ Validation: ${clipValidation.errors.map(e => e.type).join(', ')}`);
-                }
-                
-                console.groupEnd();
-            }
-            
             // Normalize winding order to counter-clockwise (Martinez requirement)
             const subjectCCW = this.ensureCCW(subjectPolygon);
             const clipCCW = this.ensureCCW(clipPolygon);
-
-            // Debug: Log winding order (throttled)
-            if (Math.random() < 0.05) {
-                const subjectArea = this.polygonSignedArea(subjectPolygon);
-                const clipArea = this.polygonSignedArea(clipPolygon);
-                console.log(`[Martinez] Subject winding: ${subjectArea > 0 ? 'CCW' : 'CW'} (area=${subjectArea.toFixed(8)})`);
-                console.log(`[Martinez] Clip winding: ${clipArea > 0 ? 'CCW' : 'CW'} (area=${clipArea.toFixed(8)})`);
-            }
 
             // Convert {lat, lng} → [lng, lat] (Martinez format)
             // Martinez expects: [[[lng, lat], ...]] (array of polygons, each polygon is array of points)
@@ -940,14 +900,6 @@ class OscillatorSource extends SoundSource {
         // Apply distance-based reverb wet mix
         this._updateReverbWetMix(dist);
 
-        // Debug: Log gain changes (throttled to avoid spam)
-        if (Math.random() < 0.02) {
-            const described = sourceLevelDb === null
-                ? 'contained'
-                : `source=${sourceLevelDb.toFixed(0)}dB, level=${levelAtDistance(dist, sourceLevelDb).toFixed(1)}dB`;
-            console.log(`[Audio] ${this.id} ${dist.toFixed(1)}m: ${described}, gain=${gain.toFixed(3)}, wet=${(this.currentWetValue * 100).toFixed(0)}%`);
-        }
-
         return dist < this.activationRadius;
     }
 
@@ -967,11 +919,6 @@ class OscillatorSource extends SoundSource {
         this.wetGain.gain.value = reverb.wet;
         this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
         this.currentWetValue = reverb.wet;
-
-        // Debug: Log environment/zone changes (throttled)
-        if (Math.random() < 0.05) {
-            console.log(`[Reverb] ${distance.toFixed(1)}m, env=${reverb.environment}, zone=${reverb.zone}, wet=${(reverb.wet * 100).toFixed(1)}%`);
-        }
     }
 }
 
@@ -1039,7 +986,8 @@ class GpsSoundSource extends OscillatorSource {
      * 
      * @param {number} listenerLat
      * @param {number} listenerLon
-     * @param {number} listenerHeading - Ignored for position, used for logging
+     * @param {number} listenerHeading - Not used: orientation belongs to the listener, not to
+     *   the position of a fixed source. Kept in the signature because callers pass it.
      */
     updatePosition(listenerLat, listenerLon, listenerHeading) {
         // Convert GPS to local coordinates (x, z)
@@ -1050,11 +998,6 @@ class GpsSoundSource extends OscillatorSource {
         
         // Flip Z axis: North should be -Z (front), South should be +Z (back)
         this.setPosition(x, -z);
-
-        // Debug: Log position updates (throttled to 5%)
-        if (Math.random() < 0.05) {
-            console.log(`[Audio] Panner: x=${x.toFixed(1)}m, z=${(-z).toFixed(1)}m (listener heading=${listenerHeading.toFixed(0)}°)`);
-        }
     }
 
     getDistance(listenerLat, listenerLon) {
@@ -1077,11 +1020,6 @@ class GpsSoundSource extends OscillatorSource {
         this.wetGain.gain.value = reverb.wet;
         this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
         this.currentWetValue = reverb.wet;
-
-        // Debug: Log environment/zone changes (throttled)
-        if (Math.random() < 0.05) {
-            console.log(`[Reverb] ${distance.toFixed(1)}m, env=${reverb.environment}, zone=${reverb.zone}, wet=${(reverb.wet * 100).toFixed(1)}%`);
-        }
     }
 }
 
@@ -2137,18 +2075,22 @@ class SpatialAudioEngine {
         this.masterGain = this.ctx.createGain();
         this.setOutputTrimDb(this.outputTrimDb);
 
-        // Dynamics compressor to prevent clipping from multiple concurrent sources
-        // This allows individual sources to be boosted without worrying about digital distortion
-        this.compressor = this.ctx.createDynamicsCompressor();
-        this.compressor.threshold.value = -6;    // Start compressing at -6dB
-        this.compressor.knee.value = 12;         // Smooth knee (12dB)
-        this.compressor.ratio.value = 4;         // 4:1 compression ratio
-        this.compressor.attack.value = 0.003;    // Fast attack (3ms)
-        this.compressor.release.value = 0.25;    // Medium release (250ms)
+        // Limiter, not a compressor. Its only job is to stop several concurrent sources from
+        // clipping; it must not reshape the loudness curve the distance model computes. A soft
+        // knee and a moderate ratio would act continuously on every moderately loud source, and
+        // because this stage is shared, how much one sound was squeezed depended on how many
+        // others were loud at the same moment — so a source's level stopped being a function of
+        // its own distance. Hard knee at 20:1 leaves everything below the ceiling untouched.
+        this.limiter = this.ctx.createDynamicsCompressor();
+        this.limiter.threshold.value = -3;     // Ceiling: 3 dB of headroom for inter-sample peaks
+        this.limiter.knee.value = 0;           // Hard knee: nothing happens below the ceiling
+        this.limiter.ratio.value = 20;         // Maximum ratio: holds the ceiling rather than tilting it
+        this.limiter.attack.value = 0.001;     // Fast enough to catch a bell's transient
+        this.limiter.release.value = 0.1;      // Recovers before the next toll; avoids pumping
 
-        // Connect: masterGain → compressor → destination
-        this.masterGain.connect(this.compressor);
-        this.compressor.connect(this.ctx.destination);
+        // Connect: masterGain → limiter → destination
+        this.masterGain.connect(this.limiter);
+        this.limiter.connect(this.ctx.destination);
 
         // ALWAYS create reverb (wet path will be muted if not used)
         // Moderate IR (0.25s) with natural decay (10.0) = pleasant reverb tail
@@ -2168,7 +2110,7 @@ class SpatialAudioEngine {
 
         this._updateListenerOrientation();
         this.isInitialized = true;
-        console.log('[SpatialAudioEngine] Initialized with compressor (threshold: -6dB, ratio: 4:1)');
+        console.log('[SpatialAudioEngine] Initialized with limiter (ceiling: -3dB, 20:1, hard knee)');
     }
 
     enableKeepAlive(intervalMs = 3000) {
@@ -2314,24 +2256,12 @@ class SpatialAudioEngine {
         const rad = this.listener.getHeadingRad();
         const listener = this.ctx.listener;
 
-        // Store old values for debug logging
-        const oldForwardX = listener.forwardX.value;
-        const oldForwardZ = listener.forwardZ.value;
-
         listener.forwardX.value = Math.sin(rad);
         listener.forwardY.value = 0;
         listener.forwardZ.value = -Math.cos(rad);
         listener.upX.value = 0;
         listener.upY.value = 1;
         listener.upZ.value = 0;
-
-        // Debug: Log listener orientation changes (throttled)
-        if (Math.random() < 0.1) {
-            console.log(`[Audio] Listener: heading=${this.listener.heading.toFixed(0)}°, forwardX=${listener.forwardX.value.toFixed(2)}, forwardZ=${listener.forwardZ.value.toFixed(2)}`);
-        }
-
-        // Verbose debug: Log every orientation update (uncomment for debugging)
-        // console.log(`[Audio] Listener UPDATE: heading=${this.listener.heading.toFixed(1)}°, rad=${rad.toFixed(3)}, forwardX=${listener.forwardX.value.toFixed(3)}, forwardZ=${listener.forwardZ.value.toFixed(3)}`);
     }
 
     getState() { return this.ctx ? this.ctx.state : 'not-initialized'; }

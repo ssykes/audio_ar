@@ -27,6 +27,7 @@ Source code (implementation)
 | **CONSOLIDATED_DOCUMENTATION.md** | Comprehensive technical overview | Deep technical understanding |
 | **FEATURES.md** | Feature catalog (Features 1-16 completed) | Reference existing features, plan new ones |
 | **FEATURE_*.md** | Deep-dive specs | Implementation details, debugging |
+| **FEATURE_25_NATURAL_SPATIAL_SOUND.md** | Audit of everything that shapes what a walker hears, the *natural spatial sound* objective, and where the code has strayed from it | **Any audio-quality question — read this before Feature 23** |
 | **LAZY_*.md** | Lazy loading architecture | Audio optimization work |
 | **🚚 *How a Change Reaches the Phone* (below)** | **Deploy, caching, service worker** | **Any cache or deploy problem — read this first** |
 | **CLOUDFLARE_*.md** | Server/CDN configuration | ⚠️ Superseded by the section above |
@@ -53,14 +54,17 @@ Source code (implementation)
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
-| `spatial_audio.js` | v6.3 | 2026-11-09 (Feature 23 Phase 0: physical loudness; contained envelope) |
-| `spatial_audio_app.js` | v3.3 | 2026-11-09 (Feature 23 Phase 0: disposal-distance pass-through, falloff kind) |
-| `map_shared.js` | v6.9+ | 2026-11-09 (sim passes the falloff kind through) |
+| `spatial_audio.js` | v6.5 | 2026-11-12 (master bus limits instead of compressing) |
+| `spatial_audio_app.js` | v3.5 | 2026-11-12 (listener position no longer trails the walker) |
+| `map_player.js` | v7.5 | 2026-11-12 (status bar shows the position trail in metres) |
+| `map_shared.js` | v6.13 | 2026-11-11 (simulator waypoint log also waits between lines) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-10-13 (offline fallback page; `theme.css` precached) |
 | `deploy.ps1` | - | 2026-10-13 (`theme.css` registered) |
 | `FEATURE_22_PWA_AND_UI_RESTYLE.md` | v1.0 | 2026-10-13 (Task A + Task B spec) |
 | `FEATURE_23_PHYSICAL_LOUDNESS.md` | v1.1 | 2026-11-09 (Phase 0 implemented; decisions 9-13) |
+| `FEATURE_25_NATURAL_SPATIAL_SOUND.md` | v1.1 | 2026-11-12 (re-baselined after two walks: F5 retracted, F10 added and fixed, F1 resolved, decisions 8-10) |
+| `LISTENER_DRIFT_COMPENSATION.md` | - | 2026-11-12 (banner: its movement detection was replaced — do not restore it) |
 | `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 (Feature 16B spec) |
 
 **⚠️ Dead files — do not edit:** `map_editor_v2.*`, `map_editor_old.*`, `map_editor_mockup.*`.
@@ -100,6 +104,52 @@ They are two *independent* tasks — do them separately, they share no code.
 > oscillators, and whether the dynamic-range knob belongs to the device or to the soundscape
 > (**all block Phase 2/3 and change the schema**). The near-field clamp is resolved: 1 m.
 > Ask before writing code — do not assume Phase 0's answers carry over.
+
+---
+
+## 📌 Session handover — 2026-11-12
+
+### Where things stand
+
+- **Two walks today.** The first found the position trail; the second confirmed the repair.
+- **The listener position was trailing the walker by about twenty seconds**, and latched there
+  for the rest of the session after roughly a minute of standing still. Fixed, reproduced in
+  `scratch/verify-position-lag.js` (7 checks, 18 s before / 0.8 m after), and **confirmed on a
+  walk**: trail mostly under 1 m, twice 1.3 m and inaudible, orientation responsive.
+- **The master compressor is now a limiter** — ceiling −3 dB, hard knee, 20:1, 1 ms attack,
+  100 ms release. Owner's ruling. **Built and NOT yet heard on a walk.** Expect the mix to be
+  louder and more dynamic; the piece's level may need re-checking.
+- **The status bar's GPS field now shows the trail in metres** beside the padlock, amber above
+  10 m. The words "Locked"/"Live" were dropped to fit; the icon carries the state.
+- **F5 is retracted.** Undamped heading was not the cause of the moving source. Do not switch on
+  the heading stabiliser.
+- **Deployed by the owner:** the position repair and its readout. **Not deployed:** the limiter.
+
+### Do not touch without asking
+
+- **The start-of-walk position correction is a hard snap.** The owner noticed it and is listening
+  before deciding whether to spread it over a couple of seconds. Decision 9 in the Feature 25 spec.
+
+### Next, in order (Feature 25 §8)
+
+1. **Walk the limiter alone.** Is the piece too loud now? Does the loudness curve read more
+   clearly? While out, re-test the two things the trail was probably faking — the aggressive fade
+   just before silence, and the ten metres to hear a sound again after turning back.
+2. **Then settle the muffling question (§7 Q3)** before building: today's dullness curve is
+   absolute distance done far too aggressively and then clamped, not absolute distance done
+   right. Extending the range and softening the floor fixes large circles without touching the
+   small ones the 2026-11-11 walk approved; rescaling per waypoint changes those too.
+3. Then build it, walk, then dial the dynamic-range fraction in the simulator against the new
+   sound — never before.
+4. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
+   on nothing acoustically.
+
+### Trap re-learned today
+
+**A plausible mechanism written into a spec gets read as fact by the next session.** F5 ranked
+undamped heading as the likely cause of a symptom nobody had instrumented, and the sequence in §8
+was built around fixing it. Two walks contradicted it. The thing that found the real cause was a
+readout on screen and an owner willing to stand still and turn around — not more code reading.
 
 ---
 
@@ -499,12 +549,13 @@ things that make it fragile and expensive to reason about.
 | **19** | Multi-user collaboration | Low |
 | **20** | Session-based cached streaming | High |
 | **21** | Sound Walk Composer (Routes + OSRM) | High |
-| **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons) | High |
+| **22A** | Wake lock re-acquire + PWA installability (`start_url` 404, PNG icons). **The wake-lock half is implemented in the working tree 2026-11-11, uncommitted and undeployed** — the player now recovers audio, the lock and GPS reporting when it returns to the foreground. Installability is untouched | High |
 | **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
-| **23** | **Physical Loudness Model** — Phase 0 **deployed and simulator-verified 2026-11-09**. Walk test + reverb retune next; the contained kind needs a column; Phases 1-3 blocked on the open questions in the spec | High |
-| **24** | **Geolocated Ensemble** — 🔵 **possible feature, not a necessity. Blue sky; nothing here is scheduled and none of it folds into current work.** Several musicians as separate waypoints playing one piece in time; needs a shared playhead, which does not exist. Captured with segmentation, prefetch-at-selection and the BART-sonification idea. Three defects found while scoping it were promoted into **Known Issues** and the handover TODO on their own merits — they are current work regardless of whether 24 is ever built | Low |
+| **23** | **Physical Loudness Model** — Phase 0 **deployed, simulator-verified 2026-11-09 and walked 2026-11-11** (the level is much better). **The contained kind is SHELVED** — built in memory only, never persisted, no further work. Phases 1-3 remain blocked on the open questions in the spec; the reverb retune has moved into Feature 25 | High |
+| **24** | **Geolocated Ensemble** — 🔵 **possible feature, not a necessity. Blue sky; nothing here is scheduled and none of it folds into current work.** Several musicians as separate waypoints playing one piece in time; needs a shared playhead, which does not exist. Captured with segmentation, prefetch-at-selection and the BART-sonification idea. Three defects found while scoping it were promoted into **Known Issues** and the handover TODO on their own merits — they are current work regardless of whether 24 is ever built. **2026-11-11: the owner walked a soundscape and doubts separate musicians will work — each part would carry its own level, timbre and fade, so they would not sound like one ensemble even with a shared clock** | Low |
+| **25** | **Natural Spatial Sound** — 🔨 **partly built.** Owner's objective: *"natural sounding spatial sound"*. The audit documents the whole chain from file to ear, scores it against the five cues the ear uses for distance, and now records ten findings. **Two are fixed:** the master compressor, which was undoing the dynamic range the loudness model computes, is now a limiter (unheard on a walk); and **F10, the listener position trailing the walker by ~20 s**, which was found on a walk, reproduced in simulation and confirmed fixed on a second walk. **F5 is retracted** — undamped heading was *not* the cause of the moving source. Still open and largest: the muffling and reverb scales are fixed metres while loudness is per-waypoint, so both saturate inside any large circle. Approved to build next: scale the timbre cues per waypoint (answer §7 Q3 first), a map gradient out to the inaudible edge, and move the dynamic-range fraction into the editor while removing the player's volume buttons. **Next step is a walk of the limiter alone — see §8** | High |
 
-**Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23) · `FEATURE_24_GEOLOCATED_ENSEMBLE.md` (24, blue sky)
+**Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23) · `FEATURE_24_GEOLOCATED_ENSEMBLE.md` (24, blue sky) · `FEATURE_25_NATURAL_SPATIAL_SOUND.md` (25, audit — **read this first for any audio-quality question**)
 
 **Also outstanding, unrelated to caching:** the local branch and the forgotten stash both hold
 abandoned distance-envelope work and are the only things keeping ~2.9 GB of accidentally committed
@@ -513,17 +564,17 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-09 evening — **see "📌 Session handover" above first; it carries the
-current state and every open TODO.** Feature 23 Phase 0 was implemented, deployed (stamp
-`20261109175443`) and confirmed by ear in the simulator: one physical falloff curve, spatialiser
-reduced to direction, no hard cutoff, approach mirrors departure, louder/quieter control on the
-player, plus a **contained** waypoint kind (in memory only). Five bugs were found and fixed on the
-way — preloading never ran because of a type-name mismatch, the area volume slider had never done
-anything, a volume of 0 was read as "no value" in five places, sources burst at full volume on
-entry, and the simulator's own debug output described a retired model. Committed as `e092ad7`,
-`a2f81e7`, `04fc268`, `c27a9ad`, `99098f0` and one final log-correction commit. Verified by six
-throwaway `scratch/` scripts (62 + 17 + 17 + 20 checks, a before/after reproduction, and an
-approach-curve table). **Nothing has been heard on a walk.** Previous entry: 2026-11-08 — service
-worker cache-busting deadlock found, reproduced, fixed, deployed and verified on a device; added
-*How a Change Reaches the Phone*, the cleanup backlog and the scratch folder convention; repaired
-`.gitignore`; specified Feature 23.
+**Last Updated:** 2026-11-12 — **see "📌 Session handover — 2026-11-12" above first.** Two walks
+found and fixed the largest audio defect this project has had: **the listener position trailed the
+walker by about twenty seconds**, and latched there for the rest of the session after roughly a
+minute of standing still, because movement was detected by dividing a bounded smoothing gap by an
+unbounded elapsed time. Reproduced in `scratch/verify-position-lag.js` (7 checks; 18 s before,
+0.8 m after), confirmed by the owner on a second walk the same day. The status bar's GPS field now
+shows the trail in metres, amber above 10 m. **The audit's F5 is retracted** — undamped heading was
+not the cause of the moving source, and the heading stabiliser should stay off. **The master
+compressor is now a limiter** (ceiling −3 dB, hard knee, 20:1, 1 ms / 100 ms) on the owner's
+ruling, resolving contradiction C3; it is built but **has not been heard on a walk**, and the mix
+will be louder and more dynamic. Feature 25 re-baselined with decisions 8-10; `LISTENER_DRIFT_COMPENSATION.md`
+bannered as partly superseded. Previous entry: 2026-11-09 evening — Feature 23 Phase 0 implemented,
+deployed (stamp `20261109175443`) and confirmed in the simulator; five bugs found and fixed on the
+way; verified by six throwaway `scratch/` scripts; nothing had yet been heard on a walk.

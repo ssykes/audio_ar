@@ -2,10 +2,22 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.3 (Feature 23 Phase 0: Physical Loudness)
- * @depends spatial_audio.js v6.3+
+ * @version 3.5 (Listener position no longer trails the walker)
+ * @depends spatial_audio.js v6.4+
  *
  * Changelog:
+ * - v3.5: Movement is now detected from the reported positions over a short window instead of from
+ *         the gap between the smoothed and reported position divided by the time since movement was
+ *         last seen. That gap has a ceiling while the denominator grew without bound, so after about
+ *         a minute of standing still the walker could never be detected as moving again, leaving the
+ *         audio roughly twenty seconds behind for the rest of the walk. The accumulated gap is now
+ *         discarded when movement starts, the moving smoothing setting is lighter, and the transition
+ *         between settings is faster. Exposes the residual trail in metres for the status bar.
+ * - v3.4: Removed the per-second zone logging and the randomly sampled position, heading, gain and
+ *         filter lines. A change of zone is now the only recurring line, and it carries the real
+ *         fetch, silence and release distances plus the current level, so a walk can be read from
+ *         the transitions alone. The release line reports the distance the audio path actually
+ *         uses rather than recomputing it.
  * - v3.3: FEATURE 23 Phase 0: gain calls pass the disposal distance so the engine can fade a
  *         source out where it is thrown away. Zone debug labels no longer claim a 20m fade zone.
  * - v3.2: Removed non-essential debug logging from AreaManager
@@ -440,8 +452,11 @@ class SpatialAudioApp {
         this.rawListenerLat = 0;  // Store raw GPS for UI display
         this.rawListenerLon = 0;
         this.smoothingFactor = 0.1;  // 0.1 = heavy smoothing, 0.9 = minimal
-        this.lastMovementTime = 0;
-        this.movementThreshold = 0.5;  // m/s - below this = stationary
+        this.movementThreshold = 0.5;  // m/s - travel at or above this counts as moving
+        this.leaveMovementThreshold = 0.3;  // m/s - lower bar to stop counting as moving (hysteresis)
+        this.speedWindowMs = 4000;  // span of reported positions used to measure travel
+        this.positionHistory = [];  // [{lat, lon, t}] reported positions, newest last
+        this.positionLagMetres = 0;  // smoothed vs reported: how far the audio trails the walker
         this.isStationary = false;
         this.stationaryThreshold = 2000;  // ms - time to consider stationary
 
@@ -920,11 +935,6 @@ class SpatialAudioApp {
                     this.onGPSUpdate(pos.lat, pos.lon, pos.locked);
                 }
 
-                // Debug: Log GPS updates with heading
-                if (Math.random() < 0.1) {
-                    console.log(`[GPS] ${pos.locked ? '🔒' : '🔓'} pos=${pos.lat.toFixed(6)},${pos.lon.toFixed(6)} heading=${this.listener.heading.toFixed(0)}°`);
-                }
-
                 // Update sound positions based on listener movement
                 this._updateSoundPositions();
 
@@ -935,11 +945,6 @@ class SpatialAudioApp {
 
                 // Notify UI of position update
                 this._notifyPositionUpdate();
-
-                // Debug log (occasionally)
-                if (Math.random() < 0.01) {
-                    console.log(`[GPS] ${pos.locked ? '🔒 LOCKED' : '🔓 LIVE'} @ ${pos.lat.toFixed(4)}, ${pos.lon.toFixed(4)}`);
-                }
             },
             (error) => {
                 console.error('[SpatialAudioApp] GPS error:', error);
@@ -965,16 +970,7 @@ class SpatialAudioApp {
             if (!this.listener || !this.isRunning) return;
 
             // Update listener heading
-            const oldHeading = this.listener.heading;
             this.listener.setHeading(heading);
-
-            // Debug: Log compass updates
-            if (Math.abs(heading - oldHeading) > 5) {  // Only log significant changes
-                console.log(`[Compass] ${oldHeading.toFixed(0)}° → ${heading.toFixed(0)}°`);
-            } else if (Math.random() < 0.01) {
-                // Occasional heartbeat log
-                console.log(`[Compass] ${heading.toFixed(0)}° (stable)`);
-            }
 
             // Update sound positions based on heading change
             this._updateSoundPositions();
@@ -1007,11 +1003,6 @@ class SpatialAudioApp {
     _updateSoundPositions() {
         if (!this.engine || !this.listener) return;
 
-        // Debug: Log what heading we're using
-        if (Math.random() < 0.05) {
-            console.log(`[AudioApp] _updateSoundPositions: lat=${this.listener.lat.toFixed(6)}, lon=${this.listener.lon.toFixed(6)}, heading=${this.listener.heading.toFixed(0)}°`);
-        }
-
         // Always use compass for orientation (heading), GPS for position (lat/lon)
         // This prevents snapping when GPS transitions between locked/live
         // Compass provides smooth, continuous heading regardless of movement
@@ -1032,8 +1023,8 @@ class SpatialAudioApp {
             this.listener.heading
         );
 
-        // Update gain/volume based on distance (fade in/out as you approach)
-        // Fade zone handles smooth transitions (no abrupt stops)
+        // Update gain from distance for every loaded sound (FEATURE 23: one continuous
+        // physical curve, no fade zone and no plateau)
         this.sounds.forEach(sound => {
             const source = this.engine.getSource(sound.id);
 
@@ -1044,14 +1035,6 @@ class SpatialAudioApp {
                     return;
                 }
 
-                const distance = GPSUtils.distance(
-                    this.listener.lat,
-                    this.listener.lon,
-                    sound.lat,
-                    sound.lon
-                );
-
-                // Update gain from distance (FEATURE 23: physical falloff, no fade zone)
                 // CRITICAL: Must call this at any distance — it is what silences a sound that
                 // has drifted out of range
                 const fadeEnd = this._getAcousticFadeEnd(sound);
@@ -1061,13 +1044,6 @@ class SpatialAudioApp {
                     sound.volume,   // Per-waypoint trim
                     fadeEnd         // Where it goes silent, and where it is fetched on the way in
                 );
-
-                // Debug: Log gain after update (throttled)
-                if (source.lastComputedGain !== undefined && Math.random() < 0.05) {
-                    const state = distance < sound.activationRadius ? '🔊 ACTIVE' : '🌗 BEYOND RADIUS';
-                    const fade = fadeEnd === null ? '' : `, silent by ${fadeEnd}m, fades in from there`;
-                    console.log(`[AudioApp] ${sound.id} gain: ${source.lastComputedGain.toFixed(3)} @ ${distance.toFixed(1)}m (${state}${fade})`);
-                }
             }
             
             // === FEATURE 14: Update Low-Pass Filter Based on Distance ===
@@ -1082,11 +1058,6 @@ class SpatialAudioApp {
                 
                 const cutoff = this._calculateFilterCutoff(distance);
                 sound.filterNode.frequency.value = cutoff;
-                
-                // Debug: Log filter updates (throttled, 1% sampling)
-                if (Math.random() < 0.01) {
-                    console.log(`[AudioApp] ${sound.id} filter: ${cutoff.toFixed(0)}Hz @ ${distance.toFixed(1)}m`);
-                }
             }
         });
 
@@ -1104,10 +1075,6 @@ class SpatialAudioApp {
         const now = Date.now();
         if (!this.lastZoneCheck || (now - this.lastZoneCheck) > 1000) {
             this.lastZoneCheck = now;
-
-            if (this.onDebugLog) {
-                this.onDebugLog(`🔄 Checking sound zones...`);
-            }
 
             const zones = this._updateSoundZones();
 
@@ -1149,11 +1116,6 @@ class SpatialAudioApp {
                 for (const sound of zones.toDispose) {
                     this._disposeSound(sound);
                 }
-            }
-
-            // Debug: Log zone distribution (10% sampling)
-            if (Math.random() < 0.1 && this.onDebugLog) {
-                this._debugLogZoneDistribution();
             }
         }
     }
@@ -1198,33 +1160,6 @@ class SpatialAudioApp {
             sound.isPaused = false;
             sound.isLoaded = false;
             this._loadAndStartSound(sound);
-        }
-    }
-
-    /**
-     * FEATURE 13: Log zone distribution for debugging
-     * @private
-     */
-    _debugLogZoneDistribution() {
-        // Zone names must match what _getSoundZone actually returns, or the counts stay at zero
-        const byType = {
-            buffer: { active: 0, preload: 0, hysteresis: 0 },
-            oscillator: { active: 0, inactive: 0 },
-            stream: { active: 0, paused: 0, hysteresis: 0 }
-        };
-
-        this.sounds.forEach(sound => {
-            const counts = byType[sound.type];
-            if (counts && counts[sound.currentZone] !== undefined) {
-                counts[sound.currentZone]++;
-            }
-        });
-
-        if (this.onDebugLog) {
-            this.onDebugLog(`📊 Zone Distribution:`);
-            this.onDebugLog(`  Buffers: ${byType.buffer.active} active, ${byType.buffer.preload} preload, ${byType.buffer.hysteresis} hysteresis`);
-            this.onDebugLog(`  Oscillators: ${byType.oscillator.active} active, ${byType.oscillator.inactive} inactive`);
-            this.onDebugLog(`  Streams: ${byType.stream.active} active, ${byType.stream.paused} paused, ${byType.stream.hysteresis} hysteresis`);
         }
     }
 
@@ -1356,12 +1291,6 @@ class SpatialAudioApp {
             ? distance > disposeThreshold  // Use hysteresis if was in hysteresis zone
             : distance > unloadDistance;   // Normal disposal if newly entering
 
-        // DEBUG: Log zone calculation for buffers (20% sampling to avoid spam)
-        if (this.onDebugLog && Math.random() < 0.2) {
-            this.onDebugLog(`  🧮 [ZONE CALC] ${sound.id}: radius=${activationRadius}m, preloadStart=${preloadStart}m, unload=${unloadDistance}m, disposeThresh=${disposeThreshold}m`);
-            this.onDebugLog(`    distance=${distance.toFixed(1)}m | inActive=${inActiveZone}, inPreload=${inPreloadZone}, wasInHysteresis=${wasInHysteresisZone} → zone=${inActiveZone ? 'active' : inPreloadZone ? 'preload' : 'hysteresis'}, shouldDispose=${shouldDispose}`);
-        }
-
         return {
             zone: inActiveZone ? 'active' :
                   inPreloadZone ? 'preload' : 'hysteresis',
@@ -1385,11 +1314,6 @@ class SpatialAudioApp {
         const toDispose = [];
         const toResume = [];
 
-        // DEBUG: Log all sound states at start of zone check
-        if (this.onDebugLog) {
-            this.onDebugLog(`📊 [ZONE DEBUG] Checking ${this.sounds.length} sounds:`);
-        }
-
         this.sounds.forEach(sound => {
             const distance = this.getSoundDistance(sound.id);
             const zone = this._getSoundZone(sound, distance);
@@ -1399,47 +1323,31 @@ class SpatialAudioApp {
             const zoneConfig = ZoneConfig[sound.type] || ZoneConfig.buffer;
             const preloadStart = activationRadius + (zoneConfig.preloadMargin || 0);
             const disposeDistance = zone.disposeDistance;
+            const fadeEnd = this._getAcousticFadeEnd(sound);
 
-            // DEBUG: Log each sound's state
-            if (this.onDebugLog) {
-                this.onDebugLog(`  🔍 ${sound.id}: ${distance.toFixed(1)}m | loaded=${sound.isLoaded} | playing=${sound.isPlaying} | disposed=${sound.isDisposed} | zone=${sound.currentZone || 'null'}→${zone.zone}`);
-            }
-
-            // Store current zone for debugging
             const previousZone = sound.currentZone;
             sound.currentZone = zone.zone;
 
-            // Detect zone changes (for logging)
+            // A zone change is the only recurring event worth a line. This pass runs every second
+            // for every sound, so anything logged unconditionally here fills the phone's debug
+            // panel in minutes and buries the load and dispose events that matter. The bounds ride
+            // along with the change so one line says where a sound is fetched, silenced and let go.
             if (previousZone !== zone.zone && this.onDebugLog) {
-                this.onDebugLog(`📍 ${sound.id} (${sound.type}): ${previousZone || 'unknown'} → ${zone.zone} (${distance.toFixed(1)}m, radius=${activationRadius}m)`);
+                const level = sound.sourceNode && sound.sourceNode.lastComputedGain !== undefined
+                    ? `${(sound.sourceNode.lastComputedGain * 100).toFixed(1)}% of peak`
+                    : 'no level yet';
+                this.onDebugLog(`📍 ${sound.id} (${sound.type}): ${previousZone || 'unknown'} → ${zone.zone}`
+                    + ` at ${distance.toFixed(1)}m | radius ${activationRadius}m`
+                    + ` | fetched inside ${preloadStart}m`
+                    + ` | silent beyond ${fadeEnd === null ? 'n/a' : fadeEnd + 'm'}`
+                    + ` | disposed beyond ${disposeDistance === null ? 'n/a' : disposeDistance + 'm'}`
+                    + ` | ${level}`);
             }
 
             // Log detailed state when entering loading zone (preload or active)
             if (zone.shouldLoad && !sound.isLoaded && !sound.isLoading && this.onDebugLog) {
                 const zoneType = zone.zone === 'active' ? '🔊 WITHIN RADIUS' : '📦 PRELOAD ZONE';
                 this.onDebugLog(`🎯 ${zoneType}: ${sound.id} | distance=${distance.toFixed(1)}m | activationRadius=${activationRadius}m | shouldLoad=${zone.shouldLoad} | isLoaded=${sound.isLoaded} | isLoading=${sound.isLoading} | isPlaying=${sound.isPlaying} | isDisposed=${sound.isDisposed}`);
-            }
-
-            // Log when sound is within activation radius (should play)
-            if (zone.shouldPlay && this.onDebugLog) {
-                const state = sound.isLoaded ? (sound.isPlaying ? '✅ PLAYING' : '⏸️ STOPPED') : '⏳ NOT LOADED';
-                const gain = sound.sourceNode && sound.sourceNode.lastComputedGain !== undefined
-                    ? sound.sourceNode.lastComputedGain.toFixed(3)
-                    : 'N/A';
-                this.onDebugLog(`🔊 WITHIN RADIUS (${distance.toFixed(1)}m < ${activationRadius}m): ${sound.id} | ${state} | gain=${gain}`);
-            }
-
-            // Log when sound is beyond its radius but still loaded and quietly audible
-            // (FEATURE 23: there is no fade zone any more — level just keeps falling with distance)
-            const fadeEnd = this._getAcousticFadeEnd(sound);
-            const beyondRadius = distance > activationRadius
-                && (disposeDistance === null || distance <= disposeDistance);
-            if (beyondRadius && this.onDebugLog && Math.random() < 0.05) {
-                // The fade completes where the sound is fetched, well short of disposal
-                const fadeNote = fadeEnd === null
-                    ? 'no distance fade'
-                    : `silent by ${fadeEnd}m, disposed by ${disposeDistance}m`;
-                this.onDebugLog(`🌗 BEYOND RADIUS: ${sound.id} | distance=${distance.toFixed(1)}m | radius=${activationRadius}m | ${fadeNote} | loaded=${sound.isLoaded} | playing=${sound.isPlaying}`);
             }
 
             // CRITICAL: Clear isDisposed when entering active/preload zone
@@ -1496,30 +1404,14 @@ class SpatialAudioApp {
             }
 
             if (zone.shouldDispose && !sound.isDisposed) {
-                // DEBUG: Log disposal decision with hysteresis info
                 if (this.onDebugLog) {
-                    const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
-                    const disposeThreshold = (activationRadius + config.preloadMargin + config.unloadMargin) + config.hysteresis;
-                    const wasInHysteresisZone = previousZone === 'hysteresis';
-                    this.onDebugLog(`  🗑️ [DISPOSE] ${sound.id}: zone=${zone.zone}, distance=${distance.toFixed(1)}m, activationRadius=${activationRadius}m, previousZone=${previousZone}, wasInHysteresis=${wasInHysteresisZone}, disposeThreshold=${disposeThreshold}m`);
+                    this.onDebugLog(`🗑️ [DISPOSE] ${sound.id} at ${distance.toFixed(1)}m`
+                        + ` | disposed beyond ${disposeDistance === null ? 'n/a' : disposeDistance + 'm'}`
+                        + ` | previous zone ${previousZone || 'unknown'}`);
                 }
                 toDispose.push(sound);
             }
         });
-
-        if (this.onDebugLog && (toLoad.length > 0 || toPreload.length > 0 || toDispose.length > 0)) {
-            this.onDebugLog(`📦 Zone results: ${toLoad.length} to load, ${toPreload.length} to preload, ${toDispose.length} to dispose`);
-        }
-
-        // DEBUG: Log summary of all sound states
-        if (this.onDebugLog) {
-            const activeCount = this.sounds.filter(s => s.currentZone === 'active').length;
-            const preloadCount = this.sounds.filter(s => s.currentZone === 'preload').length;
-            const hysteresisCount = this.sounds.filter(s => s.currentZone === 'hysteresis').length;
-            const loadedCount = this.sounds.filter(s => s.isLoaded && !s.isDisposed).length;
-            const disposedCount = this.sounds.filter(s => s.isDisposed).length;
-            this.onDebugLog(`📊 [ZONE SUMMARY] active=${activeCount}, preload=${preloadCount}, hysteresis=${hysteresisCount} | loaded=${loadedCount}, disposed=${disposedCount}, total=${this.sounds.length}`);
-        }
 
         return { toLoad, toPreload, toDispose, toResume };
     }
@@ -2128,35 +2020,30 @@ class SpatialAudioApp {
             this.smoothedListenerLon = lon;
         }
 
-        // === Adaptive Smoothing (Stationary Detection) ===
-        // Detect if user is stationary vs moving
+        // === Adaptive Smoothing (movement detection) ===
         const now = Date.now();
-        const distance = this._calculateDistance(
-            this.smoothedListenerLat,
-            this.smoothedListenerLon,
-            lat,
-            lon
-        );
-        const timeDiff = this.lastMovementTime > 0 ? (now - this.lastMovementTime) / 1000 : 1;
-        const speed = distance / timeDiff;
+        const speed = this._measureTravelSpeed(lat, lon, now);
 
-        // Detect if stationary (speed below threshold)
-        if (speed < this.movementThreshold) {
+        // Hysteresis, so GPS jitter around the threshold cannot make the two states chatter.
+        const wasStationary = this.isStationary;
+        if (wasStationary) {
+            if (speed >= this.movementThreshold) this.isStationary = false;
+        } else if (speed < this.leaveMovementThreshold) {
             this.isStationary = true;
-        } else {
-            this.isStationary = false;
-            this.lastMovementTime = now;
         }
 
-        // Apply adaptive smoothing: aggressive when stationary, responsive when moving
-        const targetSmoothing = this.isStationary ? 0.05 : 0.3;
-        this.smoothingFactor = this._lerp(this.smoothingFactor, targetSmoothing, 0.1);
-
-        // Debug logging (occasionally)
-        if (Math.random() < 0.02 && this.onDebugLog) {
-            const mode = this.isStationary ? '🔒 STATIONARY' : '🚶 MOVING';
-            this.onDebugLog(`${mode} smoothing=${this.smoothingFactor.toFixed(3)} (speed: ${speed.toFixed(2)} m/s)`);
+        // The gap that opens up while stationary is filter lag, not travel, so it is discarded
+        // the moment real movement starts. Trailing it instead left the audio tens of metres
+        // behind the walker for the rest of the walk.
+        if (wasStationary && !this.isStationary) {
+            this.smoothedListenerLat = lat;
+            this.smoothedListenerLon = lon;
         }
+
+        // Heavy smoothing while stationary is what keeps the soundfield steady against GPS drift,
+        // so it stays. Light smoothing while moving keeps the trail inside GPS accuracy.
+        const targetSmoothing = this.isStationary ? 0.05 : 0.6;
+        this.smoothingFactor = this._lerp(this.smoothingFactor, targetSmoothing, 0.4);
 
         // === Exponential Moving Average (EMA) ===
         const smoothedLat = (this.smoothingFactor * lat) +
@@ -2167,15 +2054,38 @@ class SpatialAudioApp {
         this.smoothedListenerLat = smoothedLat;
         this.smoothedListenerLon = smoothedLon;
 
+        this.positionLagMetres = this._calculateDistance(smoothedLat, smoothedLon, lat, lon);
+
         // Update listener with smoothed position
         if (this.listener) {
             this.listener.update(smoothedLat, smoothedLon, heading);
         }
+    }
 
-        // Debug: Log what heading we're using
-        if (Math.random() < 0.05) {
-            console.log(`[AudioApp] _updateListenerPosition: lat=${smoothedLat.toFixed(6)}, lon=${smoothedLon.toFixed(6)}, heading=${heading.toFixed(0)}°`);
+    /**
+     * Measure travel speed from the reported positions over a short window.
+     * Net displacement across several readings, so random GPS drift largely cancels
+     * while real movement accumulates. The previous version divided the gap between
+     * the smoothed and reported position by the time since movement was last detected:
+     * that gap has a ceiling while the denominator grows without bound, so once a minute
+     * or so of standing still had passed, walking could never be detected again.
+     *
+     * @private
+     * @returns {number} Speed in m/s
+     */
+    _measureTravelSpeed(lat, lon, now) {
+        this.positionHistory.push({ lat, lon, t: now });
+
+        while (this.positionHistory.length > 2 &&
+               now - this.positionHistory[0].t > this.speedWindowMs) {
+            this.positionHistory.shift();
         }
+
+        const oldest = this.positionHistory[0];
+        const spanSec = (now - oldest.t) / 1000;
+        if (spanSec < 0.2) return 0;
+
+        return this._calculateDistance(oldest.lat, oldest.lon, lat, lon) / spanSec;
     }
 
     /**
