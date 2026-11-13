@@ -2,10 +2,19 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.5 (Listener position no longer trails the walker)
+ * @version 3.6 (Air absorption scaled to each waypoint)
  * @depends spatial_audio.js v6.4+
  *
  * Changelog:
+ * - v3.6: FEATURE 25 decision 2 and 12. The dullness sweep now spans each waypoint's own reach
+ *         instead of a fixed 80 m for every circle, so a large circle no longer saturates well
+ *         inside its edge and stop carrying distance information. The sweep is exponential
+ *         rather than linear, so each metre buys the same perceived amount of dulling. The band
+ *         is shared by every source type, so a synthesised or streamed source is not made dull
+ *         almost immediately by having no download margin. The floor is diallable and exposed in
+ *         the editor's simulator; the owner set it to 1.4 kHz by ear on 2026-11-13 (decision 13),
+ *         down from the 5 kHz this build first shipped with and up from the old 1 kHz clamp.
+ *         Known cost, measured: a 20 m circle is now about a quarter duller at 40 m than it was.
  * - v3.5: Movement is now detected from the reported positions over a short window instead of from
  *         the gap between the smoothed and reported position divided by the time since movement was
  *         last seen. That gap has a ceiling while the denominator grew without bound, so after about
@@ -355,6 +364,24 @@ class Sound {
  * that wide. 40m keeps the audible reach the shape it was before, and gives ~30 seconds of walking
  * time to fetch and decode a sound before it can be heard.
  */
+
+/**
+ * FEATURE 25: the band over which a waypoint's distance cues sweep, in metres.
+ *
+ * Deliberately NOT read from ZoneConfig. The margin there is a loading concern — how much lead
+ * time a file needs to download — while this is an acoustic one: how far the timbre cue stretches
+ * beyond the circle. They are equal today (both 40) and must be kept in step for file sources,
+ * because a source goes silent where it is fetched. But an artificial or streamed source has no
+ * download to wait for, so its loading margin is zero or undefined; scaling the timbre to that
+ * would take it from full brightness to maximally muffled inside its own radius. Every source
+ * type therefore gets the same notional band, so two sources with the same radius sound the same
+ * at the same distance whatever they are.
+ *
+ * If the fetch distance ever becomes level-derived (Feature 23 Phase 3), revisit this: the two
+ * would stop agreeing for file sources.
+ */
+const TIMBRE_BAND_METRES = 40;
+
 const ZoneConfig = {
     // Buffers (MP3/WAV): Standard 3-zone lazy loading
     buffer: {
@@ -459,6 +486,16 @@ class SpatialAudioApp {
         this.positionLagMetres = 0;  // smoothed vs reported: how far the audio trails the walker
         this.isStationary = false;
         this.stationaryThreshold = 2000;  // ms - time to consider stationary
+
+        // === FEATURE 25: air absorption, scaled to each waypoint ===
+        // The highest frequency still passing at the far end of a waypoint's reach. Lower is
+        // duller. Both ends stay diallable in the simulator. The floor was dialled to 1400 by
+        // ear and confirmed by the owner outside the waypoint circle on 2026-11-13. The old
+        // curve was linear in cutoff over a fixed 80 m and clamped at 1000 Hz, which saturated
+        // inside any large circle and was far more aggressive than the real air absorption it
+        // imitated.
+        this.airAbsorptionFloorHz = 1400;
+        this.airAbsorptionCeilingHz = 20000;
 
         // === FEATURE 13: Lazy Loading Zone Management ===
         this.lastZoneCheck = 0;  // Timestamp of last zone update (throttle to 1/sec)
@@ -1056,7 +1093,7 @@ class SpatialAudioApp {
                     sound.lon
                 );
                 
-                const cutoff = this._calculateFilterCutoff(distance);
+                const cutoff = this._calculateFilterCutoff(distance, sound);
                 sound.filterNode.frequency.value = cutoff;
             }
         });
@@ -2123,27 +2160,59 @@ class SpatialAudioApp {
     }
 
     /**
-     * FEATURE 14: Calculate low-pass filter cutoff frequency based on distance
-     * Simulates air absorption (high frequencies lost over distance)
-     * 
-     * Real-world physics: Air, ground, and turbulence absorb high frequencies
-     * more than low frequencies, making distant sounds seem muffled.
+     * FEATURE 25: how far a waypoint's timbre cue stretches, in metres.
      *
-     * @param {number} distance - Distance to sound in meters
-     * @returns {number} Cutoff frequency in Hz
+     * The cue runs from full brightness at the source to its floor where the sound goes silent,
+     * so every waypoint sweeps the whole range across its own reach instead of saturating at a
+     * fixed distance. Shared by every source type — see TIMBRE_BAND_METRES.
+     *
+     * @param {Sound} sound
+     * @returns {number} Reach in metres
+     * @private
      */
-    _calculateFilterCutoff(distance) {
-        // Configuration constants
-        const MIN_FREQ = 1000;    // Muffled at max distance (like distant thunder)
-        const MAX_FREQ = 20000;   // Full spectrum when close (human hearing limit)
-        const MAX_DISTANCE = 80;  // Distance where sound becomes very muffled
+    _getTimbreReach(sound) {
+        const activationRadius = (sound && sound.activationRadius) ? sound.activationRadius : 30;
+        return activationRadius + TIMBRE_BAND_METRES;
+    }
 
-        // Linear interpolation
-        const ratio = Math.min(distance / MAX_DISTANCE, 1);
-        const cutoff = MAX_FREQ - (ratio * (MAX_FREQ - MIN_FREQ));
+    /**
+     * FEATURE 25: Set the dullness floor — the highest frequency still passing at the far end of
+     * a waypoint's reach. Exposed so it can be dialled by ear in the simulator before being fixed.
+     *
+     * @param {number} hz - Floor cutoff in Hz, clamped to 500-12000
+     * @returns {number} The floor actually applied
+     */
+    setAirAbsorptionFloorHz(hz) {
+        const value = Number(hz);
+        this.airAbsorptionFloorHz = isFinite(value) ? Math.max(500, Math.min(12000, value)) : 1400;
+        return this.airAbsorptionFloorHz;
+    }
 
-        // Ensure minimum frequency (don't go completely muffled)
-        return Math.max(MIN_FREQ, cutoff);
+    /**
+     * FEATURE 14 / FEATURE 25: low-pass cutoff that simulates air absorption.
+     *
+     * Air, ground and turbulence take the highs off a distant sound. The sweep is exponential
+     * rather than linear so each metre of walking buys the same *perceived* amount of dulling:
+     * a linear fall in cutoff spends most of its travel above the range where anything audible
+     * happens, which compresses the whole cue into the last stretch.
+     *
+     * Scaled to the waypoint's own reach. The floor is set by ear, not inherited from the old
+     * 1000 Hz clamp, and the simulator slider still moves it.
+     *
+     * @param {number} distance - Distance to the sound in metres
+     * @param {Sound} [sound] - The sound, so the sweep can scale to its reach
+     * @returns {number} Cutoff frequency in Hz
+     * @private
+     */
+    _calculateFilterCutoff(distance, sound) {
+        const ceiling = this.airAbsorptionCeilingHz;
+        const floor = this.airAbsorptionFloorHz;
+        const reach = this._getTimbreReach(sound);
+
+        if (!(reach > 0) || !(floor > 0) || floor >= ceiling) return ceiling;
+
+        const t = Math.min(Math.max(distance / reach, 0), 1);
+        return ceiling * Math.pow(floor / ceiling, t);
     }
 
     /**

@@ -2989,6 +2989,25 @@ waypointsList.addEventListener('mouseout', (e) => {
 
 // Simulate/Edit toggle
 let isSimulating = false;
+
+// FEATURE 25: the dullness floor, kept here so it survives stopping and restarting a
+// simulation. Held in Hz because that is what the ear judges; the audio layer scales the
+// whole sweep to each waypoint's own reach. Dialled to 1400 by ear, 2026-11-13.
+let airAbsorptionFloorHz = 1400;
+
+function applyAirAbsorptionFloor() {
+    const audioApp = app && app.app;
+    if (audioApp && typeof audioApp.setAirAbsorptionFloorHz === 'function') {
+        audioApp.setAirAbsorptionFloorHz(airAbsorptionFloorHz);
+    }
+}
+
+document.getElementById('simAirFloorSlider').addEventListener('input', (e) => {
+    airAbsorptionFloorHz = Number(e.target.value);
+    document.getElementById('simAirFloor').textContent = `${airAbsorptionFloorHz} Hz`;
+    applyAirAbsorptionFloor();
+});
+
 document.getElementById('btnSimulate').addEventListener('click', async (e) => {
     e.stopPropagation();
     
@@ -3025,6 +3044,9 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
             addDebugLog('🎮 Calling app._startSimulation()...');
             await app._startSimulation();
             addDebugLog('✅ app._startSimulation() completed');
+            // The audio app only exists once a simulation is running, so the dialled floor
+            // has to be pushed into it here as well as on every slider move.
+            applyAirAbsorptionFloor();
         } catch (error) {
             addDebugLog('❌ Simulation start error: ' + error.message);
             console.error('Simulation error:', error);

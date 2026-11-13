@@ -58,7 +58,7 @@
     </style>
     
     <style>
-        /* Design tokens live in theme.css?v=20261109155700 (linked in <head>) */
+        /* Design tokens live in theme.css (linked in <head>) */
 
         * {
             margin: 0;
@@ -1046,6 +1046,19 @@
                     <div class="sim-stat">
                         <span>Volume:</span>
                         <span class="sim-value" id="simVolume">--</span>
+                    </div>
+
+                    <!-- FEATURE 25: dial the air-absorption sweep by ear before fixing it -->
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-sidebar);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 11px;">Brightness at far edge</span>
+                            <span class="sim-value" id="simAirFloor">1400 Hz</span>
+                        </div>
+                        <input type="range" id="simAirFloorSlider" min="500" max="12000" step="100" value="1400"
+                               style="width: 100%;" aria-label="Brightness at the far edge of a waypoint's reach">
+                        <div class="sim-help">
+                            How dull a sound gets at the far edge of its reach. Lower is duller.
+                        </div>
                     </div>
                     
                     <!-- Area Overlap Debug (Session X) -->

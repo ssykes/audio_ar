@@ -55,7 +55,7 @@ Source code (implementation)
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
 | `spatial_audio.js` | v6.5 | 2026-11-12 (master bus limits instead of compressing) |
-| `spatial_audio_app.js` | v3.5 | 2026-11-12 (listener position no longer trails the walker) |
+| `spatial_audio_app.js` | v3.6 | 2026-11-13 (dullness sweep rescaled per waypoint; floor 1400 Hz) |
 | `map_player.js` | v7.5 | 2026-11-12 (status bar shows the position trail in metres) |
 | `map_shared.js` | v6.13 | 2026-11-11 (simulator waypoint log also waits between lines) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
@@ -63,7 +63,7 @@ Source code (implementation)
 | `deploy.ps1` | - | 2026-10-13 (`theme.css` registered) |
 | `FEATURE_22_PWA_AND_UI_RESTYLE.md` | v1.0 | 2026-10-13 (Task A + Task B spec) |
 | `FEATURE_23_PHYSICAL_LOUDNESS.md` | v1.1 | 2026-11-09 (Phase 0 implemented; decisions 9-13) |
-| `FEATURE_25_NATURAL_SPATIAL_SOUND.md` | v1.1 | 2026-11-12 (re-baselined after two walks: F5 retracted, F10 added and fixed, F1 resolved, decisions 8-10) |
+| `FEATURE_25_NATURAL_SPATIAL_SOUND.md` | v1.2 | 2026-11-13 (decisions 11-13; two symptoms closed; the environment "choice" corrected — nothing can select one) |
 | `LISTENER_DRIFT_COMPENSATION.md` | - | 2026-11-12 (banner: its movement detection was replaced — do not restore it) |
 | `SERVICE_WORKER_REFACTOR.md` | v1.0 | 2026-03-21 (Feature 16B spec) |
 
@@ -107,6 +107,58 @@ They are two *independent* tasks — do them separately, they share no code.
 
 ---
 
+## 📌 Session handover — 2026-11-13
+
+### What changed
+
+- **The dullness floor is now 1400 Hz** (was 5000). The owner dialled it in the editor's
+  simulator and reported it works outside the waypoint circle. Recorded as decision 13 in the
+  Feature 25 spec. Changed in the engine's default, its setter fallback, and both the slider and
+  its label in the editor — the four places the value is held. The slider still moves it.
+- **Two long-standing symptoms are closed on the owner's report:** the aggressive fade just
+  before silence, and the ten metres it took to hear a sound again after turning back. Both are
+  off the Feature 25 §8 list. **No cause is claimed** — the position repair (deployed) and the
+  muffling rescale (working tree) both changed since they were raised, and the owner's words did
+  not separate them. Do not write a mechanism into the spec for either.
+
+### Correction to yesterday's record
+
+- **The "five environments" were described as a choice the owner could make. It is not a choice.**
+  Searched the whole project: the environment setter has **zero call sites**. Nothing can select
+  an environment, every walk has always run the default (`outdoor`), and the other four presets
+  are a table of numbers no code path reaches. Decision 11's follow-up therefore shrinks from
+  "relabel or remove the choice" to "delete dead code, or stop describing it as a choice".
+  Feature 25 §2.3 and decision 11 are both corrected.
+
+### Still outstanding, in order
+
+1. **The limiter has never been heard on a walk**, and the question it was built to answer — is
+   the piece too loud now? — is unanswered. The 1400 Hz test was **in the simulator**, not on a
+   walk (owner, 2026-11-13).
+2. **Walk the muffling rescale** (Feature 25 §8 step 6): does a large circle now carry distance
+   information all the way out, and do small circles still sound right?
+   ⚠️ Items 1 and 2 can no longer be separated. The owner deployed both together on 2026-11-13, so
+   the next walk changes two variables at once. Accepted, not ideal.
+3. **Then** dial the dynamic-range fraction — never before, it would be dialled against a sound
+   that is about to change.
+4. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
+   on nothing acoustically.
+
+### Deploy status — verified by content, 2026-11-13
+
+The owner ran the deploy after the 1400 Hz change. **Checked by downloading the two live audio
+files and reading the values out of them**, not by trusting the deploy log or a timestamp: the
+ceiling is −3 dB at 20:1 and the dullness floor is 1400. So **the limiter is live** — the
+uncertainty carried in the 2026-11-12 handover is resolved — and the muffling rescale is live too.
+
+### Uncommitted, per the standing rule
+
+The muffling rescale and the 1400 Hz floor are **deployed but still uncommitted**. Git and the
+server now disagree. The owner tested in the simulator and deployed, so the missing step in
+change → test → commit → deploy is the commit.
+
+---
+
 ## 📌 Session handover — 2026-11-12
 
 ### Where things stand
@@ -135,6 +187,8 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Walk the limiter alone.** Is the piece too loud now? Does the loudness curve read more
    clearly? While out, re-test the two things the trail was probably faking — the aggressive fade
    just before silence, and the ten metres to hear a sound again after turning back.
+   ✅ **Both re-tests closed 2026-11-13 on the owner's report.** The limiter question itself is
+   still open. See the 2026-11-13 handover.
 2. **Then build the muffling change — the direction is already settled** (Feature 25 decision 2:
    scale it to each waypoint). Decision 12 adds that §7 Q3 must be applied *with* it, not instead
    of it: today's dullness curve is absolute distance done far too aggressively and then clamped,
@@ -144,10 +198,15 @@ They are two *independent* tasks — do them separately, they share no code.
    walk approved"* how small circles sound. **The owner never said that** — that walk confirmed the
    *level* was better, and all three complaints from it concerned a 100 m circle or direction. It
    was an argument from silence, and it argued against a ruling already given. See Feature 25 §7 Q4.
+   🔨 **Built 2026-11-12, floor dialled to 1400 Hz by the owner 2026-11-13.** Uncommitted. What
+   remains is the walk, not the code.
 3. **The reverb wash is settled too** (decision 11): the owner heard no reverb at all on the
    2026-11-12 walk, so it stays as it is and the five environments stop pretending to differ —
    they change only how loud the wash is, never its character. Distance work rests on level and
    dullness, which are audible.
+   ⚠️ **Corrected 2026-11-13:** "the five environments" were never a choice anyone could make.
+   The setter has zero call sites, so only `outdoor` has ever run. The wash ruling stands; the
+   follow-up is dead code, not a misleading control.
 4. Then build, walk, then dial the dynamic-range fraction in the simulator against the new
    sound — never before.
 5. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
@@ -599,17 +658,16 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-12 — **see "📌 Session handover — 2026-11-12" above first.** Two walks
-found and fixed the largest audio defect this project has had: **the listener position trailed the
-walker by about twenty seconds**, and latched there for the rest of the session after roughly a
-minute of standing still, because movement was detected by dividing a bounded smoothing gap by an
-unbounded elapsed time. Reproduced in `scratch/verify-position-lag.js` (7 checks; 18 s before,
-0.8 m after), confirmed by the owner on a second walk the same day. The status bar's GPS field now
-shows the trail in metres, amber above 10 m. **The audit's F5 is retracted** — undamped heading was
-not the cause of the moving source, and the heading stabiliser should stay off. **The master
-compressor is now a limiter** (ceiling −3 dB, hard knee, 20:1, 1 ms / 100 ms) on the owner's
-ruling, resolving contradiction C3; it is built but **has not been heard on a walk**, and the mix
-will be louder and more dynamic. Feature 25 re-baselined with decisions 8-10; `LISTENER_DRIFT_COMPENSATION.md`
-bannered as partly superseded. Previous entry: 2026-11-09 evening — Feature 23 Phase 0 implemented,
-deployed (stamp `20261109175443`) and confirmed in the simulator; five bugs found and fixed on the
-way; verified by six throwaway `scratch/` scripts; nothing had yet been heard on a walk.
+**Last Updated:** 2026-11-13 — **see "📌 Session handover — 2026-11-13" above first.** The owner
+dialled the dullness floor to **1400 Hz** in the editor's simulator and reported it works outside
+the waypoint circle; that is now decision 13 in the Feature 25 spec and the value in all four
+places it is held. **Two long-standing symptoms are closed on the owner's report** — the aggressive
+fade just before silence, and the ten metres it took to hear a sound again after turning back —
+with **no cause claimed** for either. And one item in yesterday's record was wrong: **the five
+reverb environments were never a choice**, the setter has zero call sites and only `outdoor` has
+ever run, so decision 11's follow-up is dead code rather than a misleading control. Still open and
+next: the limiter has never been heard on a walk, and the muffling rescale has never been walked.
+Both are uncommitted or of unconfirmed deploy status — see the Feature 25 header. Previous entry:
+2026-11-12 — two walks found and fixed the listener position trailing the walker by about twenty
+seconds (reproduced in `scratch/verify-position-lag.js`, 7 checks, confirmed on a second walk), F5
+was retracted, and the master compressor became a limiter on the owner's ruling.

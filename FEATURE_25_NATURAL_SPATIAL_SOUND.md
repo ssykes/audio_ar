@@ -1,8 +1,13 @@
 # Feature 25: Natural Spatial Sound — Audit and Re-baseline
 
-**Status:** 📋 Reference document and audit. **Two items have been built:** the master limiter
-(decision 8) and the listener-position repair (F10). Everything else is still unbuilt.
-**Date:** 2026-11-11, re-baselined 2026-11-12 after two walks
+**Status:** 📋 Reference document and audit. **Three items have been built:** the master limiter
+(decision 8), the listener-position repair (F10), and the per-waypoint muffling rescale with its
+floor set to 1400 Hz (decisions 12 and 13). **All three are now live.** The position repair is
+walk-confirmed; the limiter and the muffling rescale are deployed but have never been walked.
+Deploy verified 2026-11-13 by downloading the two live audio files and reading the values out of
+them — ceiling −3 dB at 20:1, and a floor of 1400 — not by trusting a timestamp or a deploy log.
+The muffling rescale is still uncommitted in git. Everything else is unbuilt.
+**Date:** 2026-11-11, re-baselined 2026-11-12 after two walks, updated 2026-11-13
 **Supersedes:** nothing. Re-frames Feature 23 around a single objective.
 **Owner's objective, in their words:** *"What I want is natural sounding spatial sound."*
 
@@ -105,6 +110,8 @@ Three things about this that are not obvious:
   figure is computed, returned, and never used. The five environments differ **only** in how
   loud the wet path is, never in how long the tail is. A 0.25 s tail is a small-room
   ambience; it is not an outdoor space and not a cathedral.
+  **And nothing can select them.** Added 2026-11-13: the setter has zero call sites anywhere in
+  the project, so every walk has always run the default, outdoor. The other four are unreachable.
 
 ### 2.4 Direction
 
@@ -369,8 +376,9 @@ must be walked separately or neither can be attributed.
 | 8 | **The master compressor is replaced with a limiter.** Ruled 2026-11-12, resolving C3. Ceiling −3 dB, hard knee, 20:1, 1 ms attack, 100 ms release. Built; **not yet heard on a walk.** |
 | 9 | **The start-of-walk position correction stays as an immediate snap for now.** The owner noticed it and wants to listen for a while before deciding whether to spread it over a couple of seconds. **Do not change it without asking.** |
 | 10 | **The status bar's GPS field shows the position trail in metres** beside the padlock, amber above 10 m, replacing the words "Locked"/"Live". It is the instrument that makes any future position complaint diagnosable without a simulation. |
-| 11 | **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest: the environment choice currently changes only how loud the wash is, never its character, so it should either say so or go. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
+| 11 | **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest — **and smaller than it was first written up, because there is no environment choice to relabel.** Verified 2026-11-13 by searching the whole project: the setter has zero call sites, so nothing can select an environment, every walk has always run the default (outdoor), and the other four presets are a table of numbers no code path reaches. What remains is to delete the dead table and setter, or leave them and stop describing them as a choice. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
 | 12 | **The muffling build is decision 2 *plus* softening the curve.** Ruled 2026-11-12. Scaling to each waypoint stands, and §7 Q3 is applied with it rather than instead of it: today's curve is absolute distance done far too aggressively and then clamped, so rescaling it unchanged would carry that into every waypoint. The framing of "extend the range" versus "rescale" as an open choice is withdrawn — it contradicted decision 2 and rested on a claim the owner never made (§7 Q4). |
+| 13 | **The dullness floor is 1400 Hz.** Set by the owner on 2026-11-13 after dialling it in the editor's simulator, reporting that it works outside the waypoint circle. It is the highest frequency still passing at the far end of a waypoint's reach, so it fixes how dull a sound gets at its most distant. The simulator slider still moves it; do not treat 1400 as provisional, but do ask before changing it. |
 
 ---
 
@@ -428,11 +436,17 @@ must be walked separately or neither can be attributed.
     it blind risks undoing that.
 15. **Dial it by ear in the simulator first?** Cheap, one sitting, and it should be done
     *after* the muffling change, not before — see §8.
-16. **Where in the editor does it live?** Every audio setting today belongs to one waypoint or
-    one area. This is the first setting that belongs to the whole walk, so it needs a new
-    piece-level surface. Nothing like it exists.
-17. **Storage.** It becomes a column on the piece, and the migration tooling still prints a
-    green success over a real failure. Fix that, or apply the change by hand.
+16. **Where in the editor does it live?** Every *audio* setting today belongs to one waypoint or
+    one area — you select a marker and its panel opens. This is the first setting that belongs to
+    the whole walk instead.
+    ⚠️ **Corrected 2026-11-13.** This originally said a whole-walk panel would have to be invented
+    from nothing. That is wrong, and the work is smaller. The editor's main form is already
+    soundscape-wide: it holds the name, the description, the public checkbox and a "More" section
+    of whole-soundscape actions (sound library, sync, import, export, clear all, delete). What does
+    not exist is any *audio* setting in it. So the slider goes into a panel that is already there
+    and already saved as part of the soundscape — it is a new field, not a new screen.
+17. **Storage.** It becomes a column on the soundscape record, and the migration tooling still
+    prints a green success over a real failure. Fix that, or apply the change by hand.
 18. **Losing the listener's trim has one real cost, and it got smaller on 2026-11-12.** The
     player's buttons sit ahead of the master stage. Under the old compressor's soft knee they
     also changed the balance between loud and quiet sources, not just the level; under the
@@ -460,10 +474,14 @@ Next, in order:
 
 4. **Walk the limiter on its own.** Nothing else should change. The question is whether the
    piece is now too loud, and whether the loudness curve reads more clearly with nothing
-   squeezing it. While out, re-test the two observations the trail was probably faking: the
-   aggressive fade just before silence, and the ten metres it took to hear a sound again after
-   turning back. Also settle the bell (F6) if spatialisation can be switched off, and note the
+   squeezing it. Also settle the bell (F6) if spatialisation can be switched off, and note the
    position trail readout stays near a metre.
+   - ✅ **The two observations the trail was probably faking are both closed.** Reported gone by
+     the owner on 2026-11-13, while testing the new dullness sweep outside the waypoint circle:
+     no aggressive fade just before silence, and no ten-metre dead band when turning back. They
+     are off the list. *Not attributed to a cause* — the position repair and the muffling
+     rescale both changed between the report and the walks that raised them, and the owner's
+     words did not separate them.
 5. **Then build the muffling scaling. The direction is already settled by decision 2 — scale it
    to each waypoint.** What remains open is §7 Q3, and it is not an alternative to scaling but a
    correction to it: today's curve is absolute distance done far too aggressively and then
@@ -474,6 +492,13 @@ Next, in order:
    "rescale per waypoint" as an open choice and recommended the first. That contradicted
    decision 2, which the owner had already made on 2026-11-11, and the recommendation rested on
    the false claim about small circles corrected in §7 Q4.
+   🔨 **Built 2026-11-12; floor set 2026-11-13.** The sweep now spans each waypoint's own reach
+   (radius plus the shared 40 m band) and falls exponentially rather than linearly, so each metre
+   of walking buys the same perceived amount of dulling. All source types share one band, which
+   is what §7 Q7 asked for. The floor is diallable in the editor's simulator and the owner set it
+   to **1400 Hz** on 2026-11-13, reporting that it works outside the waypoint circle — down from
+   the 5000 Hz the build shipped with, and a long way above the old 1000 Hz clamp. Step 5 is done
+   in the working tree; step 6's walk is not.
 6. **Build it, then walk.** Question: does a large circle now carry distance information all
    the way out, and do small circles still sound right?
 7. **Then dial the fraction in the simulator against the new sound.** Dialling it earlier means
