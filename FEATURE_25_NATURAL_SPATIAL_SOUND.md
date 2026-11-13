@@ -369,6 +369,8 @@ must be walked separately or neither can be attributed.
 | 8 | **The master compressor is replaced with a limiter.** Ruled 2026-11-12, resolving C3. Ceiling −3 dB, hard knee, 20:1, 1 ms attack, 100 ms release. Built; **not yet heard on a walk.** |
 | 9 | **The start-of-walk position correction stays as an immediate snap for now.** The owner noticed it and wants to listen for a while before deciding whether to spread it over a couple of seconds. **Do not change it without asking.** |
 | 10 | **The status bar's GPS field shows the position trail in metres** beside the padlock, amber above 10 m, replacing the words "Locked"/"Live". It is the instrument that makes any future position complaint diagnosable without a simulation. |
+| 11 | **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest: the environment choice currently changes only how loud the wash is, never its character, so it should either say so or go. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
+| 12 | **The muffling build is decision 2 *plus* softening the curve.** Ruled 2026-11-12. Scaling to each waypoint stands, and §7 Q3 is applied with it rather than instead of it: today's curve is absolute distance done far too aggressively and then clamped, so rescaling it unchanged would carry that into every waypoint. The framing of "extend the range" versus "rescale" as an open choice is withdrawn — it contradicted decision 2 and rested on a claim the owner never made (§7 Q4). |
 
 ---
 
@@ -386,12 +388,21 @@ must be walked separately or neither can be attributed.
    ones at all. Compare the two against each other before choosing.
 4. **Know the cost of scaling.** For a 20 m waypoint, scaling to its own reach leaves the
    inside of the circle almost unchanged but makes the outer approach clearly duller — roughly
-   a third more at 40 m, and much more at the edge. **The 2026-11-11 walk approved how small
-   waypoints currently sound**, so this changes something that has already passed a listen.
+   a third more at 40 m, and much more at the edge.
+   ⚠️ **Corrected 2026-11-12.** This item originally continued *"the 2026-11-11 walk approved
+   how small waypoints currently sound, so this changes something that has already passed a
+   listen."* **The owner never said that.** What the 2026-11-11 walk is recorded as confirming
+   is that *the level* is much better — a statement about loudness, not about dullness. All
+   three complaints from that walk concerned a 100 m circle or the direction of a sound; nothing
+   was said about small circles in either direction. The claim was an argument from silence, and
+   it was then used to argue against decision 2, which the owner had already made. **The cost
+   above is still real arithmetic and still worth listening for — it is simply not a reason to
+   override a ruling that was already given.**
 5. **Bands or a curve?** Scaling the reverb bands moves the steps; making the reverb
    continuous removes them. Two different changes, only one of which has been asked for.
-6. **How wet should outdoors be at all?** Rescaling where it rises does not change that 15%
-   is the ceiling. Did the wash on the walk feel present, absent, or right?
+6. ✅ **Answered 2026-11-12 — how wet should outdoors be at all?** *Absent.* The owner noticed
+   no reverb at all on the 2026-11-12 walk, approaching and departing. Ruled: leave the wash
+   alone and stop pretending the five environments differ. See decision 11.
 7. **Artificial sources.** Anything not fetched 40 m out has a much shorter reach, so scaling
    to it would make oscillators dull almost immediately. They need a rule.
 8. **Areas.** Presumably out of scope — but say so, or the map ends up with waypoints that
@@ -453,11 +464,16 @@ Next, in order:
    aggressive fade just before silence, and the ten metres it took to hear a sound again after
    turning back. Also settle the bell (F6) if spatialisation can be switched off, and note the
    position trail readout stays near a metre.
-5. **Then decide the muffling and reverb scaling** — and answer §7 Q3 first. Today's curve is
-   absolute distance done far too aggressively and then clamped, not absolute distance done
-   right. Extending the range and softening the floor would fix large circles without touching
-   small ones, which the 2026-11-11 walk already approved. Rescaling to each waypoint's own
-   reach changes those small circles. Compare the two before choosing.
+5. **Then build the muffling scaling. The direction is already settled by decision 2 — scale it
+   to each waypoint.** What remains open is §7 Q3, and it is not an alternative to scaling but a
+   correction to it: today's curve is absolute distance done far too aggressively and then
+   clamped, so rescaling it as it stands would carry that over-aggressiveness into every
+   waypoint. Build the two together — rescale to the waypoint's own reach *and* soften the curve
+   toward what real air actually does.
+   ⚠️ **Corrected 2026-11-12.** This step originally presented "extend the range" versus
+   "rescale per waypoint" as an open choice and recommended the first. That contradicted
+   decision 2, which the owner had already made on 2026-11-11, and the recommendation rested on
+   the false claim about small circles corrected in §7 Q4.
 6. **Build it, then walk.** Question: does a large circle now carry distance information all
    the way out, and do small circles still sound right?
 7. **Then dial the fraction in the simulator against the new sound.** Dialling it earlier means

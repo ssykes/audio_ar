@@ -135,21 +135,41 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Walk the limiter alone.** Is the piece too loud now? Does the loudness curve read more
    clearly? While out, re-test the two things the trail was probably faking — the aggressive fade
    just before silence, and the ten metres to hear a sound again after turning back.
-2. **Then settle the muffling question (§7 Q3)** before building: today's dullness curve is
-   absolute distance done far too aggressively and then clamped, not absolute distance done
-   right. Extending the range and softening the floor fixes large circles without touching the
-   small ones the 2026-11-11 walk approved; rescaling per waypoint changes those too.
-3. Then build it, walk, then dial the dynamic-range fraction in the simulator against the new
+2. **Then build the muffling change — the direction is already settled** (Feature 25 decision 2:
+   scale it to each waypoint). Decision 12 adds that §7 Q3 must be applied *with* it, not instead
+   of it: today's dullness curve is absolute distance done far too aggressively and then clamped,
+   so rescaling it unchanged would carry that into every waypoint. Rescale to the waypoint's own
+   reach **and** soften the curve toward what real air does.
+   ⚠️ An earlier version of this note framed it as an open choice and claimed *"the 2026-11-11
+   walk approved"* how small circles sound. **The owner never said that** — that walk confirmed the
+   *level* was better, and all three complaints from it concerned a 100 m circle or direction. It
+   was an argument from silence, and it argued against a ruling already given. See Feature 25 §7 Q4.
+3. **The reverb wash is settled too** (decision 11): the owner heard no reverb at all on the
+   2026-11-12 walk, so it stays as it is and the five environments stop pretending to differ —
+   they change only how loud the wash is, never its character. Distance work rests on level and
+   dullness, which are audible.
+4. Then build, walk, then dial the dynamic-range fraction in the simulator against the new
    sound — never before.
-4. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
+5. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
    on nothing acoustically.
 
-### Trap re-learned today
+### Trap re-learned today — twice
 
-**A plausible mechanism written into a spec gets read as fact by the next session.** F5 ranked
+**1. A plausible mechanism written into a spec gets read as fact by the next session.** F5 ranked
 undamped heading as the likely cause of a symptom nobody had instrumented, and the sequence in §8
 was built around fixing it. Two walks contradicted it. The thing that found the real cause was a
 readout on screen and an owner willing to stand still and turn around — not more code reading.
+
+**2. An inference from silence gets recorded as the owner's approval, then used to argue against
+the owner's own ruling.** The claim *"the 2026-11-11 walk approved how small waypoints sound"* was
+never said. That walk confirmed the *level* was better; all three complaints from it concerned a
+100 m circle or direction. The absence of a complaint about small circles was written down as
+approval of them, and then used to recommend against decision 2 — which the owner had already made
+the day before. It survived until the owner asked *"what did I say about small circles? I forget."*
+
+**The check that catches both:** when a recommendation leans on something the owner supposedly
+decided or observed, find the actual words. If there are none, it is an inference — label it as one
+or drop it. A quoted decision and an inferred one look identical in a spec until someone asks.
 
 ---
 
