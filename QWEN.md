@@ -471,11 +471,26 @@ query-string fallback contradicts it. Fix the contradiction.
 - Never commit the service worker files **without also staging an HTML file**. The pre-commit hook
   exits early when no HTML is staged, so the deploy timestamp gets baked into history permanently
   and the canonical reset value is lost.
-- **The hook only strips stamps from HTML attributes** (`src=`, `href=`). A stamp inside an inline
-  script string survives it. On 2026-11-09 `navigator.serviceWorker.register('sw.js?v=…')` was
-  committed with the timestamp baked in and had to be reverted by hand — the same trap as above,
-  reached from the other direction. After committing any HTML page, check it:
+- ✅ **Fixed 2026-11-12: the hook now strips stamps anywhere in an HTML page, not just in
+  attributes.** It previously matched only `src=` and `href=`, so a stamp inside an inline script
+  string, a CSS comment or prose survived it and landed in history. It bit twice: on 2026-11-09
+  `navigator.serviceWorker.register('sw.js?v=…')` was committed with the timestamp baked in and had
+  to be reverted by hand, and again on 2026-11-12 with the same line. The added pass strips the
+  deploy's 14-digit timestamp form from any known asset extension, wherever it appears; it is
+  anchored to exactly 14 digits so a hand-written example like `?v=20260323` and every display
+  version survive. Verified against a page carrying stamps in an attribute, an inline string, a CSS
+  comment and a TODO comment — all four stripped, both survivors intact.
+  **Still worth checking after committing any HTML page:**
   `git show HEAD:map_player.html | findstr "?v="` should print nothing.
+- ⚠️ **The hook is not version controlled.** It lives only in `.git/hooks/`, so this fix exists on
+  this machine alone and a fresh clone gets no hook at all.
+- ⚠️ **Only the bash hook runs.** Git for Windows does not execute `.ps1` hooks, and the bash one
+  does not call the PowerShell one. The two had diverged: the PowerShell version already stripped
+  stamps anywhere in the file, which is why this only ever broke through the bash path. Treat the
+  bash file as the real hook and the PowerShell one as documentation.
+- **Four pages already carry baked-in stamps in history** from before the fix: `auto_rotate.html`,
+  `map_editor.html`, `single_sound_v2.html`, `soundscape_picker.html`. They self-heal the next time
+  each is committed for any other reason; a dedicated cleanup commit would clear them now.
 
 ### 🧹 Cleanup backlog
 
