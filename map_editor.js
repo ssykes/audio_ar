@@ -3008,6 +3008,84 @@ document.getElementById('simAirFloorSlider').addEventListener('input', (e) => {
     applyAirAbsorptionFloor();
 });
 
+// =====================================================================
+// FEATURE 25: peak-hold meter for the master ceiling
+// =====================================================================
+// The question the limiter was built to answer is whether the piece is now too loud, and by ear
+// that is unanswerable below about 3 dB of reduction. So read it instead. The limiter grabs a peak
+// in a millisecond and lets go over a tenth of a second, which is why this holds the worst value
+// seen rather than showing a live one: a live number flickers past while you are watching the map.
+//
+// Sampled on a timer rather than on position updates for two reasons. A parked avatar still plays
+// transients, and those are exactly what a ceiling catches. And the release is 100 ms, so a 50 ms
+// poll always lands inside the window of any event however brief the peak that caused it.
+//
+// With the device output trim removed, every listener sits at unity ahead of the ceiling, which is
+// what the simulator runs. A reading here is therefore true for any phone at any volume -- their
+// volume sits downstream of the limiter and cannot change it.
+let ceilingPeakDb = 0;
+let ceilingMeterTimer = null;
+
+function renderCeilingMeter() {
+    const peakEl = document.getElementById('simCeilingPeak');
+    const verdictEl = document.getElementById('simCeilingVerdict');
+    if (!peakEl || !verdictEl) return;
+
+    if (ceilingPeakDb === 0) {
+        peakEl.textContent = 'never';
+        peakEl.style.color = 'var(--accent-success)';
+        verdictEl.textContent = 'The mix never reached the ceiling, so nothing was limited and the '
+            + 'loudness curve arrived exactly as the model computed it.';
+        return;
+    }
+
+    const db = Math.abs(ceilingPeakDb);
+    peakEl.textContent = '-' + db.toFixed(1) + ' dB';
+
+    if (db < 3) {
+        peakEl.style.color = 'var(--accent-success)';
+        verdictEl.textContent = 'Touched, by less than 3 dB -- too little to hear. The distance '
+            + 'dynamics are intact.';
+    } else if (db < 6) {
+        peakEl.style.color = 'var(--accent-warning)';
+        verdictEl.textContent = 'Audible. The loudest moments are being held down, so the closest '
+            + 'approach to the loudest source is slightly flattened.';
+    } else {
+        peakEl.style.color = 'var(--accent-danger)';
+        verdictEl.textContent = 'Crushing. Enough sources are summing past the ceiling that '
+            + 'loudness is no longer a function of distance alone.';
+    }
+}
+
+function pollCeilingMeter() {
+    const engine = app && app.app && app.app.engine;
+    if (!engine || typeof engine.getLimiterReductionDb !== 'function') return;
+    const reduction = engine.getLimiterReductionDb();
+    if (reduction < ceilingPeakDb) {
+        ceilingPeakDb = reduction;
+        renderCeilingMeter();
+    }
+}
+
+function startCeilingMeter() {
+    ceilingPeakDb = 0;
+    renderCeilingMeter();
+    if (ceilingMeterTimer) clearInterval(ceilingMeterTimer);
+    ceilingMeterTimer = setInterval(pollCeilingMeter, 50);
+}
+
+function stopCeilingMeter() {
+    if (ceilingMeterTimer) {
+        clearInterval(ceilingMeterTimer);
+        ceilingMeterTimer = null;
+    }
+}
+
+document.getElementById('simCeilingReset').addEventListener('click', () => {
+    ceilingPeakDb = 0;
+    renderCeilingMeter();
+});
+
 document.getElementById('btnSimulate').addEventListener('click', async (e) => {
     e.stopPropagation();
     
@@ -3047,6 +3125,7 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
             // The audio app only exists once a simulation is running, so the dialled floor
             // has to be pushed into it here as well as on every slider move.
             applyAirAbsorptionFloor();
+            startCeilingMeter();
         } catch (error) {
             addDebugLog('❌ Simulation start error: ' + error.message);
             console.error('Simulation error:', error);
@@ -3055,6 +3134,12 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
     } else {
         btn.textContent = 'Simulate';
         simPanel.classList.remove('active');
+        stopCeilingMeter();
+        // The peak stays on the panel after stopping so it can be read at leisure, and is also
+        // written to the log because the panel is the first thing that scrolls away.
+        addDebugLog(ceilingPeakDb === 0
+            ? '🎚️ Ceiling: never reached'
+            : `🎚️ Ceiling: pulled down ${Math.abs(ceilingPeakDb).toFixed(1)} dB at worst`);
         addDebugLog('Simulation stopped');
 
         // Stop simulation mode (remove avatar, stop audio)

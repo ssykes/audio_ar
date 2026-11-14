@@ -54,9 +54,9 @@ Source code (implementation)
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
-| `spatial_audio.js` | v6.5 | 2026-11-12 (master bus limits instead of compressing) |
-| `spatial_audio_app.js` | v3.6 | 2026-11-13 (dullness sweep rescaled per waypoint; floor 1400 Hz) |
-| `map_player.js` | v7.5 | 2026-11-12 (status bar shows the position trail in metres) |
+| `spatial_audio.js` | v6.6 | 2026-11-13 (device output trim removed; limiter reduction readable) |
+| `spatial_audio_app.js` | v3.7 | 2026-11-13 (no position is invented; the in-range check waits for a real fix) |
+| `map_player.js` | v7.7 | 2026-11-13 (waits for GPS instead of guessing; louder/quieter buttons and Level field removed) |
 | `map_shared.js` | v6.13 | 2026-11-11 (simulator waypoint log also waits between lines) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
 | `sw.js` | v1.0 | 2026-10-13 (offline fallback page; `theme.css` precached) |
@@ -92,7 +92,7 @@ They are two *independent* tasks — do them separately, they share no code.
 1. **Feature 22A: Wake lock + PWA installability** - Audio dies silently mid-walk; installing the app 404s (~3h + device testing)
 2. **Feature 22B: Contemporary UI restyle** - Phase 2; gated on a user-supplied reference example (~2-4h per page)
 3. **Feature 16B: Service Worker Refactor** - Code quality, remove duplication (~6h)
-4. **Feature 23: Physical Loudness Model** - **Phase 0 deployed and confirmed in the simulator 2026-11-09; never heard on a walk.** One physical falloff curve, spatialiser reduced to direction, no hard cutoff, louder/quieter control on the player, plus a second *contained* waypoint kind (in memory only). Spec: [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Next step is a walk test, then retune the reverb bands — not more code.** See the handover list below for every open thread.
+4. **Feature 23: Physical Loudness Model** - **Phase 0 deployed and confirmed in the simulator 2026-11-09; walked 2026-11-11.** One physical falloff curve, spatialiser reduced to direction, no hard cutoff, plus a second *contained* waypoint kind (in memory only, now shelved). ~~Louder/quieter control on the player~~ — **removed 2026-11-13** under Feature 25 decision 4. Spec: [`FEATURE_23_PHYSICAL_LOUDNESS.md`](FEATURE_23_PHYSICAL_LOUDNESS.md). Supersedes Feature 17. **Next step is the ceiling meter in the simulator, then a walk, then retune the reverb bands — not more code.** See the handover list below for every open thread.
 5. **Feature 20: Cached Streaming** - Session cache (~7h)
 6. **Feature 21: Sound Walk Composer** - Routes + OSRM (~4h)
 7. **Test on mobile** - Verify GPS/compass with lazy loading + air absorption
@@ -120,6 +120,21 @@ They are two *independent* tasks — do them separately, they share no code.
   off the Feature 25 §8 list. **No cause is claimed** — the position repair (deployed) and the
   muffling rescale (working tree) both changed since they were raised, and the owner's words did
   not separate them. Do not write a mechanism into the spec for either.
+- **The player's louder/quieter buttons are gone** (Feature 25 decision 4, implemented). The Level
+  field went with them, the engine's trim setter is deleted so the shared mix bus stays at unity,
+  and the player clears any stored value on load so nobody keeps an adjustment they can no longer
+  see or undo. The reason is not tidiness: the trim sat **ahead** of the limiter, so pushing it up
+  drove the mix into the ceiling and flattened the distance dynamics the whole model exists to
+  guarantee. The phone's own volume sits after the limiter and cannot. Feature 23 decision 12 and
+  §5.3 are both marked superseded.
+- **The editor's simulator now has a ceiling meter** (decision 14, built). Peak-hold: it reports
+  the worst pull-down seen since the simulation started, holds the value after stopping, and has a
+  reset. Polled on a 50 ms timer rather than on position updates, because a parked avatar still
+  plays transients and the limiter's 100 ms release means a 50 ms poll cannot miss an event.
+  Zero means the ceiling was never touched and the loudness curve arrived intact. **Editor only** —
+  with the trim gone every listener sits at unity ahead of the ceiling, which is what the simulator
+  runs, so a reading there is true for any phone at any volume. Verified by
+  `scratch/verify-ceiling-meter.js` (17 checks against the real engine file).
 
 ### Correction to yesterday's record
 
@@ -132,17 +147,125 @@ They are two *independent* tasks — do them separately, they share no code.
 
 ### Still outstanding, in order
 
-1. **The limiter has never been heard on a walk**, and the question it was built to answer — is
-   the piece too loud now? — is unanswered. The 1400 Hz test was **in the simulator**, not on a
-   walk (owner, 2026-11-13).
-2. **Walk the muffling rescale** (Feature 25 §8 step 6): does a large circle now carry distance
-   information all the way out, and do small circles still sound right?
-   ⚠️ Items 1 and 2 can no longer be separated. The owner deployed both together on 2026-11-13, so
-   the next walk changes two variables at once. Accepted, not ideal.
+1. **The limiter's question is still open: is the piece too loud now?** The owner walked with it
+   live on 2026-11-13 but **did not read the ceiling meter** and said nothing about loudness either
+   way, so there is no evidence in either direction. Cheapest next step is not another walk — run a
+   simulation, park the avatar where the most sources overlap, and read the meter.
+2. ✅ **The muffling rescale is walked and accepted** (owner, 2026-11-13: *"sounded ok"*). Feature 25
+   §8 step 6 is closed. Note the walk changed two variables at once, so if anything about loudness
+   turns out to be wrong it cannot be attributed to the muffling alone.
 3. **Then** dial the dynamic-range fraction — never before, it would be dialled against a sound
-   that is about to change.
-4. Presentation work (map gradient, editor control, removing the player's volume buttons) depends
-   on nothing acoustically.
+   that is about to change. **Its importance went up today:** with the listener's trim gone it is
+   the only dynamic control left, and it is the artist's rather than the listener's.
+4. Presentation work (map gradient, editor control for the fraction) depends on nothing
+   acoustically. ~~Removing the player's volume buttons~~ — **done today.**
+
+### Rulings taken later on 2026-11-13
+
+- **The owner walked on 2026-11-13. What that settles, and what it does not.** Their words: *"I
+  didn't read the meter but the muffling rescale sounded ok. Consider it done."* So the **muffling
+  rescale is walked and accepted** — record it as "sounded ok", not as glowing. **The ceiling meter
+  was NOT read**, so the limiter's question (is the piece too loud now?) is **still open**. Do not
+  write down that the walk cleared the level: nothing was said about loudness either way, and the
+  silence is not a verdict.
+- **Built 2026-11-13: the failed-first-GPS-fix repair.** A position request that times out or is
+  refused no longer resolves to latitude/longitude zero — it resolves to nothing, the one-shot
+  in-range check is skipped rather than run against an invented coordinate, and continuous tracking
+  runs it again on the first fix it accepts. Fixes are now tested for finiteness, Null Island and
+  accuracy: 40 m for the one-shot startup decision, a looser 100 m for tracking, where smoothing
+  already handles ordinary noise and a walker in poor conditions should still hear something. The
+  player says **"Waiting for GPS"** on screen instead of standing silent with no explanation.
+  Verified by `scratch/verify-gps-first-fix.js` (31 checks against the real module, including a
+  positive control proving the "no invented position" assertion is not vacuously true).
+- **Areas are out of scope for distance cues, deliberately** (Feature 25 §7 Q8, answered). Owner:
+  *"Waypoints dull with distance; ambient beds don't. That is intended. Areas are ok the way they
+  are."* The asymmetry is a decision — do not fix it for consistency's sake.
+- **The reverb tail stays untouched** (§7 Q9, deferred). Owner: *"I can't hear it and don't have a
+  need for it yet."* Consistent with decision 11. Reopen only if reverberation becomes load-bearing.
+- **Streams are deferred until streams exist.** Owner: *"There are no streams yet."*
+- **`gain_vs_distance.html` deleted** — it documented the retired curve and nothing referenced it.
+- **Two more rulings, both recorded as decisions 15 and 16 in Feature 25.**
+  - **Listening context: noise-cancelling headphones, quiet environment, no street-noise
+    compensation.** This reframes the dynamic-range fraction: it was designed as compensation for a
+    hostile environment, and that environment is gone. Dialling should now go **up toward 1.0**, not
+    down, and the constraint to watch moves from the far end to the **near end**. It also invalidates
+    a caveat written earlier the same day claiming the simulator is too silent to dial the fraction
+    in — with nothing masking anything, a silent simulator is closer to the real condition than a
+    street is. §8 step 7 is corrected.
+  - **The editor is a desktop configuration tool.** GPS and network-economic loading are player
+    concerns. Nothing needed removing: the editor never feeds GPS to audio, the simulator places the
+    walker by dragging. It does still run distance-based loading, deliberately, so the waypoint log
+    can show intended fetch distances while composing.
+- **⚠️ One new blocking question, from the owner's own answer.** "Audible = soft speech" (~30 dB)
+  combined with the model's constant that puts a source at 50 dB at its own circle edge makes
+  audible reach come out at **exactly ten times the radius** — 200 m for a 20 m circle, against 60 m
+  today. Today's fade therefore silences every source while it is still **6–17 dB above** the
+  threshold just named. Full table and the two options in the loudness spec §5.1. **Recommended:
+  build the fetch formula against today's reach (sound unchanged), and treat extending the reach as
+  a separate decision with its own listening test — after the ceiling meter has been read**, since
+  a longer reach means more simultaneous sources. Also flagged there: every absolute dB in the model
+  rests on a calibration constant nobody has ever checked against a meter, and the trim that could
+  have adjusted it is now gone.
+- **Deferred 2026-11-13 — three items, all on the owner's instruction, none of them forgotten:**
+  - **What a source that is not a recording of a real thing is *loud*.** Owner: *"Defer it. I have
+    not had the need to do that yet. I want to get natural sound refined first."* Sharpened in
+    Feature 25 §7 Q7 — the dulling half is solved, the loudness half is still invented from the
+    radius. Reopen when an artificial source is actually placed on a map.
+  - **Presets** (Feature 23 Phase 1). Deferred with the above, which is what blocks it.
+  - **The simulator's Volume % readout**, which is still computed from the retired straight-line
+    model and so reads 0% outside every circle even though a sound is audible ~40 m beyond it. The
+    fix is to read the level the engine is actually applying — the same accessor the waypoint log
+    below the panel already uses — rather than computing a second opinion. Cheap, and it misleads
+    anyone judging an approach in the simulator, but deferred.
+
+### Later still — the site bed, and one blocking number
+
+- **The listening context is the site, not silence** (decision 15 amended). The owner found the mix
+  *more engaging* with the earbuds in transparency mode, and the reason is that a reproduced source
+  needs a reference to be judged against — in a sealed silent ear nothing is "out there", so every
+  source sounds close and inside the head. **Passthrough, not microphone capture**: no latency, no
+  battery cost, no microphone on a playback path that has never had one. The player's only job is to
+  recommend transparency mode once, in plain words. **Not built.**
+- **The site bed is an editor-only reference tool, not content** (decision 17). Its *audio does not
+  ship*; what ships is the ambient **level**, which replaces the model's hard-coded "typical street"
+  constant. Two jobs: give the model a real anchor, and give the simulator an ambient floor — without
+  which it cannot answer "is the far end too quiet", because there is nothing to be quiet against.
+  Level is set **by ear against a waypoint**, which is valid uncalibrated: bed and waypoints reach
+  the ear through the same headphones at the same volume, so the relationship holds even when the
+  absolute figure does not. The owner will record the actual site.
+- **Do not reach for white noise as the bed** (decision 18). The distance cue is high-frequency
+  content being removed, and white noise is weighted toward exactly those frequencies — masking
+  against it means judging the dullness cue through a masker that eats it, so the floor gets set too
+  bright. Pink noise is the acceptable stand-in; a real site recording is better and nearly free.
+- 🔴 **BLOCKING, and it came out of the owner's own answer.** "Audible = 10 dB above the bed" cannot
+  be applied as stated. The model defines a source's level so that **at the circle's edge it equals
+  the ambient constant exactly** — margin 0 dB by construction — so a +10 dB margin puts the
+  audibility boundary at **0.32 × radius**: a 20 m waypoint heard only from 6 m away, deep inside its
+  own circle, contradicting every walk on record. Today's shipped behaviour corresponds to about
+  **−10 dB**. Full table and the two options are in the loudness spec §5.1. **Resolved 2026-11-13:
+  neither option is taken — see the next bullet.**
+- **The margin question dissolved, because the bed is optional and the owner dials on site.** Two
+  facts changed it: a soundscape may have **no bed at all**, and the owner may **adjust dynamic range
+  at the site using the editor on an iPad**. With no bed the ambient number is a guess, so baking a
+  margin into it would dress a guess as a fact; and dialling the fraction while standing in the real
+  ambient calibrates it perceptually, which makes the numeric margin not load-bearing for how the
+  piece sounds. **So today's behaviour stands** — circle edge equals ambient, distinct sources
+  carrying below it — and the ambient level becomes a **declared per-piece number with a default**,
+  not something that requires a recording. The bed recording is now an *optional* authoring aid for
+  when the owner is away from the site; on site, the real ambient is the reference and is better.
+- **Decision 16 needs amending: the editor is not desktop-only.** It runs on an iPad at the site. It
+  still needs no GPS — the walker is placed by dragging the avatar, which is more repeatable than
+  walking — but touch usability and the simulator's audio now matter as an on-site instrument.
+- **This also settles the fraction's home for good.** If the artist dials it on site with the editor,
+  it belongs on the piece (decision 5 confirmed) and no listener-side control is needed. The earlier
+  "maybe it belongs on the phone" instinct is answered: the artist *is* at the site.
+- ✅ **Correction — the fetch-distance work was never blocked on the margin.** It was recorded as
+  blocked, which was wrong. The owner already approved building it against **today's** acoustic reach
+  (radius + 40 m), which does not involve the margin at all; the margin only mattered for the
+  *other* option, extending acoustic reach, which is deferred. **The fetch work can proceed.** Its
+  one real constraint: today the final fade is anchored to the disposal distance, so moving disposal
+  outward would stretch the fade and change the sound. The fade must stay anchored at radius + 40 m
+  while only the fetch and disposal distances move. Cap 400 m, ~1 Mbit/s assumed.
 
 ### Deploy status — verified by content, 2026-11-13
 
@@ -151,11 +274,20 @@ files and reading the values out of them**, not by trusting the deploy log or a 
 ceiling is −3 dB at 20:1 and the dullness floor is 1400. So **the limiter is live** — the
 uncertainty carried in the 2026-11-12 handover is resolved — and the muffling rescale is live too.
 
-### Uncommitted, per the standing rule
+### Committed after deploying — the order was inverted, and it is now closed
 
-The muffling rescale and the 1400 Hz floor are **deployed but still uncommitted**. Git and the
-server now disagree. The owner tested in the simulator and deployed, so the missing step in
-change → test → commit → deploy is the commit.
+The muffling rescale and the 1400 Hz floor were **deployed first and committed afterwards**, so
+for a few hours git and the server disagreed. Committed as `77573bb` and pushed on 2026-11-13; the
+pre-commit hook stripped the deploy stamps from the editor page and a check confirmed no `?v=`
+string reached history. **Git and the server now agree on the audio path.**
+
+Still uncommitted, both prior-session work that is already live and unrelated to the above: the
+simulator waypoint log's time floor, and the Feature 23 spec's walked-and-shelved status update.
+The seven other modified files in the tree are deploy stamps only and should stay uncommitted.
+
+**Uncommitted and undeployed as of the end of today:** the removal of the player's volume buttons
+and the new ceiling meter in the simulator. These are user-visible, so per the standing rule they
+wait for the owner to try them before being committed.
 
 ---
 
@@ -278,8 +410,11 @@ or drop it. A quoted decision and an inferred one look identical in a spec until
 - 🟠 **`wake_lock_helper.js` is dead code** - zero call sites, yet it is loaded by `map_player.html` and precached to every phone
 - 🟠 **`offline.html` is broken** - its "Open App" button targets the same nonexistent file, and it is not in `FILES_TO_CACHE`
 - 🟡 **Docs are unreliable about which editor file is live.** `FEATURE_17_MAP_EDITOR_UI_REFACTOR.md` and `FEATURES.md` both claim `map_editor_v2.html` is in production. It is **dead**; the live editor is `map_editor.html`. Verify with `grep "location.href.*map_editor" index.html soundscape_picker.html`
-- 🟠 **Streamed sources are never disposed.** `ZoneConfig.stream` has no `preloadMargin`, so the zone maths yields `NaN` for their unload and disposal distances and `distance > NaN` is never true — a stream stays in memory for the whole session. Found 2026-11-09 while wiring Feature 23 Phase 0; **deliberately not fixed**, it is unrelated to loudness. `spatial_audio_app.js` → `_getSoundZone`, stream branch
-- 🟡 **`gain_vs_distance.html` documents the pre-Feature-23 curve.** It hard-codes the old quadratic fade and its 20 m fade zone, so anything quoted from it is now wrong. Regenerate or delete it
+- 🟠 **Streamed sources are never disposed.** `ZoneConfig.stream` has no `preloadMargin`, so the zone maths yields `NaN` for their unload and disposal distances and `distance > NaN` is never true — a stream stays in memory for the whole session. Found 2026-11-09 while wiring Feature 23 Phase 0; **deliberately not fixed**, it is unrelated to loudness. **Owner, 2026-11-13: there are no streams yet — deal with this when streams are actually built.** `spatial_audio_app.js` → `_getSoundZone`, stream branch
+- ✅ **Deleted 2026-11-13:** `gain_vs_distance.html`, which documented the pre-Feature-23 curve
+  (a hard-coded quadratic fade and its 20 m fade zone). Nothing referenced it but this file's own
+  TODO lists; it was tracked, so it is recoverable from history. Regenerate it from the real model
+  if a visual is ever wanted
 - 🟠 **Group-volume behaviors have no effect.** The volume-group rule fades the same gain node the loudness model rewrites every frame, and that rewrite cancels scheduled values first — so the fade is erased before it can be heard. Group volume therefore silently does nothing. Fixing it needs a decision, not a patch: should a group trim the per-waypoint volume the model multiplies by, or get its own gain stage between the member and the model? Found 2026-11-09 while fixing the executor state bug below; **deliberately not fixed**, it changes what the control means. `soundscape.js` → `VolumeGroupExecutor.start`; `spatial_audio.js` → `updateGainByDistance`
 - 🟡 **Behavior executors bypass lazy loading.** They start every member immediately regardless of where the walker is, on browser timers rather than the audio clock, so a soundscape carrying rules holds its whole group in memory instead of fetching by distance. **Loudness is still correct** — the per-frame distance gain applies to any loaded sound — so this is a memory and CPU cost, not an audible one. Not fixed; doing it properly needs the shared playhead (Feature 24), which is not authorised
 
@@ -647,7 +782,7 @@ things that make it fragile and expensive to reason about.
 | **22B** | Contemporary UI restyle (phase 2, reference-driven) | Medium |
 | **23** | **Physical Loudness Model** — Phase 0 **deployed, simulator-verified 2026-11-09 and walked 2026-11-11** (the level is much better). **The contained kind is SHELVED** — built in memory only, never persisted, no further work. Phases 1-3 remain blocked on the open questions in the spec; the reverb retune has moved into Feature 25 | High |
 | **24** | **Geolocated Ensemble** — 🔵 **possible feature, not a necessity. Blue sky; nothing here is scheduled and none of it folds into current work.** Several musicians as separate waypoints playing one piece in time; needs a shared playhead, which does not exist. Captured with segmentation, prefetch-at-selection and the BART-sonification idea. Three defects found while scoping it were promoted into **Known Issues** and the handover TODO on their own merits — they are current work regardless of whether 24 is ever built. **2026-11-11: the owner walked a soundscape and doubts separate musicians will work — each part would carry its own level, timbre and fade, so they would not sound like one ensemble even with a shared clock** | Low |
-| **25** | **Natural Spatial Sound** — 🔨 **partly built.** Owner's objective: *"natural sounding spatial sound"*. The audit documents the whole chain from file to ear, scores it against the five cues the ear uses for distance, and now records ten findings. **Two are fixed:** the master compressor, which was undoing the dynamic range the loudness model computes, is now a limiter (unheard on a walk); and **F10, the listener position trailing the walker by ~20 s**, which was found on a walk, reproduced in simulation and confirmed fixed on a second walk. **F5 is retracted** — undamped heading was *not* the cause of the moving source. Still open and largest: the muffling and reverb scales are fixed metres while loudness is per-waypoint, so both saturate inside any large circle. Approved to build next: scale the timbre cues per waypoint (answer §7 Q3 first), a map gradient out to the inaudible edge, and move the dynamic-range fraction into the editor while removing the player's volume buttons. **Next step is a walk of the limiter alone — see §8** | High |
+| **25** | **Natural Spatial Sound** — 🔨 **partly built.** Owner's objective: *"natural sounding spatial sound"*. The audit documents the whole chain from file to ear and scores it against the five cues the ear uses for distance. **Built and live:** the master limiter (replacing a compressor that was undoing the dynamic range the loudness model computes), the listener-position repair (F10, walk-confirmed), and the per-waypoint muffling rescale with its floor at **1400 Hz** (decisions 12, 13). **Also done 2026-11-13:** the player's volume buttons are gone (decision 4) and the editor's simulator has a peak-hold ceiling meter (decision 14). **F5 is retracted** — undamped heading was *not* the cause of the moving source. Still open and largest: the reverb bands are fixed metres while loudness is per-waypoint, though decision 11 rules the wash stays as it is. Remaining to build: the map gradient out to the inaudible edge, and the dynamic-range fraction as an editor control on the soundscape. **Next step is to read the ceiling meter in the simulator, then walk — see §8** | High |
 
 **Specs:** `FEATURE_22_PWA_AND_UI_RESTYLE.md` (22A/22B) · `FEATURE_23_PHYSICAL_LOUDNESS.md` (23) · `FEATURE_24_GEOLOCATED_ENSEMBLE.md` (24, blue sky) · `FEATURE_25_NATURAL_SPATIAL_SOUND.md` (25, audit — **read this first for any audio-quality question**)
 
@@ -658,16 +793,21 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-13 — **see "📌 Session handover — 2026-11-13" above first.** The owner
-dialled the dullness floor to **1400 Hz** in the editor's simulator and reported it works outside
-the waypoint circle; that is now decision 13 in the Feature 25 spec and the value in all four
-places it is held. **Two long-standing symptoms are closed on the owner's report** — the aggressive
-fade just before silence, and the ten metres it took to hear a sound again after turning back —
-with **no cause claimed** for either. And one item in yesterday's record was wrong: **the five
-reverb environments were never a choice**, the setter has zero call sites and only `outdoor` has
-ever run, so decision 11's follow-up is dead code rather than a misleading control. Still open and
-next: the limiter has never been heard on a walk, and the muffling rescale has never been walked.
-Both are uncommitted or of unconfirmed deploy status — see the Feature 25 header. Previous entry:
-2026-11-12 — two walks found and fixed the listener position trailing the walker by about twenty
-seconds (reproduced in `scratch/verify-position-lag.js`, 7 checks, confirmed on a second walk), F5
-was retracted, and the master compressor became a limiter on the owner's ruling.
+**Last Updated:** 2026-11-13 — **see "📌 Session handover — 2026-11-13" above first.** A busy day
+in three parts. *Morning:* the owner dialled the dullness floor to **1400 Hz** in the editor's
+simulator and reported it works outside the waypoint circle (decision 13), and closed two
+long-standing symptoms — the aggressive fade just before silence, and the ten metres it took to
+hear a sound again after turning back — **with no cause claimed for either**. One item in
+yesterday's record was also found to be wrong: **the five reverb environments were never a choice**,
+the setter has zero call sites and only `outdoor` has ever run. *Then:* the owner deployed, and the
+deploy was verified **by downloading the live files and reading the values out of them** — which
+also settled the limiter's long-running "is it live?" question. The muffling rescale was committed
+afterwards as `77573bb` and pushed. *Afternoon:* **the player's louder/quieter buttons are gone**
+(decision 4) and **the simulator has a peak-hold ceiling meter** (decision 14), verified by
+`scratch/verify-ceiling-meter.js` — 17 checks against the real engine file. Those two are
+user-visible and therefore uncommitted, per the standing rule. **Next step is to read the meter in
+the simulator, not to walk**: it answers the "is it too loud" half of the limiter question without
+leaving the house. Previous entry: 2026-11-12 — two walks found and fixed the listener position
+trailing the walker by about twenty seconds (reproduced in `scratch/verify-position-lag.js`,
+7 checks, confirmed on a second walk), F5 was retracted, and the master compressor became a limiter
+on the owner's ruling.

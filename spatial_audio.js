@@ -2,8 +2,16 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 6.5 (Master bus limits instead of compressing)
+ * @version 6.6 (Device output trim removed; limiter reduction is readable)
  * @changelog
+ *   v6.6 - FEATURE 25 decision 4. The device-local output trim is gone, so the shared mix bus stays
+ *          at unity and the listener's phone volume is the only level control. The trim sat ahead
+ *          of the limiter, which meant pushing it up drove the mix into the ceiling and flattened
+ *          the loudness dynamics the physical model exists to guarantee; the phone's volume sits
+ *          after the limiter and cannot. A stored trim is no longer read, and the player clears
+ *          any value a previous version left on the device. Added a readout of how hard the
+ *          limiter is working, which is the only way to tell whether the ceiling is ever reached -
+ *          below about 3 dB of reduction it is inaudible.
  *   v6.5 - The shared output stage is now a limiter: hard knee, 20:1, ceiling at -3 dB, 1 ms
  *          attack, 100 ms release. It was a compressor with a 12 dB knee at 4:1 starting 6 dB
  *          below full scale, which acted continuously on every moderately loud source. Because
@@ -29,7 +37,7 @@
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v6.4...');
+console.log('[spatial_audio.js] Loading v6.6...');
 
 /**
  * GPS Utility Functions
@@ -1986,29 +1994,21 @@ class SpatialAudioEngine {
         this.reverbOutputGain = null;  // Controls overall reverb output level
         this.currentReverbPreset = null;
         this.reverbEnabled = options.reverbEnabled !== false;  // Default true, can disable
-
-        // FEATURE 23: device-local output trim in dB (see setOutputTrimDb)
-        this.outputTrimDb = 0;
     }
 
     /**
-     * FEATURE 23: Device-local output trim, in dB.
+     * FEATURE 25: how hard the limiter is working right now, in dB.
      *
-     * The physical model fixes absolute levels, so this is the listener's one correction for
-     * their own headphones and ears. Applied at the shared output stage ahead of the limiter, so
-     * waypoint sources and area beds move together.
+     * Returns 0 when the mix is below the ceiling and nothing is being pulled down, and a
+     * negative number when the ceiling is being held. This is the only way to tell whether the
+     * limiter is ever reached, which by ear is impossible below about 3 dB of reduction.
      *
-     * @param {number} db - Trim in dB, clamped to ±12
-     * @returns {number} The trim actually applied
+     * @returns {number} Gain reduction in dB, 0 or negative. 0 if the engine is not built.
      */
-    setOutputTrimDb(db) {
-        const value = Number(db);
-        this.outputTrimDb = isFinite(value) ? Math.max(-12, Math.min(12, value)) : 0;
-        if (this.masterGain) {
-            this.masterGain.gain.value = Math.pow(10, this.outputTrimDb / 20);
-        }
-        console.log(`[SpatialAudioEngine] Output trim: ${this.outputTrimDb >= 0 ? '+' : ''}${this.outputTrimDb.toFixed(1)} dB`);
-        return this.outputTrimDb;
+    getLimiterReductionDb() {
+        if (!this.limiter) return 0;
+        const reduction = this.limiter.reduction;
+        return isFinite(reduction) ? Math.min(0, reduction) : 0;
     }
 
     /**
@@ -2071,9 +2071,13 @@ class SpatialAudioEngine {
             console.log('[SpatialAudioEngine] Created new AudioContext');
         }
         
-        // Master gain (FEATURE 23: carries the device-local output trim)
+        // Master gain: the shared mix bus feeding the limiter. FEATURE 25 decision 4 removed the
+        // device-local output trim that used to ride on it, so it stays at unity and the listener's
+        // phone volume is the only level control left. That is deliberate. The phone's volume sits
+        // after the limiter and so cannot reshape the distance curve; a trim here sat before it and
+        // could, because pushing the mix into the ceiling flattens exactly the loudness dynamics
+        // the physical model exists to guarantee.
         this.masterGain = this.ctx.createGain();
-        this.setOutputTrimDb(this.outputTrimDb);
 
         // Limiter, not a compressor. Its only job is to stop several concurrent sources from
         // clipping; it must not reshape the loudness curve the distance model computes. A soft
@@ -2886,7 +2890,7 @@ if (typeof module !== 'undefined' && module.exports) {
     window.levelAtDistance = levelAtDistance;
     window.physicalGain = physicalGain;
     window.fadeOutMultiplier = fadeOutMultiplier;
-    console.log('[spatial_audio.js] v6.3 (Feature 23 Phase 0: Physical Loudness) loaded');
+    console.log('[spatial_audio.js] v6.6 (device output trim removed; limiter reduction readable) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');

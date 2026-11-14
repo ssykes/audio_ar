@@ -2,10 +2,20 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.6 (Air absorption scaled to each waypoint)
+ * @version 3.7 (No position is invented; the in-range check waits for a real one)
  * @depends spatial_audio.js v6.4+
  *
  * Changelog:
+ * - v3.7: FEATURE 25. A failed or untrustworthy position request no longer resolves to latitude and
+ *         longitude zero. That invented coordinate put the walker in the Atlantic, so the one-shot
+ *         in-range check found nothing, fetched nothing, and reported no error -- silence while
+ *         standing inside a circle. Both initial-request paths now resolve null, the in-range check
+ *         is skipped rather than run against a guess, and continuous tracking runs it again on the
+ *         first fix it accepts. Fixes are tested for finiteness, Null Island and accuracy, with a
+ *         strict 40 m threshold for the one-shot startup decision and a looser 100 m one for
+ *         tracking, where smoothing already handles ordinary noise and a walker in poor conditions
+ *         should still hear something. Adds an optional waiting callback so the player can say why
+ *         it is silent.
  * - v3.6: FEATURE 25 decision 2 and 12. The dullness sweep now spans each waypoint's own reach
  *         instead of a fixed 80 m for every circle, so a large circle no longer saturates well
  *         inside its edge and stop carrying distance information. The sweep is exponential
@@ -382,6 +392,47 @@ class Sound {
  */
 const TIMBRE_BAND_METRES = 40;
 
+/**
+ * FEATURE 25: how inaccurate a position fix may be before it is discarded rather than used.
+ *
+ * Two thresholds, because the two decisions they guard are not alike. The startup range check is
+ * one-shot and decides what gets loaded for the whole walk, so a poor fix there buys silence for
+ * everything within earshot; it demands a good fix and otherwise waits. Continuous tracking already
+ * smooths, and a walker in poor conditions must still hear something, so it only rejects a fix too
+ * wild to be believed.
+ */
+const INITIAL_MAX_ACCURACY_M = 40;
+const TRACKING_MAX_ACCURACY_M = 100;
+
+/**
+ * FEATURE 25: whether a geolocation fix can be trusted to place the listener.
+ *
+ * Rejects the missing, the non-finite, and Null Island -- latitude and longitude both zero, which
+ * is what every failed position request in this project used to invent instead of reporting
+ * failure. From there every waypoint is thousands of kilometres away, nothing is in range, nothing
+ * is fetched, and the walker stands inside a circle in silence with no error shown.
+ *
+ * @param {Object} [coords] - The fix's coordinates, as the Geolocation API reports them
+ * @param {number} maxAccuracyM - Worst accepted accuracy in metres
+ * @returns {boolean} True if this fix may move the listener
+ */
+function isPositionFixUsable(coords, maxAccuracyM) {
+    if (!coords) return false;
+
+    const lat = Number(coords.latitude);
+    const lon = Number(coords.longitude);
+    if (!isFinite(lat) || !isFinite(lon)) return false;
+
+    // Nobody takes a walk at 0,0 to within a millimetre.
+    if (Math.abs(lat) < 1e-6 && Math.abs(lon) < 1e-6) return false;
+
+    // A missing accuracy is not a disqualifying one; some platforms omit it.
+    const accuracy = Number(coords.accuracy);
+    if (isFinite(accuracy) && accuracy > maxAccuracyM) return false;
+
+    return true;
+}
+
 const ZoneConfig = {
     // Buffers (MP3/WAV): Standard 3-zone lazy loading
     buffer: {
@@ -471,6 +522,11 @@ class SpatialAudioApp {
         this.onError = null;
         this.onGPSUpdate = null;  // GPS position updates (for map marker)
         this.onDebugLog = null;   // Debug log messages (for drift compensation logging)
+        this.onGPSWaiting = null; // FEATURE 25: (waiting) startup had no usable fix, or one arrived
+
+        // FEATURE 25: true from startup until the first trustworthy fix moves the listener. While
+        // it is true the in-range check has not run, so nothing has been fetched yet.
+        this.awaitingFirstFix = false;
 
         // === Listener Drift Compensation (EMA Smoothing) ===
         // Reference: Listener_DRIFT_COMPENSATION.md
@@ -570,27 +626,46 @@ class SpatialAudioApp {
             console.log('[SpatialAudioApp] AreaManager created');
 
             // Get initial GPS position FIRST
-            // Use pre-fetched position if available (avoids iOS permission race condition)
+            // Use pre-fetched position if available (avoids iOS permission race condition).
+            // FEATURE 25: a caller that already tried and got nothing passes an explicit null,
+            // which is not the same as not being asked. Re-requesting there would reopen the very
+            // permission race the pre-fetch exists to avoid, so null is honoured as "no position".
             console.log('[SpatialAudioApp] Getting initial GPS position...');
             let initialPos;
-            if (this.options.initialPosition) {
-                console.log('[SpatialAudioApp] Using pre-fetched GPS position');
+            if (this.options.initialPosition !== undefined) {
+                console.log('[SpatialAudioApp] Using pre-fetched GPS position:', this.options.initialPosition);
                 initialPos = this.options.initialPosition;
             } else {
                 console.log('[SpatialAudioApp] Requesting GPS...');
                 initialPos = await this._getInitialGPS();
             }
-            console.log('[SpatialAudioApp] GPS received:', initialPos);
 
-            console.log('[SpatialAudioApp] Updating listener position...');
-            this.listener.update(initialPos.lat, initialPos.lon, 0);
-            console.log('[SpatialAudioApp] Listener updated');
+            // FEATURE 25: with no usable fix there is nothing to place the listener at, so the
+            // listener is left where it is and the in-range check below is skipped rather than run
+            // against an invented coordinate. Continuous tracking runs the check itself the moment
+            // the first trustworthy fix arrives, so waiting costs a second or two, not the walk.
+            this.awaitingFirstFix = !initialPos;
+            if (initialPos) {
+                console.log('[SpatialAudioApp] Updating listener position...');
+                this.listener.update(initialPos.lat, initialPos.lon, 0);
+                console.log('[SpatialAudioApp] Listener updated');
+            } else {
+                console.warn('[SpatialAudioApp] No usable GPS fix at startup - waiting for tracking; nothing is in range yet');
+                if (this.onGPSWaiting) {
+                    this.onGPSWaiting(true);
+                }
+            }
 
             // Create sounds from configs
             console.log('[SpatialAudioApp] Creating sounds from configs...');
             this.sounds = this.soundConfigs.map((config, i) => {
                 // If config has distance/direction, calculate lat/lon from GPS
                 if (config.distance !== undefined && config.direction !== undefined) {
+                    // FEATURE 25: a sound placed relative to the walker cannot be positioned
+                    // without a fix. Say so rather than compute coordinates from null.
+                    if (!initialPos) {
+                        throw new Error('A sound given as distance and direction needs a starting position, and no GPS fix was available');
+                    }
                     const dirRad = config.direction * Math.PI / 180;
                     const dLat = (config.distance * Math.cos(dirRad)) / 111000;
                     const dLon = (config.distance * Math.sin(dirRad)) / (111000 * Math.cos(initialPos.lat * Math.PI / 180));
@@ -618,9 +693,15 @@ class SpatialAudioApp {
             console.log('[SpatialAudioApp] Skipping eager load - using true lazy loading');
             
             // Check for sounds already in range at startup (e.g., simulator avatar on waypoint)
-            // This ensures immediate playback if listener starts within activation radius
-            console.log('[SpatialAudioApp] Checking for sounds already in range...');
-            this._updateSoundZonesAndLoad();
+            // This ensures immediate playback if listener starts within activation radius.
+            // FEATURE 25: skipped entirely with no usable fix -- running it against an invented
+            // position is what used to load nothing at all and report no error.
+            if (initialPos) {
+                console.log('[SpatialAudioApp] Checking for sounds already in range...');
+                this._updateSoundZonesAndLoad();
+            } else {
+                console.log('[SpatialAudioApp] Skipping the in-range check - no position yet; it runs on the first trustworthy fix');
+            }
 
             // Start GPS tracking
             console.log('[SpatialAudioApp] Starting GPS tracking...');
@@ -832,24 +913,33 @@ class SpatialAudioApp {
     // ========== Private Methods ==========
 
     /**
-     * Get initial GPS position
-     * @returns {Promise<{lat: number, lon: number}>}
+     * FEATURE 25: one-shot position request for the startup range check.
+     *
+     * Resolves null rather than a made-up position when nothing trustworthy arrives. It used to
+     * resolve latitude/longitude zero on timeout or refusal, which put the listener in the Atlantic
+     * so nothing was in range, nothing was fetched, and no error was shown -- silence inside a
+     * circle with nothing on screen to explain it. Returning null makes "no position yet" a state
+     * the caller can act on instead of a coordinate that looks real.
+     *
+     * @returns {Promise<{lat: number, lon: number}|null>} A usable fix, or null
      * @private
      */
     async _getInitialGPS() {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                // GPS failed - use fallback position
-                console.warn('[GPS] Timeout - using fallback position');
-                resolve({
-                    lat: 0,
-                    lon: 0
-                });
+                console.warn('[GPS] Timeout - no initial fix; waiting for tracking instead');
+                resolve(null);
             }, 8000);
 
             navigator.geolocation.getCurrentPosition(
                 (pos) => {
                     clearTimeout(timeout);
+                    if (!isPositionFixUsable(pos.coords, INITIAL_MAX_ACCURACY_M)) {
+                        console.warn('[GPS] Initial fix rejected as unusable (accuracy:',
+                            pos.coords && pos.coords.accuracy, 'm) - waiting for tracking instead');
+                        resolve(null);
+                        return;
+                    }
                     console.log('[GPS] Position received:', pos.coords.latitude.toFixed(4), pos.coords.longitude.toFixed(4), 'accuracy:', pos.coords.accuracy.toFixed(1) + 'm');
                     resolve({
                         lat: pos.coords.latitude,
@@ -865,11 +955,8 @@ class SpatialAudioApp {
                         case 3: msg += 'Timeout'; break;
                         default: msg += error.message;
                     }
-                    console.warn('[GPS]', msg, '- using fallback position');
-                    resolve({
-                        lat: 0,
-                        lon: 0
-                    });
+                    console.warn('[GPS]', msg, '- no initial position; waiting for tracking instead');
+                    resolve(null);
                 },
                 {
                     enableHighAccuracy: false,  // Use WiFi/Cell (fast!) instead of GPS (slow)
@@ -957,6 +1044,16 @@ class SpatialAudioApp {
             (position) => {
                 if (!this.listener || !this.isRunning) return;
 
+                // FEATURE 25: discard a fix that cannot be believed rather than let it move the
+                // listener. The tracking threshold is looser than the startup one on purpose --
+                // smoothing already handles ordinary noise, and a walker in poor conditions should
+                // still hear something rather than nothing.
+                if (!isPositionFixUsable(position.coords, TRACKING_MAX_ACCURACY_M)) {
+                    console.warn('[SpatialAudioApp] Discarding unusable GPS fix (accuracy:',
+                        position.coords && position.coords.accuracy, 'm)');
+                    return;
+                }
+
                 // Use GPS tracker for smoothing and auto-lock
                 const pos = this.gpsTracker.update(
                     position.coords.latitude,
@@ -966,6 +1063,18 @@ class SpatialAudioApp {
                 // === NEW: Apply drift compensation (EMA smoothing) ===
                 // This smooths out GPS noise while preserving real movement
                 this._updateListenerPosition(pos.lat, pos.lon, this.listener.heading);
+
+                // FEATURE 25: startup had no usable fix, so the in-range check never ran and
+                // nothing was fetched. Now that the listener is somewhere real, run it. This is
+                // what turns "waiting for GPS" into sound without a second tap on play.
+                if (this.awaitingFirstFix) {
+                    this.awaitingFirstFix = false;
+                    console.log('[SpatialAudioApp] First trustworthy fix - running the in-range check that startup skipped');
+                    if (this.onGPSWaiting) {
+                        this.onGPSWaiting(false);
+                    }
+                    this._updateSoundZonesAndLoad();
+                }
 
                 // Notify UI of GPS update (for map marker) - use RAW position
                 if (this.onGPSUpdate) {
@@ -2575,10 +2684,15 @@ class AreaManager {
 
 // Export classes
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Listener, Sound, SpatialAudioApp, AreaManager };
+    module.exports = { Listener, Sound, SpatialAudioApp, AreaManager, isPositionFixUsable, INITIAL_MAX_ACCURACY_M, TRACKING_MAX_ACCURACY_M };
 } else {
     window.Listener = Listener;
     window.Sound = Sound;
     window.SpatialAudioApp = SpatialAudioApp;
     window.AreaManager = AreaManager;
+    // The player makes its own one-shot position request before the app exists, so it needs the
+    // same test rather than a second copy of it that could drift.
+    window.isPositionFixUsable = isPositionFixUsable;
+    window.INITIAL_MAX_ACCURACY_M = INITIAL_MAX_ACCURACY_M;
+    window.TRACKING_MAX_ACCURACY_M = TRACKING_MAX_ACCURACY_M;
 }

@@ -6,7 +6,8 @@ floor set to 1400 Hz (decisions 12 and 13). **All three are now live.** The posi
 walk-confirmed; the limiter and the muffling rescale are deployed but have never been walked.
 Deploy verified 2026-11-13 by downloading the two live audio files and reading the values out of
 them — ceiling −3 dB at 20:1, and a floor of 1400 — not by trusting a timestamp or a deploy log.
-The muffling rescale is still uncommitted in git. Everything else is unbuilt.
+The muffling rescale was deployed *before* it was committed; that gap is closed by `77573bb`.
+Everything else is unbuilt.
 **Date:** 2026-11-11, re-baselined 2026-11-12 after two walks, updated 2026-11-13
 **Supersedes:** nothing. Re-frames Feature 23 around a single objective.
 **Owner's objective, in their words:** *"What I want is natural sounding spatial sound."*
@@ -139,8 +140,19 @@ The whole mix passes through one master stage before it reaches the headphones:
 
 | Stage | Setting | Consequence |
 |---|---|---|
-| Output trim | Device-saved, ±12 dB in 3 dB steps, default 0 | The player's two buttons. Slated for removal — see §6 |
+| ~~Output trim~~ | ~~Device-saved, ±12 dB in 3 dB steps, default 0~~ | **Removed 2026-11-13**, implementing decision 4. The player's two buttons and the Level field are gone, the stored value is cleared on load and no longer read, and the shared mix bus stays at unity. |
 | Limiter | Ceiling at −3 dB, hard knee, 20:1, 1 ms attack, 100 ms release | Catches clipping only; leaves the loudness curve untouched below the ceiling |
+
+**Why removing the trim was the right order of operations.** The trim sat *ahead* of the limiter and
+the phone's own volume sits *after* it. Pushing the trim up drove the mix into the ceiling, which
+flattens exactly the loudness dynamics the physical model exists to guarantee — so the one control
+the listener had was the one that could break the model's central promise, and it did so invisibly,
+because pressing "louder" four times stops making peaks louder and starts crowding everything else
+underneath. The phone's volume cannot do that at any setting.
+
+A second consequence, and the reason this was done before the meter below: with no device trim,
+every listener sits at unity ahead of the ceiling, which is what the editor's simulator runs. A
+ceiling reading taken in the simulator is therefore true for any phone at any volume.
 
 **Changed 2026-11-12.** This stage was a compressor — starting at −6 dB with a 12 dB knee at
 4:1 — and it was doing dynamic-range work that the loudness model also does. Measured from the
@@ -369,7 +381,7 @@ must be walked separately or neither can be attributed.
 | 1 | **Objective restated: natural sounding spatial sound.** Where a tweak and the objective disagree, the objective wins. This document is the reference for that test. |
 | 2 | **Scale the muffling and the reverb to each waypoint** rather than to fixed 80 m and 60 m. Approved in principle; the open questions in §7 must be answered before it is built. |
 | 3 | **Map graphic:** solid fill inside the circle, an evenly spread gradient from the circle edge out to the inaudible edge, and the circle outline kept as the scale marker. Accepted that the even spread simplifies a curve whose final fade occupies only the last 20 m of the band. |
-| 4 | **The player's volume buttons go entirely.** The listener uses the phone's own volume. Anything already stored as a device trim becomes dead and must read as no adjustment. |
+| 4 | **The player's volume buttons go entirely.** The listener uses the phone's own volume. Anything already stored as a device trim becomes dead and must read as no adjustment. ✅ **Implemented 2026-11-13.** Buttons and the Level field removed from the player, the trim removed from the engine so the shared mix bus stays at unity, and the stored value is cleared on load so nobody keeps an adjustment they can no longer see or undo. |
 | 5 | **The dynamic-range fraction becomes an artistic setting on the piece**, set in the editor, not on the device. This makes it the only dynamic control left, so its default value matters more than it did. |
 | 6 | **The contained waypoint kind is shelved.** No further work; not persisted; assumed out of scope for everything below. |
 | 7 | ~~**Heading stabilisation is on hold** until a further walk establishes whether the moving source is the compass or the position.~~ **VOID 2026-11-12** — the walk established it was neither. The cause was the listener position (F10). The stabiliser stays off; there is no evidence it is needed. |
@@ -379,6 +391,11 @@ must be walked separately or neither can be attributed.
 | 11 | **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest — **and smaller than it was first written up, because there is no environment choice to relabel.** Verified 2026-11-13 by searching the whole project: the setter has zero call sites, so nothing can select an environment, every walk has always run the default (outdoor), and the other four presets are a table of numbers no code path reaches. What remains is to delete the dead table and setter, or leave them and stop describing them as a choice. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
 | 12 | **The muffling build is decision 2 *plus* softening the curve.** Ruled 2026-11-12. Scaling to each waypoint stands, and §7 Q3 is applied with it rather than instead of it: today's curve is absolute distance done far too aggressively and then clamped, so rescaling it unchanged would carry that into every waypoint. The framing of "extend the range" versus "rescale" as an open choice is withdrawn — it contradicted decision 2 and rested on a claim the owner never made (§7 Q4). |
 | 13 | **The dullness floor is 1400 Hz.** Set by the owner on 2026-11-13 after dialling it in the editor's simulator, reporting that it works outside the waypoint circle. It is the highest frequency still passing at the far end of a waypoint's reach, so it fixes how dull a sound gets at its most distant. The simulator slider still moves it; do not treat 1400 as provisional, but do ask before changing it. |
+| 14 | **The editor's simulator carries a peak-hold meter for the master ceiling.** Ruled and built 2026-11-13, after decision 4 was implemented so the reading needs no trim to interpret it. It exists because the question the limiter was built to answer — is the piece too loud now? — cannot be settled by ear: below roughly 3 dB of reduction, limiting is inaudible, and above it a listener cannot tell limiting from the piece simply being loud. The meter reports the worst pull-down seen since the simulation started, with a reset, and holds its value after stopping so it can be read at leisure. It is polled on a 50 ms timer rather than on position updates, because a parked avatar still plays transients and those are what a ceiling catches; the 100 ms release means a 50 ms poll cannot miss an event. **Editor only** — the player has no meter, deliberately, since the simulator now reads true for every phone. **Not yet read** — the owner walked on 2026-11-13 without consulting it, so decision 8's question is still open. |
+| 15 | **The listening context is noise-cancelling headphones in a quiet environment.** Ruled 2026-11-13: *"I will be using noise canceling headphones. I am not concerned with compensating for 'street noise'. Assume the player will be used in a quiet environment."* This is a bigger change than it looks, because **the dynamic-range fraction was designed as compensation for a hostile listening environment** and that environment no longer exists. Contradiction C2 framed it as a choice between keeping the full real range (far end below the street) and keeping 0.65 of it (far end audible, near end bearable) — with nothing masking the far end, the first horn of that dilemma disappears. Consequences: the fraction stops being a compromise and becomes a purely artistic choice about how much real-world range to reproduce; **the natural direction of dialling reverses, toward 1.0**; the binding constraint moves from the far end to the **near end**, because a sealed silent ear gets a source with no context — no room, no ambience — so arrival at full inferred level is more startling than the same level outdoors; and a "too quiet at distance" complaint changes meaning, since it can no longer be masking, so it points at absolute calibration rather than at the fraction. The model's street-noise constant and its "typical street" label are now misnomers and should be relabelled, though **its value must not be changed casually** — it anchors every inferred source level. **Amended the same day by decision 17: the environment is not silent, it is the site.** Passthrough of the real location replaces the sealed-ear assumption, which *strengthens* the case for dialling toward 1.0 rather than weakening it — with a real ambient floor, true physics lets distance sink below it naturally, which is what happens in the world, whereas compressing the range lifts everything back above the floor and makes it sound closer than it is. The near-end concern is also largely answered by decision 17: what made arrival startling was the absence of context, not the level. |
+| 16 | **The editor is a desktop configuration tool; GPS and network-economic loading are player concerns.** Ruled 2026-11-13. Nothing needs removing to satisfy it — the editor never feeds GPS to the audio layer, because the simulator places the walker by dragging an avatar. The simulator *does* still run distance-based loading, and that is deliberate and worth keeping: it is what lets the waypoint log show the intended fetch and silence distances while a piece is being composed. It shows them for an assumed connection, not a real one, which is the right thing for authoring. |
+| 17 | **The site bed: an editor-only reference, and the real ambient is passed through.** Ruled 2026-11-13, amending decision 15. The walker hears **the actual location**, through the earbuds' own transparency mode — the owner's finding was that the mix was *more* engaging with passthrough on, and the reason is that a reproduced source needs a reference to be judged against. In a sealed silent ear nothing is "out there", so every source sounds close and inside the head. **The bed is not content and its audio does not ship.** It exists in the editor to do two jobs: replace the model's hard-coded "typical street" ambient constant with a level the owner chose from having stood at the site, and give the simulator an ambient floor, without which it cannot answer "is the far end too quiet" because there is nothing for it to be quiet against. **What ships is the ambient level number, not the recording.** The bed's level is set **by ear against a waypoint**, which is valid despite being uncalibrated: bed and waypoints reach the ear through the same headphones at the same volume, so the relationship is correct even when the absolute figure is not. Consequence accepted: because that level also anchors the model, moving it shifts the whole piece's output level by a constant — balance and dynamics unchanged. **App-mixed microphone capture is rejected** in favour of device passthrough: no latency, no battery cost, no microphone permission on a playback path that has never had one, and no feedback risk. The player's only job is to recommend transparency mode once, in plain words. |
+| 18 | **Do not use white noise as the reference bed.** Recorded 2026-11-13 so nobody reaches for it as a shortcut. The distance cue is *high-frequency content being removed with distance* — that is what the 1400 Hz floor sets. White noise carries equal energy per hertz and so is weighted heavily toward exactly those frequencies: masking against it means judging the dullness cue through a masker that eats the cue, and the floor gets set too bright as a result. Pink noise (equal energy per octave) is the acceptable synthetic stand-in, but a real recording of the site is better and nearly free — two minutes on the phone while placing waypoints. A steady noise also masks *steadily*, whereas a forest gusts and has birds in it, so a synthetic bed flatters the setting. **The owner will record the site.** |
 
 ---
 
@@ -411,13 +428,33 @@ must be walked separately or neither can be attributed.
 6. ✅ **Answered 2026-11-12 — how wet should outdoors be at all?** *Absent.* The owner noticed
    no reverb at all on the 2026-11-12 walk, approaching and departing. Ruled: leave the wash
    alone and stop pretending the five environments differ. See decision 11.
-7. **Artificial sources.** Anything not fetched 40 m out has a much shorter reach, so scaling
-   to it would make oscillators dull almost immediately. They need a rule.
-8. **Areas.** Presumably out of scope — but say so, or the map ends up with waypoints that
-   dull with distance and beds that do not.
-9. **The reverb tail itself.** If distance is going to lean on reverberation, the 0.25 s
-   small-room tail and the dead decay settings (F3) should be settled at the same time, or
-   the rescaled cue will still sound like a small room.
+7. **Artificial sources — half answered, half still open.** The *dulling* half is settled by the
+   build: every source type shares one notional 40 m band rather than using its own loading
+   margin, so an oscillator is no longer made dull almost immediately by having no download to
+   wait for. **What is still open is the loudness half, and it is the same question Feature 23
+   Phase 1 is blocked on:** the model needs a real-world level at one metre, and for a source that
+   is not a recording of a real thing that number is invented. Today it is inferred from the radius
+   exactly as for a file, so a synthesised tone with a 30 m circle is treated as a source of
+   ~80 dB at 1 m — a claim about the physical world that nobody made. At the other end, a stated
+   preset of 140 dB stays above the mixing ceiling for roughly 800 m, so it pins the limiter for
+   most of its own reach and carries no distance information at all. Three candidate rules: keep
+   inferring from the radius, let the artist state a level, or give artificial sources one fixed
+   sensible default. **Needs an owner ruling before presets are built.**
+   ⏸️ **Deferred 2026-11-13.** Owner: *"Defer it. I have not had the need to do that yet. I want to
+   get natural sound refined first."* Presets are deferred with it. **Reopen when an artificial
+   source is actually placed on a map** — until then no shipped walk depends on the answer, because
+   every source in use is a recording.
+8. ✅ **Answered 2026-11-13 — areas are out of scope, deliberately.** Owner's ruling: *"Waypoints
+   dull with distance; ambient beds don't. That is intended. Areas are ok the way they are."* This
+   matches the reasoning already in the loudness spec — the physical point-source model does not
+   apply to a bed, because you do not get quieter walking into a forest. **The asymmetry is a
+   decision, not an oversight, and must not be "fixed" for consistency's sake.**
+9. ✅ **Deferred 2026-11-13 — leave the reverb tail alone.** Owner's ruling: *"I can't hear it and
+   don't have a need for it yet. leave it alone for now."* So the 0.25 s tail and the dead decay
+   settings (F3) both stay as they are. This is consistent with decision 11, which already left the
+   wash alone because no reverb was audible on a walk. **Reopen only if reverberation ever becomes
+   load-bearing for distance** — until then, distance rests on level and dullness, which are
+   audible.
 
 ### On the map graphic (decision 3)
 
@@ -447,12 +484,18 @@ must be walked separately or neither can be attributed.
     and already saved as part of the soundscape — it is a new field, not a new screen.
 17. **Storage.** It becomes a column on the soundscape record, and the migration tooling still
     prints a green success over a real failure. Fix that, or apply the change by hand.
-18. **Losing the listener's trim has one real cost, and it got smaller on 2026-11-12.** The
-    player's buttons sit ahead of the master stage. Under the old compressor's soft knee they
-    also changed the balance between loud and quiet sources, not just the level; under the
-    limiter they are a pure level change for anything below −3 dB, and only shift the balance
-    for sources above the ceiling. The phone's volume buttons sit after everything and cannot
-    do either. Accepted trade, recorded here so it is not rediscovered as a regression.
+18. ✅ **Done 2026-11-13 — and the cost it was weighing is now the only one left.** The player's
+    buttons sat ahead of the master stage. Under the old compressor's soft knee they also changed
+    the balance between loud and quiet sources, not just the level; under the limiter they were a
+    pure level change for anything below −3 dB, and only shifted the balance for sources above the
+    ceiling. The phone's volume buttons sit after everything and can do neither.
+    **What is genuinely lost:** on a noisy street a listener can no longer lift the faint distant
+    end toward audibility without lifting the peaks with it, because the phone's volume raises
+    everything equally. The trim could do that — pushing the mix into the ceiling held the peaks
+    while the quiet parts rose, which is a loudness maximiser in all but name. It did so by
+    flattening the distance dynamics, which is why it went. Decision 5's dynamic-range fraction is
+    the intended replacement, but it is the artist's setting for the piece rather than the
+    listener's per-street correction. Recorded here so the loss is not rediscovered as a regression.
 
 ---
 
@@ -482,6 +525,15 @@ Next, in order:
      are off the list. *Not attributed to a cause* — the position repair and the muffling
      rescale both changed between the report and the walks that raised them, and the owner's
      words did not separate them.
+   - 🎛️ **Half of this step no longer needs a walk.** Decision 14 added a ceiling meter to the
+     simulator, so "is the piece too loud" now has an instrument: run a simulation, park the
+     avatar where the most sources overlap, and read the worst pull-down. Zero means the limiter
+     never engaged and the piece sounds exactly as the model intends. What still needs a walk is
+     the other half — whether the loudness curve *reads* more clearly outdoors, and the bell.
+     ⚠️ **Not done yet.** The owner walked on 2026-11-13 but did not read the meter, and reported
+     nothing about loudness in either direction. **This step's central question is still open**, and
+     it is now the cheapest unanswered question in the whole feature — it needs a simulation, not a
+     journey.
 5. **Then build the muffling scaling. The direction is already settled by decision 2 — scale it
    to each waypoint.** What remains open is §7 Q3, and it is not an alternative to scaling but a
    correction to it: today's curve is absolute distance done far too aggressively and then
@@ -497,15 +549,34 @@ Next, in order:
    of walking buys the same perceived amount of dulling. All source types share one band, which
    is what §7 Q7 asked for. The floor is diallable in the editor's simulator and the owner set it
    to **1400 Hz** on 2026-11-13, reporting that it works outside the waypoint circle — down from
-   the 5000 Hz the build shipped with, and a long way above the old 1000 Hz clamp. Step 5 is done
-   in the working tree; step 6's walk is not.
+   the 5000 Hz the build shipped with, and a long way above the old 1000 Hz clamp. **Steps 5 and 6
+   are both closed.**
 6. **Build it, then walk.** Question: does a large circle now carry distance information all
    the way out, and do small circles still sound right?
+   ✅ **Walked and accepted 2026-11-13.** Owner's words: *"the muffling rescale sounded ok.
+   Consider it done."* Recorded as acceptance, not as praise. The walk also carried the limiter,
+   which had shipped at the same time, so nothing here separates the two — and the owner reported
+   nothing about loudness either way, so step 4's question is still open.
 7. **Then dial the fraction in the simulator against the new sound.** Dialling it earlier means
    dialling it against something about to change — and it is now doubly true, because the
    limiter has already moved the level.
-8. **Then the presentation work** — map graphic, editor control, removing the player's volume
-   buttons. It depends on nothing acoustically and can slot in anywhere.
+   ⚠️ **Corrected 2026-11-13, twice.** This step first said "dial it in the simulator", then said
+   "the simulator is the wrong room because it has no street noise". **Both were wrong, because
+   both assumed the walk happens on a street.** Decision 15 settles the listening context: noise-
+   cancelling headphones, quiet environment, no compensation for street noise. That reverses the
+   second warning — a silent simulator is now *closer* to the real listening condition than a
+   street is, so the simulator is a legitimate place to dial the fraction, provided it is dialled on
+   the same headphones the walk will use.
+   **What still has to be true:** the fraction decides how faint the far end gets, and *faint is not
+   the same as inaudible*. With nothing masking it, a faint far end is genuinely heard, so the old
+   argument for compressing the range to lift the far end no longer applies. Expect to dial **up**
+   toward 1.0, not down. See decision 15 for why the binding constraint moves to the near end.
+8. **Then the presentation work** — map graphic, editor control for the fraction. It depends on
+   nothing acoustically and can slot in anywhere.
+   ✅ **The player's volume buttons are already gone** (decision 4, implemented 2026-11-13), which
+   was the third item on this list. What remains is the map gradient out to the inaudible edge and
+   the editor control for the dynamic-range fraction — and §7 Q16 now records that the control
+   goes into a panel that already exists.
 
 **The trap that applied to step 1 no longer does** — the console quieting and interruption
 recovery are deployed. The normal order is back in force: change → owner tests → commit →

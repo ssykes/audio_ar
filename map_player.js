@@ -2,20 +2,22 @@
  * MapPlayerApp - Player-specific implementation
  * Extends MapAppShared with player functionality
  *
- * @version 7.5 - Status bar shows how far the audio trails the reported position
+ * @version 7.7 - No position is invented when GPS fails: the player waits, says so, and loads on
+ *                the first trustworthy fix. Also removes the louder/quieter buttons and the device
+ *                output trim (Feature 25 decision 4); the phone's own volume is the only control.
  *
  * Features:
  * - Auto-sync on page load (timestamp-based)
  * - Read-only UI (no editing)
  * - GPS/Compass tracking
  * - Icon bar with floating toolbar
- * - Bottom status bar (GPS lock + position trail + Heading + Sounds + Level)
+ * - Bottom status bar (GPS lock + position trail + Heading + Sounds)
  * - Debug modal with copy to clipboard
  * - Debug modal with force update button (clear SW cache)
  * - Recovers when the page returns to the foreground after a call or the notification shade
  */
 
-console.log('[map_player.js] Loading v7.5...');
+console.log('[map_player.js] Loading v7.7...');
 
 class MapPlayerApp extends MapAppShared {
     constructor() {
@@ -447,65 +449,12 @@ class MapPlayerApp extends MapAppShared {
             debugUpdateBtn.addEventListener('click', this._forceSWUpdate.bind(this));
         }
 
-        // FEATURE 23: output level (louder / quieter), saved on this device only
-        const quieterBtn = document.getElementById('quieterBtn');
-        if (quieterBtn) {
-            quieterBtn.addEventListener('click', () => this._adjustOutputTrim(-3));
-        }
-        const louderBtn = document.getElementById('louderBtn');
-        if (louderBtn) {
-            louderBtn.addEventListener('click', () => this._adjustOutputTrim(+3));
-        }
-
-        this._applyOutputTrim();
-    }
-
-    /**
-     * FEATURE 23: Read the saved output trim and push it to the engine and the status bar.
-     *
-     * The physical loudness model fixes absolute levels, so this is the listener's one
-     * correction for their own headphones and ears. It lives on the device, never on the server.
-     * @private
-     */
-    _applyOutputTrim() {
-        const stored = parseFloat(localStorage.getItem('player_output_trim_db'));
-        this.outputTrimDb = isFinite(stored) ? Math.max(-12, Math.min(12, stored)) : 0;
-
-        if (this.app && this.app.engine && this.app.engine.setOutputTrimDb) {
-            this.app.engine.setOutputTrimDb(this.outputTrimDb);
-        }
-        this._updateLevelStatus();
-    }
-
-    /**
-     * FEATURE 23: Move the output trim by a step and remember it on this device.
-     * @param {number} deltaDb - Step in dB
-     * @private
-     */
-    _adjustOutputTrim(deltaDb) {
-        const db = Math.max(-12, Math.min(12, (this.outputTrimDb || 0) + deltaDb));
-        this.outputTrimDb = db;
-        localStorage.setItem('player_output_trim_db', String(db));
-
-        if (this.app && this.app.engine && this.app.engine.setOutputTrimDb) {
-            this.app.engine.setOutputTrimDb(db);
-        }
-        this._updateLevelStatus();
-
-        const label = (db >= 0 ? '+' : '-') + Math.abs(db).toFixed(0) + ' dB';
-        this.debugLog('🔉 Output level: ' + label);
-        this._showToast('🔉 ' + label, 'info');
-    }
-
-    /**
-     * FEATURE 23: Show the current output trim in the status bar.
-     * @private
-     */
-    _updateLevelStatus() {
-        const el = document.getElementById('levelStatus');
-        if (!el) return;
-        const db = this.outputTrimDb || 0;
-        el.textContent = (db >= 0 ? '+' : '-') + Math.abs(db).toFixed(0) + ' dB';
+        // FEATURE 25 decision 4: the louder/quieter buttons and the device-saved output trim are
+        // gone. The listener's phone volume is the only level control now, and it sits after the
+        // limiter so it cannot reshape the distance curve. Clear any value a previous version
+        // stored, so a listener who once pressed those buttons does not keep an adjustment they
+        // can no longer see or undo.
+        localStorage.removeItem('player_output_trim_db');
     }
 
     /**
@@ -1040,26 +989,40 @@ class MapPlayerApp extends MapAppShared {
             // ---------------------------------------------------------------------
             console.log('[MapPlayer] 📍 Requesting GPS...');
             let gpsResolved = false;
+            // FEATURE 25: resolves null when nothing trustworthy arrives. This used to resolve
+            // latitude/longitude zero, which placed the walker in the Atlantic so nothing was in
+            // range, nothing was fetched, and the player stood silent inside a circle with no
+            // error shown. Null lets the audio layer skip the one-shot in-range check and run it
+            // again on the first good fix from continuous tracking instead.
             const initialGPS = await new Promise((resolve) => {
                 const timeoutId = setTimeout(() => {
                     if (!gpsResolved) {
-                        console.warn('[MapPlayer] ⚠️ GPS timeout - using fallback');
-                        resolve({ lat: 0, lon: 0 });
+                        gpsResolved = true;
+                        console.warn('[MapPlayer] ⚠️ GPS timeout - no initial fix, will wait for tracking');
+                        resolve(null);
                     }
                 }, 5000);
 
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
+                        if (gpsResolved) return;
                         gpsResolved = true;
                         clearTimeout(timeoutId);
+                        if (!isPositionFixUsable(pos.coords, INITIAL_MAX_ACCURACY_M)) {
+                            const acc = pos.coords && Number(pos.coords.accuracy);
+                            console.warn(`[MapPlayer] 📍 GPS fix rejected as unusable (accuracy ${isFinite(acc) ? acc.toFixed(1) + 'm' : 'unknown'}) - will wait for tracking`);
+                            resolve(null);
+                            return;
+                        }
                         console.log(`[MapPlayer] 📍 GPS GRANTED ✅ (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}, accuracy: ${pos.coords.accuracy.toFixed(1)}m)`);
                         resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
                     },
                     (err) => {
+                        if (gpsResolved) return;
                         gpsResolved = true;
                         clearTimeout(timeoutId);
-                        console.warn(`[MapPlayer] 📍 GPS ERROR ❌: ${err.message}`);
-                        resolve({ lat: 0, lon: 0 });
+                        console.warn(`[MapPlayer] 📍 GPS ERROR ❌: ${err.message} - will wait for tracking`);
+                        resolve(null);
                     },
                     { enableHighAccuracy: true, timeout: 5000, maximumAge: 10000 }
                 );
@@ -1168,6 +1131,23 @@ class MapPlayerApp extends MapAppShared {
                 this.debugLog(`[Drift] ${message}`);
             };
 
+            // FEATURE 25: startup got no usable fix, so nothing has been fetched and the player is
+            // silent for a reason. Say so on screen instead of leaving the walker to guess. When a
+            // good fix arrives the ordinary status-bar update takes the field back over.
+            this.app.onGPSWaiting = (waiting) => {
+                if (waiting) {
+                    this.debugLog('📡 Waiting for GPS - no sounds loaded yet');
+                    this._showToast('📡 Waiting for GPS…', 'info');
+                    const gpsStatusEl = document.getElementById('gpsStatus');
+                    if (gpsStatusEl) {
+                        gpsStatusEl.textContent = '⏳ GPS';
+                        gpsStatusEl.classList.remove('lag-high');
+                    }
+                } else {
+                    this.debugLog('📡 GPS acquired - loading the sounds in range');
+                }
+            };
+
             this.app.onStateChange = (state) => {
                 console.log('[MapPlayer] 📊 State changed to:', state);
                 this._updateStartButton(state);
@@ -1214,9 +1194,6 @@ class MapPlayerApp extends MapAppShared {
             }
 
             console.log('[MapPlayer] ✅ Soundscape started');
-
-            // FEATURE 23: the engine is built during start(), so the saved trim is applied now
-            this._applyOutputTrim();
 
             // === SESSION 3: Load Areas from soundscape into AreaManager (AFTER start) ===
             // This ensures AreaManager exists and listener position is initialized

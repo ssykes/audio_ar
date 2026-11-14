@@ -1,9 +1,17 @@
 # Feature 23: Physical Loudness Model
 
-**Status:** 🔨 Phase 0 implemented, deployed (stamp `20261109175443`) and **confirmed by ear in the
-simulator** 2026-11-09 — a physical waypoint is heard about 40 m outside its circle, swelling
-smoothly, with departure mirroring approach. **Still never verified on a walk.**
-**Date:** 2026-11-08 (design) · 2026-11-09 (Phase 0)
+**Status:** ✅ Phase 0 implemented, deployed (stamp `20261109175443`), confirmed by ear in the
+simulator 2026-11-09 and **walked 2026-11-11 — the level is much better.** A physical waypoint is
+heard about 40 m outside its circle, swelling smoothly, with departure mirroring approach.
+**⚠️ Two changes since this spec was written:**
+- **The contained waypoint kind is SHELVED (2026-11-11).** Everything in §5.2 about it stands as a
+  record but no further work goes in. It was never persisted, so a phone has never seen one.
+- **Audio quality now lives in [`FEATURE_25_NATURAL_SPATIAL_SOUND.md`](FEATURE_25_NATURAL_SPATIAL_SOUND.md).**
+  The walk raised problems this spec does not cover — a source that appears to move, timbre that
+  saturates inside large circles, a bell that sounds overhead. That document audits the whole chain
+  and re-baselines it against one objective. The reverb retune in §7 below has moved there.
+
+**Date:** 2026-11-08 (design) · 2026-11-09 (Phase 0) · 2026-11-11 (walked; contained shelved)
 **Priority:** High
 **Supersedes:** Feature 17 (Distance Envelope) for waypoint loudness. See *Relationship to Feature 17*.
 
@@ -113,7 +121,7 @@ the physics decides how far it carries.
 | 9 | **Phase 0 infers each source's level from its activation radius**: `L1m = ambient + 20·log10(radius)`. The radius an artist already drew is read as "audible out to here", so existing walks keep roughly their reach and only the *shape* of the falloff changes. Phase 1 replaces this with an artist-stated preset. A per-source `sourceLevelDb` override is already honoured if set, but nothing populates it yet. |
 | 10 | **Near-field clamp `d_near` = 1 m**, not the 0.5 m suggested in §6. Roughly the closest anyone naturally stands, and it keeps a real sense of approach without an absurd peak. |
 | 11 | **No hard cutoff.** Level falls continuously with distance, and a cosine fade over the last 20 m ends exactly where the lazy loader disposes the source, so disposal is never audible. Reach is therefore still capped by the load zones until Phase 3 — for a default 20 m waypoint that means audible to ~60 m instead of silence at 40 m. |
-| 12 | **One listener control in Phase 0: louder/quieter on the player**, in 3 dB steps, ±12 dB, saved on the device only. The `calibration = 0.25` constant stays inside the model; the trim multiplies on top of it at the shared output stage, ahead of the limiter, so waypoint sources and area beds move together. |
+| 12 | ~~**One listener control in Phase 0: louder/quieter on the player**, in 3 dB steps, ±12 dB, saved on the device only. The `calibration = 0.25` constant stays inside the model; the trim multiplies on top of it at the shared output stage, ahead of the limiter, so waypoint sources and area beds move together.~~ **SUPERSEDED 2026-11-13 and removed.** Feature 25 decision 4 took the buttons out entirely: the trim sat *ahead* of the limiter, so pushing it up drove the mix into the ceiling and flattened the very distance dynamics this model exists to guarantee. The listener's phone volume sits after the limiter and cannot. The `calibration = 0.25` constant is unaffected and still lives inside the model. See `FEATURE_25_NATURAL_SPATIAL_SOUND.md` §2.5. |
 | 13 | **Deferred, deliberately:** the gunshot limiter ceiling (§6) cannot bite until presets exist in Phase 1. The reverb bands (§7) are untouched and must be retuned *after* the walk test, not before. |
 
 ---
@@ -175,6 +183,121 @@ the same shape it was (fade from radius+20 to radius+40) while making approach a
 mirror images. It also doubles the fetch lead time to roughly 30 seconds of walking. The
 `minLoadRadius` / `maxLoadRadius` clamping proposed above is still Phase 3 work and still needed
 once a source's level is stated rather than inferred.
+
+**Phase 3 fetch distance — the owner's formula, given 2026-11-13.** Asked what the fetch distance
+should be derived from, the owner specified four inputs rather than one: *how long the sound takes
+to load, how far away the listener is from hearing it, an average walking speed, and a maximum
+load radius cap.* That decomposes the single 40 m band, which today does two unrelated jobs at
+once, into:
+
+    fetch distance = audible reach + (load time × walking speed) + margin,  capped
+
+- **Audible reach** — where the model says the source drops below hearing, derived from its real
+  level. This is a floor, not a candidate: the fetch must complete before the sound is audible or
+  the walker hears a gap.
+- **Load time × walking speed** — the lead distance actually needed for that file. Load time is
+  measurable: the byte size is known, and a rolling average of real fetch durations is better than
+  a guess. Walking speed ~1.4 m/s. Note this makes the lead per-file rather than one constant, so
+  a large file fetches earlier than a small one automatically.
+- **Cap** — so a very loud stated source does not try to download from a kilometre away. The number
+  is not yet chosen.
+
+Three constraints to respect when building it: the 20 m final fade must still fit inside the band;
+disposal must stay beyond fetch by the existing hysteresis or sources will thrash; and **the timbre
+band must be decoupled** — it is deliberately a fixed 40 m today, and if it were derived from the
+fetch distance a slow download would change how dull a sound gets. There is already a note in the
+audio layer saying to revisit this if the fetch distance ever becomes level-derived. This is that
+moment. Out of scope unless asked: cyclists and drivers, who close the distance faster than 1.4 m/s
+and so need more lead.
+
+**The owner's answers, 2026-11-13.** Cap: 300–500 m endorsed (a specific number still to be fixed).
+Audible threshold: *soft speech*, and explicitly **not** an urban assumption — *"Assume it will be
+used in a quiet forest."* Load time: **estimated from file size and an assumed connection speed**,
+not measured, which avoids needing a first-visit default. Walking speed, margin, the fade staying
+tied to the fetch distance, the dullness band staying decoupled, release at fetch plus the existing
+hysteresis, and areas keeping their current loading: all approved as proposed.
+
+**⚠️ The soft-speech threshold has a consequence that must be ruled on before this is built.**
+Soft speech is about 30 dB. The model puts a source's level at *its own circle edge* at 50 dB, so
+falling from 50 dB to 30 dB is 20 dB, which is a factor of ten in distance. **Audible reach therefore
+comes out at exactly ten times the activation radius**, against radius + 40 m today:
+
+| Radius | Reach today | Reach at a 30 dB threshold | Level where today's fade ends |
+|---|---|---|---|
+| 5 m | 45 m | 50 m | 31 dB |
+| 10 m | 50 m | 100 m | 36 dB |
+| 20 m | 60 m | 200 m | 41 dB |
+| 50 m | 90 m | 500 m | 45 dB |
+| 100 m | 140 m | 1000 m → capped | 47 dB |
+
+The striking column is the last one: **today's fade silences every source while it is still 6 to
+17 dB above the threshold the owner just named.** In a quiet forest on noise-cancelling headphones
+the app is currently cutting off sounds that should still be plainly audible.
+
+So there are two different things this formula could change, and they must be chosen separately:
+
+- **Option A — change only the downloading.** Fetch distance = the reach the sound *actually* has
+  today (radius + 40 m) + load-time lead, capped. Nothing about the sound changes. This is the
+  literal purpose of the formula and it is safe.
+- **Option B — also extend the acoustic reach to ten times the radius.** Matches the physics and the
+  quiet-forest intent, but it is a large change to the piece: sources audible from three times
+  further out, far more playing at once (which raises ceiling pressure that has still never been
+  measured), and every existing mix re-balanced.
+
+**Recommendation: build A now, and treat B as its own decision with its own listening test — after
+the ceiling meter has been read, because B increases the number of simultaneous sources.**
+
+**One caveat over all of it.** Every absolute dB figure in the model rests on a calibration constant
+that says "a 65 dB source at 1 m produces this much output gain". It has never been checked against
+a real sound level meter, and with the listener's trim removed there is no longer any way to adjust
+it. So "30 dB" is a *nominal* target: internally consistent, and correct in how it relates one
+waypoint to another, but not verified against what actually reaches the ear. Noise-cancelling
+headphones in a quiet room are the one condition under which it could be verified properly, so a
+one-time check with a reference tone is worth doing — every absolute number in the model depends on
+it.
+
+**⚠️ Superseded the same day: the audibility threshold is not "soft speech".** The owner replaced it
+with *"10 dB above the site bed"* (Feature 25 decisions 17 and 18) — the bed being a recording of the
+actual location, played in the editor as a reference and setting the model's ambient constant. That
+is a far better definition, but **it cannot be applied as stated, and the arithmetic must be settled
+before anything is built.**
+
+The model defines a source's level from its radius such that **at the circle's edge the level equals
+the ambient constant exactly.** So the margin at the circle edge is 0 dB *by construction*, and
+requiring a +10 dB margin puts the audibility boundary at:
+
+    reach = radius ÷ 10^(margin/20)
+
+| Margin above the bed | Reach | For a 20 m circle | For a 100 m circle |
+|---|---|---|---|
+| +10 dB (as stated) | 0.32 × radius | **6.3 m** | 31.6 m |
+| 0 dB | 1.00 × radius | 20 m | 100 m |
+| −6 dB | 2.00 × radius | 40 m | 200 m |
+| −10 dB | 3.16 × radius | 63 m | 316 m |
+
+A +10 dB margin makes a 20 m waypoint audible only from 6 m away — **deep inside its own circle**,
+which contradicts every walk on record (a physical waypoint is heard roughly 40 m *outside* its
+circle). Today's shipped behaviour corresponds to a margin of about **−10 dB**: the sound stays
+audible well below the ambient level, which is plausible because masking is spectral, not merely a
+level comparison — a bell carries under wind, rustling leaves do not.
+
+So the choice is really about what the map circle *means*:
+
+- **Option A — the circle edge is "clearly audible, 10 dB above the bed".** Bake the margin into the
+  inference, so a source's level at its circle edge is ambient + 10 dB. What the artist draws then
+  literally becomes what the walker hears from, which matches the owner's stated authoring model.
+  Cost: every source rises 10 dB in model terms, about **6.5 dB at the output** at the current
+  fraction — a global level increase with balance and dynamics unchanged, and **it must not be
+  applied before the ceiling meter has been read.** Reach down to the ambient level then becomes
+  ~3.2 × radius, with the existing 40 m band as the fade tail beyond it.
+- **Option B — the circle edge stays "marginal, at the bed level"**, which is today's behaviour. Then
+  the margin is effectively 0, and the "10 dB" figure describes how far *beyond* the circle a
+  distinct source remains audible rather than how far inside it audibility begins.
+
+**Recommendation: Option A**, because it makes the drawn circle mean something the artist can see and
+reason about. But read the ceiling meter first, and note the nuance either way: the honest margin
+depends on how spectrally distinct each source is from the bed, so a single global figure is a
+simplification whichever option is chosen.
 
 ### 5.2 Artificial sources
 
@@ -272,6 +395,10 @@ The app has two audiences: the artist on the PC editor, and listeners on phones.
 - **Calibration** is genuinely per-device — it depends on the listener's headphones and ears. It
   belongs in device-local storage with a sensible default, plus one simple louder/quieter control
   on the player. No server involvement.
+  ⚠️ **The control was removed 2026-11-13** (Feature 25 decision 4); the calibration constant
+  itself is unchanged. The reasoning above is still sound — calibration *is* per-device — but the
+  listener now reaches it through their phone's own volume, which sits after the limiter and so
+  cannot distort the curve this spec defines.
 - **Dynamic range `k`** is an *artistic* choice about the piece. If it only lives on the artist's
   device, every listener hears something different from what was intended.
 
@@ -405,7 +532,7 @@ What actually changed, 2026-11-09 — four files, not two:
 |---|---|
 | `spatial_audio.js` → **v6.3** | Model constants and four pure functions (`sourceLevelFromRadius`, `levelAtDistance`, `physicalGain`, `fadeOutMultiplier`). One `updateGainByDistance` on `OscillatorSource`, inherited by every source type — the duplicate on `GpsSoundSource` is deleted, so decision 6 is satisfied. `rolloffFactor = 0` in **both** panner setups (`SoundSource.init` had 1, `SampleSource.init` had 1.5 — they disagreed, which is why the two source types behaved differently). Gain is now ramped with `setTargetAtTime` instead of written per frame, and the computed target is kept on `lastComputedGain` for logging. New `SpatialAudioEngine.setOutputTrimDb()`. |
 | `spatial_audio_app.js` → **v3.3** | New `_getDisposeDistance(sound)` is the single source of the disposal distance; `_getSoundZone` now derives its threshold from it and returns it. Both gain call sites pass it. Zone debug logs no longer claim a 20 m fade zone, and the un-throttled per-frame FADE ZONE line is gone. |
-| `map_player.html` / `map_player.js` | Two icon-bar buttons (quieter/louder, 3 dB steps) and a **Level** readout in the status bar, persisted to `player_output_trim_db` on the device and applied after the engine is built. |
+| `map_player.html` / `map_player.js` | ~~Two icon-bar buttons (quieter/louder, 3 dB steps) and a **Level** readout in the status bar, persisted to `player_output_trim_db` on the device and applied after the engine is built.~~ **Removed 2026-11-13** under Feature 25 decision 4. The buttons, the Level field, the engine's trim setter and the stored value are all gone; the player clears any value a previous version left on the device. |
 
 Two pre-existing bugs fixed in passing because they would have corrupted the walk test:
 
@@ -485,7 +612,8 @@ They cover: the near clamp, monotonic falloff, audibility past 40 m, silence at 
 and not before, derived reach equal to the radius for 10/20/30/50 m, no NaN or Infinity from a
 missing or zero radius, both panners reporting `rolloffFactor = 0`, oscillator and GPS sources now
 agreeing at the same distance, a moved GPS source following its own position, `volume` behaving as
-a trim with 0 still muting, and the trim clamping to ±12 dB and reaching the master gain.
+a per-waypoint multiplier with 0 still muting, and ~~the output trim clamping to ±12 dB and
+reaching the master gain~~ — that last check is void, the output trim was removed 2026-11-13.
 
 Measured for a default 20 m waypoint (inferred level 76 dB at 1 m, disposed at 60 m), gain relative
 to standing 1 m away:
@@ -504,7 +632,10 @@ to standing 1 m away:
 The acceptance criterion is met in arithmetic — 24 dB more at 20 m, audible to ~60 m instead of
 cutting out at 40 m. **It is not yet met in the field.** Note the close end is slightly *quieter*
 than before (0.57 vs 0.76 at 1 m): that is the dynamic range being spent on distance instead of on
-proximity, and it is what the louder/quieter control is for.
+proximity. ~~It is what the louder/quieter control is for~~ — **corrected 2026-11-13:** that
+control is gone (Feature 25 decision 4). The answer to a close end that feels too quiet is now the
+dynamic-range fraction, which is the artist's setting on the piece rather than the listener's, and
+which is still to be dialled by ear.
 
 Still to be judged by ear on a walk, and deliberately not pre-tuned: the four reverb bands (§7),
 now that the far and distant bands are reachable for the first time — outdoor `maxWet` is only

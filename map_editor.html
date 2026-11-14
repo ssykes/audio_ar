@@ -1060,6 +1060,26 @@
                             How dull a sound gets at the far edge of its reach. Lower is duller.
                         </div>
                     </div>
+
+                    <!-- FEATURE 25: is the master ceiling ever reached? Peak-hold, because the
+                         limiter grabs a peak in 1 ms and releases over 100 ms, so a live number
+                         flickers past too quickly to read while watching the map. -->
+                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-sidebar);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <span style="font-size: 11px;">Ceiling reached</span>
+                            <span class="sim-value" id="simCeilingPeak">--</span>
+                        </div>
+                        <div class="sim-help" id="simCeilingVerdict" style="margin-top: 0;">
+                            Starts when the simulation does. Zero means nothing was ever loud enough
+                            to be limited, so the loudness curve reached you exactly as the model
+                            computed it.
+                        </div>
+                        <button type="button" id="simCeilingReset" style="margin-top: 8px; padding: 3px 8px;
+                                font-size: 10px; background: none; border: 1px solid var(--border-sidebar);
+                                border-radius: 3px; color: var(--text-muted); cursor: pointer;">
+                            Reset peak
+                        </button>
+                    </div>
                     
                     <!-- Area Overlap Debug (Session X) -->
                     <div id="areaOverlapSection" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-sidebar); display: none;">

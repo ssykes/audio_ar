@@ -553,9 +553,9 @@
                 console.log('[SoundscapePicker] Constructor starting...');
 
                 try {
-                    // GUARD: Verify download_manager.js?v=20261108154439 loaded correctly
+                    // GUARD: Verify download_manager.js loaded correctly
                     if (typeof OfflineDownloadManager === 'undefined') {
-                        const errorMsg = '❌ CRITICAL: download_manager.js?v=20261108154439 failed to load!';
+                        const errorMsg = '❌ CRITICAL: download_manager.js failed to load!';
                         console.error(errorMsg);
                         console.error('   File may be corrupted on server or cache is stale');
                         
@@ -1295,7 +1295,7 @@
                     this._debugLog(`[picker] ❌ Item not found for ${soundscapeId}`, 'error');
                 }
 
-                // Note: Full soundscape data is already stored by download_manager.js?v=20261108154439
+                // Note: Full soundscape data is already stored by download_manager.js
                 // in offline_soundscape_full_{id} - no need to store duplicate metadata
                 this._debugLog(`[picker] 📝 Marked as offline (data stored by download manager)`, 'info');
             }

@@ -2,7 +2,8 @@
  * MapAppShared - Abstract base class for map-based apps
  * Uses Mode Presets pattern for behavior configuration
  *
- * @version 6.12 - Areas fix: removed redundant loadAreas(), unified save/load
+ * @version 6.13 - Simulator waypoint log also waits between lines, so a long drag stays readable
+ *                 (6.12: areas fix, removed redundant loadAreas(), unified save/load)
  * @author Spatial Audio AR Team
  *
  * Architecture:
@@ -19,7 +20,7 @@
  *   }
  */
 
-console.log('[map_shared.js] Loading v6.11...');
+console.log('[map_shared.js] Loading v6.13...');
 
 /**
  * Mode Presets - Pre-configured behavior bundles
@@ -1507,10 +1508,18 @@ class MapAppShared {
                     + (info ? ` | radius=${info.radius}m | ${level}` : ''));
             }
 
-            // Throttled continuous log (every ~2m of movement)
-            if (!this._wpLastLogDist?.[wp.id] || Math.abs(dist - this._wpLastLogDist[wp.id]) >= 2) {
+            // Throttled continuous log. A distance floor on its own is not enough: dragging the
+            // walker fires a move event per pixel, so a long drag prints one line per 2 m of map
+            // and buries everything else. The time floor keeps a fling to a handful of lines while
+            // a slow, deliberate approach still shows the level rising.
+            const nowMs = Date.now();
+            const moved = !this._wpLastLogDist?.[wp.id] || Math.abs(dist - this._wpLastLogDist[wp.id]) >= 2;
+            const waited = !this._wpLastLogTime?.[wp.id] || (nowMs - this._wpLastLogTime[wp.id]) >= 250;
+            if (moved && waited) {
                 this._wpLastLogDist = this._wpLastLogDist || {};
                 this._wpLastLogDist[wp.id] = dist;
+                this._wpLastLogTime = this._wpLastLogTime || {};
+                this._wpLastLogTime[wp.id] = nowMs;
 
                 const bounds = info
                     ? ` | ${info.kind} | radius ${info.radius}m`
