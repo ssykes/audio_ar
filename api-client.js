@@ -335,8 +335,12 @@ class ApiClient {
     /**
      * Create new soundscape
      */
-    async createSoundscape(name, description = '') {
-        const payload = this._toRow({ name, description });
+    async createSoundscape(name, description = '', isPublic = true) {
+        // This signature only took name and description, so the editor's third argument -- the
+        // state of the Public checkbox -- was silently discarded and every new soundscape was
+        // created with whatever the server fell back to. Positional arguments past the last
+        // declared one are ignored without any error, which is what made it invisible.
+        const payload = this._toRow({ name, description, isPublic });
         const data = await this.request('/soundscapes', {
             method: 'POST',
             body: JSON.stringify(payload)
@@ -349,8 +353,14 @@ class ApiClient {
     /**
      * Update soundscape
      */
-    async updateSoundscape(id, name, description = '', isPublic = true) {
-        const payload = this._toRow({ name, description, isPublic });
+    async updateSoundscape(id, name, description = '', isPublic = true, dynamicRange = undefined) {
+        const payload = this._toRow({ name, description, isPublic, dynamicRange });
+        // FEATURE 25: _toRow converts every key present, so an unset fraction would go up as
+        // dynamic_range: undefined and wipe a value the artist had dialled. Drop it instead, and
+        // let the server keep what is already stored.
+        if (dynamicRange === undefined || dynamicRange === null) {
+            delete payload.dynamic_range;
+        }
         const data = await this.request(`/soundscapes/${id}`, {
             method: 'PUT',
             body: JSON.stringify(payload)
@@ -456,6 +466,10 @@ class ApiClient {
                 name: data.soundscape.name,
                 description: data.soundscape.description,
                 isPublic: data.soundscape.isPublic,
+                // FEATURE 25: this object is an explicit whitelist, so anything not named here is
+                // silently dropped however faithfully the server returned it. The fraction arrived
+                // as dynamic_range and was already converted to camelCase by the mapping above.
+                dynamicRange: data.soundscape.dynamicRange ?? null,
                 soundIds: data.waypoints.map(wp => wp.id),
                 waypointData: data.waypoints, // Already mapped by getSoundscape()
                 behaviors: data.behaviors || [], // Already mapped by getSoundscape()

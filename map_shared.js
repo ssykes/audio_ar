@@ -251,6 +251,78 @@ class MapAppShared {
     }
 
     /**
+     * Resolve sound IDs to playable URLs on a list of waypoints or areas, without hammering the API.
+     *
+     * Both store only a sound ID. Resolving every one with a separate request, all fired at once,
+     * trips the API's rate limiter -- which is one shared per-minute budget across both the sound
+     * lookups and the soundscape saves -- and the failure was caught and swallowed, so the item
+     * loaded with no URL and played nothing. A silent waypoint or ambient bed is worse than an
+     * error: nothing reports it, and any level or dynamic-range judgement made against it is wrong.
+     *
+     * Two things keep the request count down. The editor already holds the whole sound library in
+     * memory, so there this needs no network at all. Everywhere else, answers are remembered per
+     * sound ID, so two items sharing a sound cost one request.
+     *
+     * Requests are deliberately sequential, not parallel: that is the whole point.
+     *
+     * @param {Array} items - Waypoints or areas, possibly carrying a sound ID but no URL
+     * @returns {Promise<Array>} The same items, with URLs filled in wherever one could be found
+     * @protected
+     */
+    async _resolveSoundUrls(items) {
+        if (!Array.isArray(items) || items.length === 0) return items || [];
+
+        const resolved = [];
+        const seen = new Map();
+
+        for (const item of items) {
+            if (!item || !item.soundId || item.soundUrl) {
+                resolved.push(item);
+                continue;
+            }
+
+            // The editor's library is already loaded; use it and skip the network entirely.
+            const local = this.soundLibrary && typeof this.soundLibrary.findSoundById === 'function'
+                ? this.soundLibrary.findSoundById(item.soundId)
+                : null;
+            const localUrl = local && local.source && local.source.url;
+            if (localUrl) {
+                resolved.push({ ...item, soundUrl: localUrl });
+                continue;
+            }
+
+            if (seen.has(item.soundId)) {
+                const remembered = seen.get(item.soundId);
+                resolved.push(remembered ? { ...item, soundUrl: remembered } : item);
+                continue;
+            }
+
+            let url = null;
+            try {
+                const details = await this.api.getSoundById(item.soundId);
+                if (details && details.source && details.source.url) {
+                    url = details.source.url;
+                }
+            } catch (error) {
+                console.error('[MapShared] Error resolving sound ID to URL:', error);
+            }
+            seen.set(item.soundId, url);
+            resolved.push(url ? { ...item, soundUrl: url } : item);
+        }
+
+        const silent = resolved.filter(i => i && i.soundId && !i.soundUrl).length;
+        if (silent > 0) {
+            // Say so plainly. Silence is otherwise invisible and gets mistaken for a mix decision.
+            console.warn(`[MapShared] ${silent} item(s) have no sound URL and will be silent`);
+            if (this.debugLog) {
+                this.debugLog(`⚠️ ${silent} item(s) will be silent - sound URL could not be resolved`);
+            }
+        }
+
+        return resolved;
+    }
+
+    /**
      * Check if device has both GPS and compass (for editor capability)
      * GPS: heading property exists OR accuracy < 50m
      * Compass: DeviceOrientation with alpha/heading available
@@ -667,7 +739,10 @@ class MapAppShared {
             serverId,
             soundscape.name,
             soundscape.description,
-            soundscape.isPublic
+            soundscape.isPublic,
+            // FEATURE 25: the piece's dynamic-range fraction. Undefined means never dialled, which
+            // the client drops from the payload so an existing value is left alone.
+            soundscape.dynamicRange
         );
 
         // Save waypoints, behaviors, and areas in single call
@@ -1325,20 +1400,11 @@ class MapAppShared {
         console.log('[MapShared] 🔊 Starting simulation audio...');
         this.debugLog('🔊 Starting simulation audio engine...');
 
-        // Resolve sound IDs to URLs for waypoints
-        const resolvedWaypoints = await Promise.all(this.waypoints.map(async wp => {
-            if (wp.soundId && !wp.soundUrl) {
-                try {
-                    const soundDetails = await this.api.getSoundById(wp.soundId);
-                    if (soundDetails && soundDetails.source && soundDetails.source.url) {
-                        return { ...wp, soundUrl: soundDetails.source.url };
-                    }
-                } catch (error) {
-                    console.error('[MapShared] Error resolving sound ID to URL:', error);
-                }
-            }
-            return wp;
-        }));
+        // Resolve sound IDs to URLs for waypoints, one at a time and from the local library where
+        // possible. This used to fire one request per waypoint simultaneously, which together with
+        // the area lookups that follow could exceed the shared per-minute API limit; the failures
+        // were caught and swallowed, so a waypoint simply loaded with no URL and stayed silent.
+        const resolvedWaypoints = await this._resolveSoundUrls(this.waypoints);
 
         const soundConfigs = resolvedWaypoints.map(wp => {
             const config = {
@@ -1422,20 +1488,9 @@ class MapAppShared {
             // === SESSION 3: Load Areas AFTER app.start() (listener now exists) ===
             // This ensures updateVolume() has valid listener coordinates
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
-                // Resolve sound IDs to URLs for areas
-                const resolvedAreas = await Promise.all(soundscape.areas.map(async area => {
-                    if (area.soundId && !area.soundUrl) {
-                        try {
-                            const soundDetails = await this.api.getSoundById(area.soundId);
-                            if (soundDetails && soundDetails.source && soundDetails.source.url) {
-                                return { ...area, soundUrl: soundDetails.source.url };
-                            }
-                        } catch (error) {
-                            console.error('[MapShared] Error resolving area sound ID to URL:', error);
-                        }
-                    }
-                    return area;
-                }));
+                // Resolve sound IDs to URLs for areas. Sequential and library-first -- see
+                // _resolveSoundUrls for why the parallel version silently lost areas.
+                const resolvedAreas = await this._resolveSoundUrls(soundscape.areas);
                 
                 console.log('[MapShared] 🗺️ Loading', resolvedAreas.length, 'areas into AreaManager (sim, post-start)...');
                 this.debugLog(`🗺️ Loading ${resolvedAreas.length} areas for simulation...`);

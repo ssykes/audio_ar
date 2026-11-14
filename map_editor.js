@@ -763,6 +763,12 @@ class MapEditorApp extends MapAppShared {
         if (editDescription) editDescription.value = soundscape.description || '';
         if (editPublic) editPublic.checked = soundscape.isPublic !== false;
 
+        // FEATURE 25 decision 5: the fraction is a soundscape-level setting, so the simulator's
+        // slider must show this piece's value rather than a default.
+        if (typeof syncDynamicRangeFromSoundscape === 'function') {
+            syncDynamicRangeFromSoundscape(soundscape);
+        }
+
         // Populate lists
         this._refreshWaypointList();
         this._refreshAreaList();
@@ -3035,9 +3041,33 @@ function renderDynamicRangeFraction() {
     }
 }
 
+// FEATURE 25 decision 5: seed the slider from the loaded piece rather than from a hard-coded
+// default, so what is on screen is what the piece will actually play with. A piece that has never
+// been dialled keeps the default.
+function syncDynamicRangeFromSoundscape(soundscape) {
+    const piece = soundscape || (app && app.getActiveSoundscape && app.getActiveSoundscape());
+    const stored = piece ? Number(piece.dynamicRange) : NaN;
+    if (isFinite(stored) && stored > 0) {
+        dynamicRangeFraction = Math.max(0.1, Math.min(1.0, stored));
+    }
+    const slider = document.getElementById('simDynRangeSlider');
+    if (slider) slider.value = String(dynamicRangeFraction);
+    renderDynamicRangeFraction();
+}
+
 document.getElementById('simDynRangeSlider').addEventListener('input', (e) => {
     dynamicRangeFraction = Number(e.target.value);
     applyDynamicRangeFraction();
+
+    // The fraction belongs to the piece, so dialling it IS an edit to the piece. Write it through
+    // and let the ordinary autosave carry it to the server -- otherwise it lives only in this page
+    // and is gone on reload, which is exactly what shelved the contained waypoint kind.
+    const piece = app && app.getActiveSoundscape && app.getActiveSoundscape();
+    if (piece) {
+        piece.dynamicRange = dynamicRangeFraction;
+        if (app._markSoundscapeDirty) app._markSoundscapeDirty();
+        if (app._scheduleAutoSave) app._scheduleAutoSave();
+    }
 });
 
 renderDynamicRangeFraction();

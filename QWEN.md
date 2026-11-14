@@ -30,6 +30,7 @@ Source code (implementation)
 | **FEATURE_25_NATURAL_SPATIAL_SOUND.md** | Audit of everything that shapes what a walker hears, the *natural spatial sound* objective, and where the code has strayed from it | **Any audio-quality question — read this before Feature 23** |
 | **LAZY_*.md** | Lazy loading architecture | Audio optimization work |
 | **🚚 *How a Change Reaches the Phone* (below)** | **Deploy, caching, service worker** | **Any cache or deploy problem — read this first** |
+| **🗄️ `DATABASE_COLUMN_ADDITION_GUIDE.md`** | **Adding any persisted field: DB → API → client → editor → player, with the 11 traps that silently drop it** | **Any new database column — read this first, it exists to save tokens** |
 | **CLOUDFLARE_*.md** | Server/CDN configuration | ⚠️ Superseded by the section above |
 | **SERVICE_WORKER_*.md** | Offline mode | ⚠️ Superseded by the section above |
 
@@ -313,6 +314,58 @@ They are two *independent* tasks — do them separately, they share no code.
 All three verified against the real files: 106 checks across five throwaway scripts, including 30 on
 the fetch distance whose first eight assert the invariant that the silence point did not move.
 **Nothing is checked in a browser**, and none of it is committed.
+
+### 2026-11-14 — the dynamic-range fraction persists, and silent areas are fixed
+
+- **Fraction persistence is code-complete** (Feature 25 §11 has the full work order and the traps).
+  Column applied to the live database by the owner. Eight files, six of which could silently drop
+  the value. **Needs an API restart**, then the owner's own round-trip test: dial, autosave, reload,
+  confirm it survived.
+- **The public flag is fixed.** Every newly created soundscape was public regardless of the
+  checkbox, from three separate breaks in one chain — the API client's create method declared only
+  two parameters so the third argument was discarded, the route read camelCase while the client
+  sends snake_case, and the INSERT read the flag after the row had already been converted. Existing
+  soundscapes are **not** retroactively private; check by hand any that were meant to be.
+- **🔴 Waypoints and areas were going silent, and nothing reported it.** Sound IDs were resolved to
+  URLs with **one API request per item, all fired at once** — for waypoints and separately for areas.
+  One rate limiter is mounted on both the sound-lookup routes and the soundscape routes, so they
+  share a single **30-per-minute** budget, and the project already records that this limiter **cannot
+  identify callers behind Cloudflare**, so the real budget may be smaller and shared. Failures were
+  caught and swallowed, so the item loaded with no URL and played nothing.
+  ⚠️ **Corrected: this was first reported to the owner as "pre-existing, not from today's work",
+  which was asserted without checking.** The fragility is pre-existing, but **today's fraction slider
+  added to the pressure** — each adjustment marks the piece dirty and schedules a save, and a save is
+  two more requests against that same shared budget. Dialling the slider and then starting a
+  simulation spent the budget twice over. Not proven to be the sole cause; do not record it as
+  either caused or unrelated.
+  **Fixed** by resolving through the editor's already-loaded sound library first (no network at all
+  in the editor), and otherwise sequentially with the answer remembered per sound ID, so two items
+  sharing a sound cost one request. Failures now log how many items will be silent. Verified by
+  `scratch/verify-area-sound-resolution.js` (20 checks, including that never more than one request is
+  in flight). **Not deployed, so not yet confirmed against the real limiter.**
+- ✅ **Fixed 2026-11-14: the source that crashed on start.** Root cause **established by reading,
+  not guessed**: the zone classifier's *load* branch refused to start a second load while one was in
+  flight, but its *dispose* branch had no matching guard — it checked only whether the sound was
+  already disposed. So a zone check landing during a slow download tore the source down, nulling its
+  gain node, and the download then completed and connected to a node that no longer existed. The
+  engine makes this reachable by registering a source in its lookup table **before** the file
+  finishes downloading.
+  **Two changes.** The dispose branch now skips a sound that is still loading — self-correcting,
+  because the pass runs every second, so an out-of-range sound is disposed on the next pass once its
+  load has finished. And the loader now detects a source that was torn down or replaced mid-download
+  and reports it as a **cancelled load** instead of throwing. Deliberately not a bare guard: it logs
+  loudly and leaves the sound unloaded so the next pass retries, rather than swallowing the failure
+  into a waypoint that silently never plays. It does **not** check the session's running flag,
+  because the initial load during startup happens before that flag is set — checking it would have
+  cancelled every load on a fresh start.
+  Verified by `scratch/verify-dispose-during-load.js` (12 checks, including that disposal still
+  happens once the load finishes and that the deferral does not stick). Full suite 151 checks green.
+  **Not confirmed in a browser** — the race needs a slow download to reproduce.
+- **`DATABASE_COLUMN_ADDITION_GUIDE.md` rewritten** and linked from the quick-reference table above.
+  The old version pointed at a dead editor file and missed every trap that actually bit.
+- **Left alone on instruction:** the editor's simulator does start continuous GPS tracking, which
+  decision 16 claimed it did not. The accuracy guard rejects the desktop's coarse WiFi fix, so it is
+  currently harmless. Decision 16 is corrected to say the ruling is an intention, not the code.
 
 ### Deploy status — verified by content, 2026-11-13
 

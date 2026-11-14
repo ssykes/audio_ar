@@ -21,9 +21,21 @@ CREATE TABLE soundscapes (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     is_public BOOLEAN DEFAULT false,
+    -- FEATURE 25 decision 5: the dynamic-range fraction, an artistic setting on the piece.
+    -- How much of the real loudness range between near and far is kept; 1.00 is true physics.
+    -- Nullable so an existing soundscape keeps the engine default rather than being rewritten.
+    dynamic_range NUMERIC(3,2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- This file is a record, not a runner. The migration tool prints a green success over a real
+-- failure, so the column above must be applied to the live database BY HAND, by the owner:
+--   ALTER TABLE soundscapes ADD COLUMN dynamic_range NUMERIC(3,2);
+-- Then verify it actually exists rather than trusting any tool's output:
+--   SELECT column_name FROM information_schema.columns
+--   WHERE table_name = 'soundscapes' AND column_name = 'dynamic_range';
+-- NOT YET APPLIED as of 2026-11-13. The API needs a restart afterwards.
 
 -- Sounds table (sound library for user sounds)
 CREATE TABLE sounds (

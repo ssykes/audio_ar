@@ -87,9 +87,13 @@ class SoundScapeRepository extends BaseRepository {
 
       // Create soundscape
       const row = this._toRow(soundscapeData);
+      // _toRow has already converted every key to snake_case, so the values must be read from the
+      // snake_case names. This line used to read row.isPublic, which is always undefined after the
+      // conversion, so `?? true` made every new soundscape public whatever the artist had chosen.
+      // dynamic_range is nullable on purpose: NULL means "never dialled, use the engine default".
       const createResult = await client.query(
-        'INSERT INTO soundscapes (user_id, name, description, is_public) VALUES ($1, $2, $3, $4) RETURNING *',
-        [row.user_id, row.name, row.description || '', row.isPublic ?? true]
+        'INSERT INTO soundscapes (user_id, name, description, is_public, dynamic_range) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [row.user_id, row.name, row.description || '', row.is_public ?? true, row.dynamic_range ?? null]
       );
 
       const soundscape = createResult.rows[0];

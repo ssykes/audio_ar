@@ -95,6 +95,13 @@ class SoundScape {
         this.waypointData = waypointData;  // Full waypoint data for persistence
         this.areas = areas;  // Full area data for polygon zones (Feature 17)
 
+        // FEATURE 25 decision 5: how much of the real loudness range this piece keeps. An artistic
+        // setting on the piece, dialled against its own site, so it travels with the soundscape and
+        // not with the device. Null means "never dialled" and the engine's own default applies.
+        // Deliberately not a constructor parameter -- the list is positional and long, and every
+        // real load goes through fromJSON.
+        this.dynamicRange = null;
+
         // === Dirty Flag (Session 6: Auto-save with dirty tracking) ===
         this.isDirty = false;  // Tracks unsaved changes
     }
@@ -211,6 +218,7 @@ class SoundScape {
             name: this.name,
             description: this.description,
             isPublic: this.isPublic,
+            dynamicRange: this.dynamicRange,
             soundIds: this.soundIds,
             behaviors: this.behaviors.map(b => b.toJSON()),
             waypointData: this.waypointData,  // Include full waypoint data
@@ -241,10 +249,19 @@ class SoundScape {
             data.waypointData || [],
             data.areas || []  // Load areas (Feature 17)
         );
+        // FEATURE 25: a NUMERIC column arrives from PostgreSQL as a string, so convert it and treat
+        // anything unusable as "never dialled" rather than as zero. Nullish, never falsy -- a real
+        // value must survive, and this project has shipped a bug where `|| default` ate one.
+        const dynamicRange = (data.dynamicRange ?? data.dynamic_range);
+        if (dynamicRange !== null && dynamicRange !== undefined) {
+            const parsed = Number(dynamicRange);
+            result.dynamicRange = isFinite(parsed) ? parsed : null;
+        }
         console.log('[SoundScape.fromJSON] Created:', {
             id: result.id,
             name: result.name,
-            isPublic: result.isPublic
+            isPublic: result.isPublic,
+            dynamicRange: result.dynamicRange
         });
         return result;
     }

@@ -1658,13 +1658,22 @@ class SpatialAudioApp {
                 this.onDebugLog(`⚠️ ${sound.id} SKIPPED: zone=${zone.zone}, shouldLoad=${zone.shouldLoad}, isLoaded=${sound.isLoaded}, isLoading=${sound.isLoading}, isPlaying=${sound.isPlaying}`);
             }
 
-            if (zone.shouldDispose && !sound.isDisposed) {
+            // A sound whose file is still downloading must not be disposed. The load branch above
+            // already refuses to start a second load while one is in flight, but this branch had no
+            // matching guard, so a zone check landing during a slow download tore down a source that
+            // was mid-load -- nulling its gain node -- and the download then completed and tried to
+            // start it, throwing on a node that no longer existed. Skipping here is self-correcting:
+            // this pass runs every second, so a sound still out of range is disposed on the next one,
+            // by which point the load has finished.
+            if (zone.shouldDispose && !sound.isDisposed && !sound.isLoading) {
                 if (this.onDebugLog) {
                     this.onDebugLog(`🗑️ [DISPOSE] ${sound.id} at ${distance.toFixed(1)}m`
                         + ` | disposed beyond ${disposeDistance === null ? 'n/a' : disposeDistance + 'm'}`
                         + ` | previous zone ${previousZone || 'unknown'}`);
                 }
                 toDispose.push(sound);
+            } else if (zone.shouldDispose && sound.isLoading && this.onDebugLog) {
+                this.onDebugLog(`⏳ ${sound.id} out of range but still loading - disposal deferred`);
             }
         });
 
@@ -1819,44 +1828,53 @@ class SpatialAudioApp {
                 isStream: sound.type === 'stream'
             });
 
-            if (source) {
-                const started = source.start();
-                if (started) {
-                    sound.sourceNode = source;
-                    sound.gainNode = source.gain;
-                    sound.pannerNode = source.panner;
-
-                    // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
-                    // Insert filter between gain and panner
-                    // Chain: sourceNode → gain → filter → panner → master
-                    sound.filterNode = this.engine.ctx.createBiquadFilter();
-                    sound.filterNode.type = 'lowpass';
-                    sound.filterNode.frequency.value = 20000;  // Start at full spectrum
-                    sound.filterNode.Q.value = 0.5;  // Smooth rolloff
-
-                    // Reconnect: gain → filter → panner
-                    source.gain.disconnect();
-                    source.gain.connect(sound.filterNode);
-                    sound.filterNode.connect(source.panner);
-
-                    sound.isPlaying = true;
-                    sound.isLoaded = true;
-
-                    // CRITICAL: Immediately apply distance-based gain (handles fade zone)
-                    this._applyDistanceGain(sound);
-
-                    if (this.onDebugLog) {
-                        this.onDebugLog(`✅ ${sound.id} loaded + started (with air absorption filter)`);
-                    }
-                } else {
-                    if (this.onDebugLog) {
-                        this.onDebugLog(`❌ ${sound.id} failed to start`);
-                    }
-                }
-            } else {
+            // The download is awaited, so the world can change while it is in flight: the sound may
+            // have gone out of range and been torn down, or a second load may have replaced it.
+            // Starting a source whose gain node has already been removed throws an audio-node error
+            // that looks like a broken graph rather than what it is -- a cancelled load. Detect that,
+            // say so plainly, and leave the sound unloaded so the next zone pass picks it up again if
+            // it is still wanted. Deliberately not a silent guard: a swallowed failure here is a
+            // waypoint that never plays and never reports it. The session's running state is NOT
+            // checked, because the initial load during startup happens before that flag is set.
+            const stillCurrent = this.engine && this.engine.getSource(sound.id) === source;
+            if (!source || !source.gain || !stillCurrent || sound.isDisposed) {
                 if (this.onDebugLog) {
-                    this.onDebugLog(`❌ ${sound.id} failed to create source`);
+                    this.onDebugLog(`⏹️ ${sound.id} load cancelled while downloading - not started`);
                 }
+                console.warn(`[SpatialAudioApp] ${sound.id}: source was torn down during load; skipping start`);
+                return;
+            }
+
+            const started = source.start();
+            if (started) {
+                sound.sourceNode = source;
+                sound.gainNode = source.gain;
+                sound.pannerNode = source.panner;
+
+                // === FEATURE 14: Create Low-Pass Filter (Air Absorption) ===
+                // Insert filter between gain and panner
+                // Chain: sourceNode → gain → filter → panner → master
+                sound.filterNode = this.engine.ctx.createBiquadFilter();
+                sound.filterNode.type = 'lowpass';
+                sound.filterNode.frequency.value = 20000;  // Start at full spectrum
+                sound.filterNode.Q.value = 0.5;  // Smooth rolloff
+
+                // Reconnect: gain → filter → panner
+                source.gain.disconnect();
+                source.gain.connect(sound.filterNode);
+                sound.filterNode.connect(source.panner);
+
+                sound.isPlaying = true;
+                sound.isLoaded = true;
+
+                // CRITICAL: Immediately apply distance-based gain (handles fade zone)
+                this._applyDistanceGain(sound);
+
+                if (this.onDebugLog) {
+                    this.onDebugLog(`✅ ${sound.id} loaded + started (with air absorption filter)`);
+                }
+            } else if (this.onDebugLog) {
+                this.onDebugLog(`❌ ${sound.id} failed to start`);
             }
         } catch (error) {
             if (this.onDebugLog) {

@@ -402,7 +402,7 @@ must be walked separately or neither can be attributed.
 | 13 | **The dullness floor is 1400 Hz.** Set by the owner on 2026-11-13 after dialling it in the editor's simulator, reporting that it works outside the waypoint circle. It is the highest frequency still passing at the far end of a waypoint's reach, so it fixes how dull a sound gets at its most distant. The simulator slider still moves it; do not treat 1400 as provisional, but do ask before changing it. |
 | 14 | **The editor's simulator carries a peak-hold meter for the master ceiling.** Ruled and built 2026-11-13, after decision 4 was implemented so the reading needs no trim to interpret it. It exists because the question the limiter was built to answer — is the piece too loud now? — cannot be settled by ear: below roughly 3 dB of reduction, limiting is inaudible, and above it a listener cannot tell limiting from the piece simply being loud. The meter reports the worst pull-down seen since the simulation started, with a reset, and holds its value after stopping so it can be read at leisure. It is polled on a 50 ms timer rather than on position updates, because a parked avatar still plays transients and those are what a ceiling catches; the 100 ms release means a 50 ms poll cannot miss an event. **Editor only** — the player has no meter, deliberately, since the simulator now reads true for every phone. **Not yet read** — the owner walked on 2026-11-13 without consulting it, so decision 8's question is still open. |
 | 15 | **The listening context is noise-cancelling headphones in a quiet environment.** Ruled 2026-11-13: *"I will be using noise canceling headphones. I am not concerned with compensating for 'street noise'. Assume the player will be used in a quiet environment."* This is a bigger change than it looks, because **the dynamic-range fraction was designed as compensation for a hostile listening environment** and that environment no longer exists. Contradiction C2 framed it as a choice between keeping the full real range (far end below the street) and keeping 0.65 of it (far end audible, near end bearable) — with nothing masking the far end, the first horn of that dilemma disappears. Consequences: the fraction stops being a compromise and becomes a purely artistic choice about how much real-world range to reproduce; **the natural direction of dialling reverses, toward 1.0**; the binding constraint moves from the far end to the **near end**, because a sealed silent ear gets a source with no context — no room, no ambience — so arrival at full inferred level is more startling than the same level outdoors; and a "too quiet at distance" complaint changes meaning, since it can no longer be masking, so it points at absolute calibration rather than at the fraction. The model's street-noise constant and its "typical street" label are now misnomers and should be relabelled, though **its value must not be changed casually** — it anchors every inferred source level. **Amended the same day by decision 17: the environment is not silent, it is the site.** Passthrough of the real location replaces the sealed-ear assumption, which *strengthens* the case for dialling toward 1.0 rather than weakening it — with a real ambient floor, true physics lets distance sink below it naturally, which is what happens in the world, whereas compressing the range lifts everything back above the floor and makes it sound closer than it is. The near-end concern is also largely answered by decision 17: what made arrival startling was the absence of context, not the level. |
-| 16 | **The editor is a desktop configuration tool; GPS and network-economic loading are player concerns.** Ruled 2026-11-13. Nothing needs removing to satisfy it — the editor never feeds GPS to the audio layer, because the simulator places the walker by dragging an avatar. The simulator *does* still run distance-based loading, and that is deliberate and worth keeping: it is what lets the waypoint log show the intended fetch and silence distances while a piece is being composed. It shows them for an assumed connection, not a real one, which is the right thing for authoring. |
+| 16 | **The editor is a desktop configuration tool; GPS and network-economic loading are player concerns.** Ruled 2026-11-13. ⚠️ **Partly wrong as first recorded, and corrected the same day from the owner's own console output.** This entry claimed the editor never feeds GPS to the audio layer. **It does** — starting a simulation also starts continuous GPS tracking on the audio app, and a desktop WiFi fix arrived at 162 m accuracy and was discarded by the new accuracy guard. So the ruling still holds as an *intention* (the simulator places the walker by dragging an avatar, and that is what should drive the audio) but it is **not currently true of the code**: the editor's audio app listens to the device's real location alongside the dragged avatar, and only the 100 m accuracy guard stops a coarse desktop fix from moving the listener. The simulator *does* still run distance-based loading, and that is deliberate and worth keeping: it is what lets the waypoint log show the intended fetch and silence distances while a piece is being composed. **Open, and not yet ruled on:** whether the simulator should stop tracking GPS entirely. |
 | 17 | **The site bed: an editor-only reference, and the real ambient is passed through.** Ruled 2026-11-13, amending decision 15. The walker hears **the actual location**, through the earbuds' own transparency mode — the owner's finding was that the mix was *more* engaging with passthrough on, and the reason is that a reproduced source needs a reference to be judged against. In a sealed silent ear nothing is "out there", so every source sounds close and inside the head. **App-mixed microphone capture is rejected** in favour of device passthrough: no latency, no battery cost, no microphone permission on a playback path that has never had one, and no feedback risk. The player's only job is to recommend transparency mode once, in plain words. **Corrected later the same day — the bed is a temporary area, and needs no new code.** This entry originally proposed building a bed player plus an ambient-level control whose value would replace the model's hard-coded ambient constant and ship with the piece. **Both are unnecessary.** The owner's own alternative is better: areas already *are* position-independent ambient beds with no distance model, the sound library already holds whatever recordings are wanted, and a calibration bed is drawn, used, then deleted — so nothing is built and nothing is persisted. And because the audibility-margin question dissolved (see the loudness spec §5.1), **the model's ambient constant is not replaced and does not ship**; it stays as it is. The bed is purely a listening reference. Level is set by ear against a waypoint using the area's existing volume control, which is valid despite being uncalibrated: bed and waypoints reach the ear through the same headphones at the same volume, so the relationship is correct even when the absolute figure is not. |
 | 18 | **Do not use white noise as the reference bed.** Recorded 2026-11-13 so nobody reaches for it as a shortcut. The distance cue is *high-frequency content being removed with distance* — that is what the 1400 Hz floor sets. White noise carries equal energy per hertz and so is weighted heavily toward exactly those frequencies: masking against it means judging the dullness cue through a masker that eats the cue, and the floor gets set too bright as a result. Pink noise (equal energy per octave) is the acceptable synthetic stand-in, but a real recording of the site is better and nearly free — two minutes on the phone while placing waypoints. A steady noise also masks *steadily*, whereas a forest gusts and has birds in it, so a synthetic bed flatters the setting. **The owner will record the site.** |
 
@@ -671,24 +671,63 @@ never persisted, silently reverted on every reload.
 1. **The column.** Add a nullable numeric column to the `soundscapes` table, defaulting so that
    existing soundscapes keep 0.65. Declare it in `api/database/schema.sql` for the record, **and
    apply it by hand** — see the trap below.
-2. **The API model.** `api/models/SoundScape.js` follows the house pattern: constructor argument,
-   `fromRow` reading the snake_case column, `toRow` writing it, `toJSON` emitting camelCase,
-   `fromJSON` reading it back. Use nullish defaults, **never falsy ones** — a deliberate value must
-   survive, and this project has already shipped a bug where `volume || 0.8` turned a mute into 80%.
-3. **The write path.** ⚠️ **Resolve this first, it is the one genuine unknown.**
-   `SoundScapeRepository.updateWithChildren` only runs `UPDATE soundscapes SET updated_at = NOW()`,
-   so name, description and the public flag are evidently persisted somewhere else. Find that path
-   and follow it — do not assume the repository is where soundscape-level fields are written.
-   The `INSERT` at line ~91 lists its columns explicitly and will also need the new one.
+2. ~~**The API model.**~~ **NOT NEEDED — traced 2026-11-13.** `api/models/SoundScape.js` is required
+   only by `api/scripts/test-domain-models.js`; it is not on the live path, and it does not even
+   carry the public flag. The repository uses the inherited generic snake↔camel conversion. Editing
+   the model would be cosmetic churn implying it matters.
+3. **The write path.** ✅ **RESOLVED.** Soundscape-level fields are written by the route calling the
+   repository's generic `update(id, data)`, which builds its SET clause from every key the data
+   object holds. `updateWithChildren` only touches the timestamp because it is the *save-the-
+   children* path, not the field path. The pointer above was a red herring.
 4. **The client model.** `soundscape.js` → class `SoundScape`. Its constructor is **positional**
    (`id, name, description, isPublic, soundIds, behaviors, waypointData, areas`), so do not insert a
-   parameter in the middle; add it last or, better, populate it in `fromJSON` and `toJSON` where
-   every real load and save goes through.
+   parameter in the middle; populate it in `fromJSON` and `toJSON`, where every real load and save
+   goes through.
 5. **Editor and player.** The editor's main form (`map_editor.html`, the panel holding name,
    description and public) is already soundscape-wide, so this is a new field in an existing panel,
    not a new screen — see §7 Q16. Load it in the form-populate path, save it in the form-read path,
-   and follow the `editPublic` change-listener pattern. The player must apply it once the engine
+   and follow the `editPublic` change-listener pattern. **Seed the simulator slider from the loaded
+   piece instead of its hard-coded 0.65, and write the dialled value back, marking the piece dirty** —
+   otherwise dialling and saving are two unrelated numbers. The player must apply it once the engine
    exists, in the same place it already builds the audio app.
+
+### Progress 2026-11-13 — code complete, awaiting the owner's own round-trip test
+
+**Server:** column declared in `api/database/schema.sql` as nullable `NUMERIC(3,2)` with the
+hand-applied `ALTER TABLE` beside it (**the owner has applied it to the live database**); create and
+update routes accept the fraction; the INSERT writes it; the update route **drops undefined keys**
+before updating, because the SET clause is built from every key present and an absent field would
+otherwise have overwritten the stored value with NULL.
+
+**Client:** the soundscape model carries it through serialisation in both directions; the API client
+sends it and — importantly — its response builder is an **explicit whitelist** that silently discards
+any field not named, so the fraction had to be added there or it would have been dropped on the way
+back in however faithfully the server returned it; the editor seeds the simulator slider from the
+loaded piece and writes the dialled value straight back to it, marking the piece dirty so the
+existing autosave carries it; the player applies the saved value once the engine exists and logs it.
+
+**Two wire-format traps found and fixed, both of which would have made this silently do nothing:**
+the client converts outgoing payloads to snake_case while the route destructured camelCase, so the
+fraction — and, it turns out, **the public flag on this same route** — arrived as `undefined`. The
+route now accepts either spelling. And a stored `NULL` must not become `0`: PostgreSQL returns
+`NUMERIC` as a *string*, so the value is parsed and anything unusable stays null, meaning the engine
+default applies.
+
+**NOT done:** the round-trip verification script covers the client model only
+(`scratch/verify-dynamic-range-roundtrip.js`, 13 checks). The HTTP path, the database write and the
+editor's autosave have **not** been exercised — that needs the owner's own test below. The API needs
+a restart to pick up the route changes. Nothing is committed.
+
+✅ **Pre-existing bug found while doing this, and FIXED 2026-11-14 on the owner's instruction.**
+Every newly created soundscape was **public regardless of what the artist chose**, from three
+separate breaks in one chain: the API client's create method declared only two parameters so the
+editor's third argument — the Public checkbox — was silently discarded; the route destructured the
+camelCase name while the client sends snake_case; and the INSERT read `row.isPublic` *after* the row
+had already been converted to snake_case, so it was always `undefined` and `?? true` won. All three
+are fixed. **Existing soundscapes created before this were not made private by it** — anything the
+artist intended to be private should be checked by hand. Verified mechanically: the key conversion
+really does yield `is_public` and leave `row.isPublic` undefined. Not verified end to end, which
+needs a real create through the UI after an API restart.
 
 ### The trap
 

@@ -1199,6 +1199,16 @@ class MapPlayerApp extends MapAppShared {
 
             console.log('[MapPlayer] ✅ Soundscape started');
 
+            // FEATURE 25 decision 5: the piece carries its own dynamic-range fraction, dialled by
+            // the artist against that site. Apply it once the engine exists. A piece that was never
+            // dialled stores nothing and keeps the engine's default, so old pieces are unaffected.
+            if (soundscape && soundscape.dynamicRange !== null && soundscape.dynamicRange !== undefined
+                    && this.app.setDynamicRangeFraction) {
+                const applied = this.app.setDynamicRangeFraction(soundscape.dynamicRange);
+                this.debugLog(`🎚️ Dynamic range: ${applied.toFixed(2)} — `
+                    + `${(6.02 * applied).toFixed(1)} dB per halving of distance`);
+            }
+
             // === SESSION 3: Load Areas from soundscape into AreaManager (AFTER start) ===
             // This ensures AreaManager exists and listener position is initialized
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {
@@ -1237,11 +1247,15 @@ class MapPlayerApp extends MapAppShared {
                 const isOffline = !!cachedData;
                 this.debugLog('📱 [Areas] Offline mode: ' + (isOffline ? 'YES' : 'NO'));
                 
-                // Resolve sound IDs to URLs for areas (online) or hashed filenames (offline)
-                const resolvedAreas = await Promise.all(soundscape.areas.map(async area => {
-                    if (area.soundId && !area.soundUrl) {
-                        if (isOffline) {
-                            // For offline mode, use the hash of the sound ID as the filename
+                // Resolve sound IDs to URLs for areas (online) or hashed filenames (offline).
+                // Offline hashing is local, so it stays parallel. The online path goes through the
+                // shared sequential resolver: firing one request per area at once trips the API's
+                // rate limiter, and the failures were caught and swallowed, so the affected areas
+                // loaded with no URL and played nothing -- a silent bed with no error anywhere.
+                let resolvedAreas;
+                if (isOffline) {
+                    resolvedAreas = await Promise.all(soundscape.areas.map(async area => {
+                        if (area.soundId && !area.soundUrl) {
                             try {
                                 const hash = await this._hashSoundId(area.soundId);
                                 this.debugLog(`🗺️ Area sound resolved offline: ${area.id} -> hash: ${hash}`);
@@ -1249,21 +1263,12 @@ class MapPlayerApp extends MapAppShared {
                             } catch (error) {
                                 console.error('[MapPlayer] Error hashing area sound ID for offline:', error);
                             }
-                        } else {
-                            // For online mode, resolve to actual URL
-                            try {
-                                const soundDetails = await this.api.getSoundById(area.soundId);
-                                if (soundDetails && soundDetails.source && soundDetails.source.url) {
-                                    this.debugLog(`🗺️ Area sound resolved online: ${area.id} -> ${soundDetails.source.url}`);
-                                    return { ...area, soundUrl: soundDetails.source.url };
-                                }
-                            } catch (error) {
-                                console.error('[MapPlayer] Error resolving area sound ID to URL:', error);
-                            }
                         }
-                    }
-                    return area;
-                }));
+                        return area;
+                    }));
+                } else {
+                    resolvedAreas = await this._resolveSoundUrls(soundscape.areas);
+                }
                 
                 await this.app.loadAreas(resolvedAreas);
                 this.debugLog('✅ Areas loaded successfully');
