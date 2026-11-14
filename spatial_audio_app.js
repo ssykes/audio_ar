@@ -2855,4 +2855,8 @@ if (typeof module !== 'undefined' && module.exports) {
     window.isPositionFixUsable = isPositionFixUsable;
     window.INITIAL_MAX_ACCURACY_M = INITIAL_MAX_ACCURACY_M;
     window.TRACKING_MAX_ACCURACY_M = TRACKING_MAX_ACCURACY_M;
+    // The map gradient draws the reach band from these, so the picture and the audio cannot drift
+    // apart. Read them; never hard-code a copy on the drawing side.
+    window.ACOUSTIC_BAND_METRES = ACOUSTIC_BAND_METRES;
+    window.TIMBRE_BAND_METRES = TIMBRE_BAND_METRES;
 }

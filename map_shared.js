@@ -1094,14 +1094,23 @@ class MapAppShared {
      * @protected
      */
     _updateRadiusCircle(waypoint) {
+        // FEATURE 25 decision 3, as amended 2026-11-14: the drawn circle shows how far the sound is
+        // audible, not the activation radius alone. The sound fades to silence one acoustic band
+        // beyond the radius, and the owner's ruling is that the circle should reach that edge, so
+        // the picture on the map matches what the simulator plays. The stored radius is untouched --
+        // it still drives loudness, loading and the fade -- so this is a change to the drawing only.
+        const band = (typeof window !== 'undefined' && isFinite(window.ACOUSTIC_BAND_METRES))
+            ? window.ACOUSTIC_BAND_METRES : 40;
+        const audibleEdge = (waypoint.activationRadius || 0) + band;
+
         // If circle exists, update its position (more efficient than remove/recreate)
         if (waypoint.circleMarker) {
             waypoint.circleMarker.setLatLng([waypoint.lat, waypoint.lon]);
-            waypoint.circleMarker.setRadius(waypoint.activationRadius);
+            waypoint.circleMarker.setRadius(audibleEdge);
         } else {
             // Create new circle
             waypoint.circleMarker = L.circle([waypoint.lat, waypoint.lon], {
-                radius: waypoint.activationRadius,
+                radius: audibleEdge,
                 color: waypoint.color,
                 fillColor: waypoint.color,
                 fillOpacity: 0.15,
