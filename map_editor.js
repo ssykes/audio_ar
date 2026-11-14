@@ -3008,6 +3008,40 @@ document.getElementById('simAirFloorSlider').addEventListener('input', (e) => {
     applyAirAbsorptionFloor();
 });
 
+// FEATURE 25 decision 5: the dynamic-range fraction, held here so it survives stopping and
+// restarting a simulation, same as the dullness floor above. Dialled by ear, then fixed.
+let dynamicRangeFraction = 0.65;
+
+function applyDynamicRangeFraction() {
+    const audioApp = app && app.app;
+    if (audioApp && typeof audioApp.setDynamicRangeFraction === 'function') {
+        dynamicRangeFraction = audioApp.setDynamicRangeFraction(dynamicRangeFraction);
+    }
+    renderDynamicRangeFraction();
+}
+
+// The fraction is the exponent distance is raised to, which is not an intuitive thing to read.
+// What a person actually hears is how much louder a sound gets for walking half the distance
+// again, so say that instead. At 1.00 it is true physics, 6 dB per halving.
+function renderDynamicRangeFraction() {
+    const valueEl = document.getElementById('simDynRange');
+    const helpEl = document.getElementById('simDynRangeHelp');
+    if (valueEl) valueEl.textContent = dynamicRangeFraction.toFixed(2);
+    if (helpEl) {
+        const dbPerHalving = 6.02 * dynamicRangeFraction;
+        helpEl.textContent = `How much of the real loudness range is kept. Walking half the `
+            + `distance again gains ${dbPerHalving.toFixed(1)} dB. 1.00 is true physics; lower `
+            + `lifts the far end and compresses distance.`;
+    }
+}
+
+document.getElementById('simDynRangeSlider').addEventListener('input', (e) => {
+    dynamicRangeFraction = Number(e.target.value);
+    applyDynamicRangeFraction();
+});
+
+renderDynamicRangeFraction();
+
 // =====================================================================
 // FEATURE 25: peak-hold meter for the master ceiling
 // =====================================================================
@@ -3125,6 +3159,7 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
             // The audio app only exists once a simulation is running, so the dialled floor
             // has to be pushed into it here as well as on every slider move.
             applyAirAbsorptionFloor();
+            applyDynamicRangeFraction();
             startCeilingMeter();
         } catch (error) {
             addDebugLog('❌ Simulation start error: ' + error.message);

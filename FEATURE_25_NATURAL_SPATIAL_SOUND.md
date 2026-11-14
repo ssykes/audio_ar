@@ -171,13 +171,22 @@ very loud source will now pin the ceiling rather than being gradually squeezed.
 
 | Event | Distance, for a radius-*r* file waypoint |
 |---|---|
-| Fetched, started silent | *r* + 40 m |
-| Fade to silence completes | *r* + 40 m (same point — approach and departure mirror each other) |
-| Thrown away | *r* + 60 m |
+| Fetched, started silent | *r* + 40 m + the download lead — about *r* + 119 m on the assumed defaults |
+| Fade to silence completes | *r* + 40 m — **unchanged by Phase 3, and that is the point** |
+| Thrown away | fetch + 20 m, so about *r* + 139 m |
 
-The 40 m exists to buy download time before a sound is loud enough to hear. Note the
-consequence: **the radius decides three separate things at once** — how loud the source is,
-how big the map circle is, and how far away the file is downloaded from.
+**Changed 2026-11-13 (Feature 23 Phase 3).** Fetching and going silent used to happen at the same
+distance, which meant the download only started at the moment the sound became audible — the 40 m
+band was doing double duty as both the fade and the download lead. They are now separate: the fade
+still ends at *r* + 40 m, so **nothing about what the walker hears moved**, and the fetch happens
+further out by however long the file needs. The lead is the owner's formula — load time × walking
+speed, plus a margin, capped at 400 m — estimated from an assumed 5 MB at ~1 Mbit/s because the
+soundscape definition carries no file sizes. A soundscape already downloaded for offline play needs
+no lead at all, so its fetch collapses back onto the silence point.
+
+Note what this does and does not fix about F7: the download lead is now derived from the file rather
+than from the radius, but the radius still sets the loudness, the map circle, and the silence point
+the lead is measured from. Three jobs became two and a half.
 
 ### 2.7 Small print
 
@@ -394,7 +403,7 @@ must be walked separately or neither can be attributed.
 | 14 | **The editor's simulator carries a peak-hold meter for the master ceiling.** Ruled and built 2026-11-13, after decision 4 was implemented so the reading needs no trim to interpret it. It exists because the question the limiter was built to answer — is the piece too loud now? — cannot be settled by ear: below roughly 3 dB of reduction, limiting is inaudible, and above it a listener cannot tell limiting from the piece simply being loud. The meter reports the worst pull-down seen since the simulation started, with a reset, and holds its value after stopping so it can be read at leisure. It is polled on a 50 ms timer rather than on position updates, because a parked avatar still plays transients and those are what a ceiling catches; the 100 ms release means a 50 ms poll cannot miss an event. **Editor only** — the player has no meter, deliberately, since the simulator now reads true for every phone. **Not yet read** — the owner walked on 2026-11-13 without consulting it, so decision 8's question is still open. |
 | 15 | **The listening context is noise-cancelling headphones in a quiet environment.** Ruled 2026-11-13: *"I will be using noise canceling headphones. I am not concerned with compensating for 'street noise'. Assume the player will be used in a quiet environment."* This is a bigger change than it looks, because **the dynamic-range fraction was designed as compensation for a hostile listening environment** and that environment no longer exists. Contradiction C2 framed it as a choice between keeping the full real range (far end below the street) and keeping 0.65 of it (far end audible, near end bearable) — with nothing masking the far end, the first horn of that dilemma disappears. Consequences: the fraction stops being a compromise and becomes a purely artistic choice about how much real-world range to reproduce; **the natural direction of dialling reverses, toward 1.0**; the binding constraint moves from the far end to the **near end**, because a sealed silent ear gets a source with no context — no room, no ambience — so arrival at full inferred level is more startling than the same level outdoors; and a "too quiet at distance" complaint changes meaning, since it can no longer be masking, so it points at absolute calibration rather than at the fraction. The model's street-noise constant and its "typical street" label are now misnomers and should be relabelled, though **its value must not be changed casually** — it anchors every inferred source level. **Amended the same day by decision 17: the environment is not silent, it is the site.** Passthrough of the real location replaces the sealed-ear assumption, which *strengthens* the case for dialling toward 1.0 rather than weakening it — with a real ambient floor, true physics lets distance sink below it naturally, which is what happens in the world, whereas compressing the range lifts everything back above the floor and makes it sound closer than it is. The near-end concern is also largely answered by decision 17: what made arrival startling was the absence of context, not the level. |
 | 16 | **The editor is a desktop configuration tool; GPS and network-economic loading are player concerns.** Ruled 2026-11-13. Nothing needs removing to satisfy it — the editor never feeds GPS to the audio layer, because the simulator places the walker by dragging an avatar. The simulator *does* still run distance-based loading, and that is deliberate and worth keeping: it is what lets the waypoint log show the intended fetch and silence distances while a piece is being composed. It shows them for an assumed connection, not a real one, which is the right thing for authoring. |
-| 17 | **The site bed: an editor-only reference, and the real ambient is passed through.** Ruled 2026-11-13, amending decision 15. The walker hears **the actual location**, through the earbuds' own transparency mode — the owner's finding was that the mix was *more* engaging with passthrough on, and the reason is that a reproduced source needs a reference to be judged against. In a sealed silent ear nothing is "out there", so every source sounds close and inside the head. **The bed is not content and its audio does not ship.** It exists in the editor to do two jobs: replace the model's hard-coded "typical street" ambient constant with a level the owner chose from having stood at the site, and give the simulator an ambient floor, without which it cannot answer "is the far end too quiet" because there is nothing for it to be quiet against. **What ships is the ambient level number, not the recording.** The bed's level is set **by ear against a waypoint**, which is valid despite being uncalibrated: bed and waypoints reach the ear through the same headphones at the same volume, so the relationship is correct even when the absolute figure is not. Consequence accepted: because that level also anchors the model, moving it shifts the whole piece's output level by a constant — balance and dynamics unchanged. **App-mixed microphone capture is rejected** in favour of device passthrough: no latency, no battery cost, no microphone permission on a playback path that has never had one, and no feedback risk. The player's only job is to recommend transparency mode once, in plain words. |
+| 17 | **The site bed: an editor-only reference, and the real ambient is passed through.** Ruled 2026-11-13, amending decision 15. The walker hears **the actual location**, through the earbuds' own transparency mode — the owner's finding was that the mix was *more* engaging with passthrough on, and the reason is that a reproduced source needs a reference to be judged against. In a sealed silent ear nothing is "out there", so every source sounds close and inside the head. **App-mixed microphone capture is rejected** in favour of device passthrough: no latency, no battery cost, no microphone permission on a playback path that has never had one, and no feedback risk. The player's only job is to recommend transparency mode once, in plain words. **Corrected later the same day — the bed is a temporary area, and needs no new code.** This entry originally proposed building a bed player plus an ambient-level control whose value would replace the model's hard-coded ambient constant and ship with the piece. **Both are unnecessary.** The owner's own alternative is better: areas already *are* position-independent ambient beds with no distance model, the sound library already holds whatever recordings are wanted, and a calibration bed is drawn, used, then deleted — so nothing is built and nothing is persisted. And because the audibility-margin question dissolved (see the loudness spec §5.1), **the model's ambient constant is not replaced and does not ship**; it stays as it is. The bed is purely a listening reference. Level is set by ear against a waypoint using the area's existing volume control, which is valid despite being uncalibrated: bed and waypoints reach the ear through the same headphones at the same volume, so the relationship is correct even when the absolute figure is not. |
 | 18 | **Do not use white noise as the reference bed.** Recorded 2026-11-13 so nobody reaches for it as a shortcut. The distance cue is *high-frequency content being removed with distance* — that is what the 1400 Hz floor sets. White noise carries equal energy per hertz and so is weighted heavily toward exactly those frequencies: masking against it means judging the dullness cue through a masker that eats the cue, and the floor gets set too bright as a result. Pink noise (equal energy per octave) is the acceptable synthetic stand-in, but a real recording of the site is better and nearly free — two minutes on the phone while placing waypoints. A steady noise also masks *steadily*, whereas a forest gusts and has birds in it, so a synthetic bed flatters the setting. **The owner will record the site.** |
 
 ---
@@ -484,6 +493,16 @@ must be walked separately or neither can be attributed.
     and already saved as part of the soundscape — it is a new field, not a new screen.
 17. **Storage.** It becomes a column on the soundscape record, and the migration tooling still
     prints a green success over a real failure. Fix that, or apply the change by hand.
+    ✅ **Ruled 2026-11-13: apply it by hand.** The owner's *"Forget the migration tool. There are
+    just a few reproducable soundscapes at this time"* means the broken tooling should not block the
+    work — with only a few rows, the column can be added directly. **It does not mean skip
+    persistence.** The fraction is per-piece and must be stored per-piece, because each piece is
+    dialled against its own site's ambient: a louder site needs the far end lifted more (a lower
+    fraction), a quiet one can afford true physics (a higher one), so a single global value would be
+    wrong for every site but the one it was dialled at. An assistant briefly recorded the opposite
+    and built only the simulator slider; the slider is the *dialling* half, not the feature. **This
+    is the same trap that shelved the contained waypoint kind** — built in memory, never persisted,
+    silently gone on reload.
 18. ✅ **Done 2026-11-13 — and the cost it was weighing is now the only one left.** The player's
     buttons sat ahead of the master stage. Under the old compressor's soft knee they also changed
     the balance between loud and quiet sources, not just the level; under the limiter they were a
@@ -610,5 +629,90 @@ owner deploys.
 | F5 | **Retracted.** The code claim was verified; the inference drawn from it was contradicted by two walks |
 | F10, the position trail | **Reproduced.** Mechanism read from the code, then reproduced in `scratch/verify-position-lag.js` against the real methods (7 checks), and confirmed by the owner on a walk the same day. This is the only finding in this document established to that standard |
 
-Parts of this document have now been built: the limiter (decision 8) and the position repair
-(F10). Everything else remains unbuilt.
+Built so far: the limiter (decision 8), the position repair (F10), the per-waypoint muffling rescale
+with its floor at 1400 Hz (decisions 12 and 13), the removal of the player's output trim (decision 4),
+the simulator's ceiling meter (decision 14), the deletion of the unreachable reverb environments
+(decision 11), the derived fetch distance (Feature 23 Phase 3), and the simulator slider for the
+dynamic-range fraction (decision 5, **half done — see §11**). Everything else remains unbuilt.
+
+---
+
+## 11. Work order — persistence of the dynamic-range fraction
+
+**Resume with the prompt:** *"Continue with persistence of the dynamic range slider."*
+
+This section is self-contained. Read it and §7 Q17 and decision 5; nothing else is required.
+
+### Why it is unfinished
+
+The fraction is diallable in the editor's simulator but **is not saved anywhere**. Close the editor
+and the value is gone; the phone has never seen it. Decision 5 rules that the fraction is an artistic
+setting **on the piece**, and the owner confirmed on 2026-11-13 that it must be stored per soundscape,
+because each piece is dialled against its own site's ambient — a louder site needs the far end lifted
+more (lower fraction), a quiet one can afford true physics (higher fraction). One global number would
+be wrong for every site except the one it was dialled at.
+
+⚠️ **Do not repeat the error already made here.** The owner's *"Forget the migration tool. There are
+just a few reproducable soundscapes at this time"* was misread as "do not persist it". It means the
+**broken migration tooling should not block the work** — with only a few rows, the column can be
+applied by hand. This is the same trap that shelved the contained waypoint kind: built in memory,
+never persisted, silently reverted on every reload.
+
+### What already exists — do not rebuild
+
+| Piece | Where | State |
+|---|---|---|
+| The model constant the fraction writes to | `spatial_audio.js` → `PHYSICAL_MODEL.dynamicRangeK`, read live by `physicalGain` | Done, default 0.65 |
+| Setter and reader on the app layer | `spatial_audio_app.js` → `setDynamicRangeFraction`, `getDynamicRangeFraction` (clamps to 0.10–1.00, falls back to 0.65) | Done, verified by `scratch/verify-dynamic-range-slider.js` |
+| The simulator control | `map_editor.html` → `simDynRangeSlider`, `simDynRange`, `simDynRangeHelp`; `map_editor.js` → `dynamicRangeFraction`, `applyDynamicRangeFraction`, `renderDynamicRangeFraction`, applied on simulation start | Done. Readout is dB gained per halving of distance, not the raw exponent — keep that, the exponent is not hearable |
+
+### What is missing — five pieces
+
+1. **The column.** Add a nullable numeric column to the `soundscapes` table, defaulting so that
+   existing soundscapes keep 0.65. Declare it in `api/database/schema.sql` for the record, **and
+   apply it by hand** — see the trap below.
+2. **The API model.** `api/models/SoundScape.js` follows the house pattern: constructor argument,
+   `fromRow` reading the snake_case column, `toRow` writing it, `toJSON` emitting camelCase,
+   `fromJSON` reading it back. Use nullish defaults, **never falsy ones** — a deliberate value must
+   survive, and this project has already shipped a bug where `volume || 0.8` turned a mute into 80%.
+3. **The write path.** ⚠️ **Resolve this first, it is the one genuine unknown.**
+   `SoundScapeRepository.updateWithChildren` only runs `UPDATE soundscapes SET updated_at = NOW()`,
+   so name, description and the public flag are evidently persisted somewhere else. Find that path
+   and follow it — do not assume the repository is where soundscape-level fields are written.
+   The `INSERT` at line ~91 lists its columns explicitly and will also need the new one.
+4. **The client model.** `soundscape.js` → class `SoundScape`. Its constructor is **positional**
+   (`id, name, description, isPublic, soundIds, behaviors, waypointData, areas`), so do not insert a
+   parameter in the middle; add it last or, better, populate it in `fromJSON` and `toJSON` where
+   every real load and save goes through.
+5. **Editor and player.** The editor's main form (`map_editor.html`, the panel holding name,
+   description and public) is already soundscape-wide, so this is a new field in an existing panel,
+   not a new screen — see §7 Q16. Load it in the form-populate path, save it in the form-read path,
+   and follow the `editPublic` change-listener pattern. The player must apply it once the engine
+   exists, in the same place it already builds the audio app.
+
+### The trap
+
+**The migration runner fails and then prints a green success.** It has been observed reporting
+"Database migrations completed" directly after *Peer authentication failed for user "postgres"*. So:
+apply the column by hand, and **verify it exists by querying the table** — never accept a tool's
+output as evidence. The owner runs the database and the API restart, not the assistant.
+
+### Decisions already made — do not re-litigate
+
+- Per soundscape, not per device and not global.
+- Range 0.10–1.00, step 0.05, default 0.65 when unset.
+- Dialled by ear, on site, with the real ambient present (decision 15 as amended by 17). Expect to
+  dial **up** toward 1.0, not down — there is no street noise to lift the far end above.
+- The simulator keeps working as the dialling instrument; persistence does not replace it.
+
+### Definition of done
+
+1. Dial the slider, save, reload the editor — **the value is still there.** This is the check that
+   the contained waypoint kind failed.
+2. Open the same piece on the player — **the walk uses the saved fraction**, not 0.65. Confirm from
+   the console rather than by ear, since a small difference is hard to hear.
+3. An existing soundscape that has never been edited still behaves exactly as before.
+4. A throwaway script in `scratch/` proves the round trip against the real model files, in the style
+   of `verify-dynamic-range-slider.js` — load the module, do not mirror it.
+5. Nothing is committed until the owner has done 1 and 2 themselves.
+

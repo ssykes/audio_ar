@@ -2,8 +2,14 @@
  * Spatial Audio GPS System
  * Reusable library for spatial audio with GPS positioning
  *
- * @version 6.6 (Device output trim removed; limiter reduction is readable)
+ * @version 6.7 (One outdoor wash; the unreachable environment presets are gone)
  * @changelog
+ *   v6.7 - FEATURE 25 decision 11. The five reverb environments are deleted. Their decay figures
+ *          were computed, returned and never consumed -- the convolution tail is built once, at
+ *          0.25 s, and never rebuilt -- and the setter had zero call sites anywhere in the project,
+ *          so only the outdoor default ever ran and the other four were unreachable. What remains is
+ *          one outdoor wash level, which is all the wash has ever actually done. Verified
+ *          behaviour-preserving: the wet level at every distance band is identical to before.
  *   v6.6 - FEATURE 25 decision 4. The device-local output trim is gone, so the shared mix bus stays
  *          at unity and the listener's phone volume is the only level control. The trim sat ahead
  *          of the limiter, which meant pushing it up drove the mix into the ceiling and flattened
@@ -37,7 +43,7 @@
  *   v5.0 - Reverb zones (distance-based wet/dry mix)
  */
 
-console.log('[spatial_audio.js] Loading v6.6...');
+console.log('[spatial_audio.js] Loading v6.7...');
 
 /**
  * GPS Utility Functions
@@ -1885,33 +1891,21 @@ const SoundPresets = {
  * Reverb Zone Presets - Distance-based reverb settings
  * Based on psychoacoustic research: reverb-to-dry ratio as distance cue
  *
- * Environment Presets:
- *   - outdoor: Open air, fields, desert (minimal reverb)
- *   - indoor: Rooms, offices, small spaces
- *   - large: Halls, cathedrals, warehouses
- *   - cave: Underground, enclosed natural spaces
- *   - urban: City streets, reflections from buildings
- *
- * TODO: Make these configurable via UI
- *   - Add preset selector: 'outdoor' | 'indoor' | 'large' | 'cave' | 'urban'
- *   - Add sliders for: decay (0.1-5.0s), wet (0-100%), preDelay (0-100ms)
- *   - Store preset in localStorage to remember user preference
- *   - Show current settings: "Environment: outdoor, Decay: X.Xs, Wet: XX%"
+ * FEATURE 25 decision 11: there is one outdoor wash and no environment choice. Five named
+ * environments used to live here, each with its own decay and wet level, but the decay figure was
+ * computed, returned and never consumed -- the convolution tail is built once, at 0.25 s -- and the
+ * setter had zero call sites anywhere in the project, so only the outdoor default ever ran. What
+ * was left is a single wet ceiling for open air, which is all the wash has ever actually done.
+ * Distance therefore rests on level and dullness, both of which are audible; the owner heard no
+ * reverb at all on a walk, and open air genuinely has almost none.
  */
 
 /**
- * Environment Types - Select the acoustic space
- * Each environment has different reverb characteristics regardless of distance
+ * The loudest the wash ever gets, at the furthest distance band.
+ *
+ * Kept low on purpose: this is open air, which has almost no reverberation to reproduce.
  */
-const REVERB_ENVIRONMENTS = {
-    // Name: [decay seconds, max wet%, description]
-    // Wet levels tuned for natural spatial audio AR experience
-    outdoor: { decay: 0.2, maxWet: 0.15, description: 'Open air, desert, fields' },
-    indoor:  { decay: 0.5,  maxWet: 0.30, description: 'Rooms, offices, small spaces' },
-    large:   { decay: 1.5,  maxWet: 0.50, description: 'Halls, cathedrals, warehouses' },
-    cave:    { decay: 2.5,  maxWet: 0.60, description: 'Underground, enclosed natural' },
-    urban:   { decay: 0.6,  maxWet: 0.25, description: 'City streets, building reflections' }
-};
+const REVERB_MAX_WET = 0.15;
 
 /**
  * Distance zones within an environment
@@ -1924,30 +1918,18 @@ const REVERB_DISTANCE_ZONES = {
     distant:  { minDistance: 60, maxDistance: Infinity, wetMultiplier: 1.0 }  // 60m+: Full wet
 };
 
-// Default environment (can be overridden by app)
-let CURRENT_REVERB_ENVIRONMENT = 'outdoor';
-
 /**
- * Set the current acoustic environment
- * @param {string} envName - Environment name: 'outdoor' | 'indoor' | 'large' | 'cave' | 'urban'
- */
-function setReverbEnvironment(envName) {
-    if (REVERB_ENVIRONMENTS[envName]) {
-        CURRENT_REVERB_ENVIRONMENT = envName;
-        console.log(`[Reverb] Environment set to: ${envName} - ${REVERB_ENVIRONMENTS[envName].description}`);
-    } else {
-        console.warn(`[Reverb] Unknown environment: ${envName}, using ${CURRENT_REVERB_ENVIRONMENT}`);
-    }
-}
-
-/**
- * Get reverb settings for current distance and environment
+ * Get the wash level for a distance.
+ *
+ * FEATURE 25 decision 11: this used to also return a decay figure and an environment name. The
+ * decay was never consumed by anything -- the convolution tail is built once and never rebuilt --
+ * and no environment could ever be selected, so both were dead weight that implied a choice the
+ * system did not offer.
+ *
  * @param {number} distance - Distance in meters
- * @returns {{decay: number, wet: number, environment: string, zone: string}}
+ * @returns {{wet: number, zone: string}}
  */
 function getReverbForDistance(distance) {
-    const env = REVERB_ENVIRONMENTS[CURRENT_REVERB_ENVIRONMENT];
-    
     // Find distance zone
     let zone = REVERB_DISTANCE_ZONES.distant;
     for (const [zoneName, zoneData] of Object.entries(REVERB_DISTANCE_ZONES)) {
@@ -1956,14 +1938,9 @@ function getReverbForDistance(distance) {
             break;
         }
     }
-    
-    // Calculate wet value: environment max * distance zone multiplier
-    const wetValue = env.maxWet * zone.wetMultiplier;
-    
+
     return {
-        decay: env.decay,
-        wet: wetValue,
-        environment: CURRENT_REVERB_ENVIRONMENT,
+        wet: REVERB_MAX_WET * zone.wetMultiplier,
         zone: zone === REVERB_DISTANCE_ZONES.close ? 'close' :
               zone === REVERB_DISTANCE_ZONES.medium ? 'medium' :
               zone === REVERB_DISTANCE_ZONES.far ? 'far' : 'distant'
@@ -2880,9 +2857,8 @@ if (typeof module !== 'undefined' && module.exports) {
     window.DeviceOrientationHelper = DeviceOrientationHelper;
     window.HeadingManager = HeadingManager;
     window.GPSTracker = GPSTracker;
-    window.setReverbEnvironment = setReverbEnvironment;
     window.getReverbForDistance = getReverbForDistance;
-    window.REVERB_ENVIRONMENTS = REVERB_ENVIRONMENTS;
+    window.REVERB_MAX_WET = REVERB_MAX_WET;
     window.PHYSICAL_MODEL = PHYSICAL_MODEL;
     window.CONTAINED_BAND_M = CONTAINED_BAND_M;
     window.containedEnvelope = containedEnvelope;
@@ -2890,13 +2866,12 @@ if (typeof module !== 'undefined' && module.exports) {
     window.levelAtDistance = levelAtDistance;
     window.physicalGain = physicalGain;
     window.fadeOutMultiplier = fadeOutMultiplier;
-    console.log('[spatial_audio.js] v6.6 (device output trim removed; limiter reduction readable) loaded');
+    console.log('[spatial_audio.js] v6.7 (one outdoor wash; environment presets removed) loaded');
     console.log('[spatial_audio.js] Available presets:', Object.keys(SoundPresets).join(', '));
     console.log('[spatial_audio.js] SampleSource: Ready for MP3/WAV/M4A files');
     console.log('[spatial_audio.js] CachedSampleSource: Offline cache support enabled');
     console.log('[spatial_audio.js] HeadingManager: GPS + Compass hybrid');
     console.log('[spatial_audio.js] GPSTracker: Auto-lock when stationary');
     console.log('[spatial_audio.js] SpatialAudioApp: High-level app orchestration');
-    console.log('[spatial_audio.js] Reverb Environments:', Object.keys(REVERB_ENVIRONMENTS).join(', '));
-    console.log('[spatial_audio.js] Usage: setReverbEnvironment("outdoor"|"indoor"|"large"|"cave"|"urban")');
+    console.log('[spatial_audio.js] Reverb: single outdoor wash, max wet', REVERB_MAX_WET);
 }

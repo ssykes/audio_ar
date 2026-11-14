@@ -54,8 +54,8 @@ Source code (implementation)
 | `index.html` | v6.8 | 2026-03-16 |
 | `soundscape_picker.html` | - | 2026-03-21 (Feature 16) |
 | `theme.css` | v1.0 | 2026-10-13 (Feature 17B phase 1: design tokens) |
-| `spatial_audio.js` | v6.6 | 2026-11-13 (device output trim removed; limiter reduction readable) |
-| `spatial_audio_app.js` | v3.7 | 2026-11-13 (no position is invented; the in-range check waits for a real fix) |
+| `spatial_audio.js` | v6.7 | 2026-11-13 (one outdoor wash; the unreachable environment presets are deleted) |
+| `spatial_audio_app.js` | v3.8 | 2026-11-13 (fetch distance derived from download time; fraction diallable; no invented GPS position) |
 | `map_player.js` | v7.7 | 2026-11-13 (waits for GPS instead of guessing; louder/quieter buttons and Level field removed) |
 | `map_shared.js` | v6.13 | 2026-11-11 (simulator waypoint log also waits between lines) |
 | `download_manager.js` | v1.1 | 2026-03-21 (Feature 16: Version guard) |
@@ -206,6 +206,13 @@ They are two *independent* tasks — do them separately, they share no code.
   a longer reach means more simultaneous sources. Also flagged there: every absolute dB in the model
   rests on a calibration constant nobody has ever checked against a meter, and the trim that could
   have adjusted it is now gone.
+  ⚠️ **Two things in that recommendation were wrong and are corrected here.** First, the fetch work
+  was never blocked on the margin (see above). Second, the claim that *"the final fade is anchored to
+  the disposal distance"* is false — checked before building: the fade is anchored to its own
+  silence-point calculation, separate from disposal, which is exactly what made Option A safe to
+  build without touching the sound. And a longer fetch distance does **not** increase ceiling
+  pressure, because a source fetched early is silent until the walker reaches the fade band, and a
+  silent source adds nothing to the mix.
 - **Deferred 2026-11-13 — three items, all on the owner's instruction, none of them forgotten:**
   - **What a source that is not a recording of a real thing is *loud*.** Owner: *"Defer it. I have
     not had the need to do that yet. I want to get natural sound refined first."* Sharpened in
@@ -266,6 +273,46 @@ They are two *independent* tasks — do them separately, they share no code.
   one real constraint: today the final fade is anchored to the disposal distance, so moving disposal
   outward would stretch the fade and change the sound. The fade must stay anchored at radius + 40 m
   while only the fetch and disposal distances move. Cap 400 m, ~1 Mbit/s assumed.
+
+### Built late on 2026-11-13 — three items, all uncommitted
+
+- **The dynamic-range fraction is diallable in the simulator** (decision 5). Slider from 0.10 to
+  1.00 in 0.05 steps, starting at 0.65, beside the brightness control. The readout shows dB gained
+  per halving of distance rather than the bare exponent, because the exponent is not a thing anyone
+  can hear. **This is the dialling half only — the fraction is NOT yet persisted, and it must be.**
+  ⚠️ **Corrected 2026-11-13: an inference was recorded as a ruling, again.** The owner said *"Forget
+  the migration tool. There are just a few reproducable soundscapes at this time"*, and that was read
+  as "do not persist it, hard-code it like the 1400 Hz floor". **Wrong.** The owner's actual meaning
+  is that the *broken migration tooling* should not block the work — with only a few soundscapes the
+  column can be applied by hand, which is exactly the alternative §7 Q17 already offered. The
+  fraction **is per-soundscape**, because each piece is dialled against its own site's ambient, so
+  the right value differs per piece. A single hard-coded global would be wrong. **Do not treat the
+  slider as the finished feature** — the missing half is a column on the soundscape, its API model
+  and repository, the editor reading and saving it, and the player applying it at start. This is the
+  same trap that shelved the contained waypoint kind: built in memory, never persisted, so it
+  silently vanished on reload.
+  👉 **A self-contained work order is written in the Feature 25 spec §11.** Resume with the prompt
+  *"Continue with persistence of the dynamic range slider"* and read that section plus §7 Q17; it
+  lists what already exists, the five missing pieces, the one genuine unknown (where soundscape-level
+  fields are actually written — the repository's update path only touches the timestamp), the
+  migration trap, and a definition of done.
+- **The dead reverb environments are deleted** (decision 11's follow-up). Five presets, their unused
+  decay figures and the unreachable setter are gone; one outdoor wash level remains. Verified
+  behaviour-preserving — the wet level at every distance band is identical to before.
+- **Feature 23 Phase 3 is built: the fetch distance is derived.** Fetching and going silent used to
+  happen at the same distance, so a download only began at the moment the sound became audible.
+  They are now separate. **The silence point did not move — that was the whole constraint** — so
+  nothing about what the walker hears changed; only the download trigger moved outward, by the
+  owner's formula (load time × walking speed + margin, capped at 400 m). Assumed 5 MB at ~1 Mbit/s,
+  because the soundscape definition carries no file sizes (verified: they live only in the sound
+  library, and the waypoint query has no join to sounds). **A downloaded soundscape gets no lead at
+  all**, so offline play fetches at the silence point and saves the memory.
+  ⚠️ The timbre band is now formally decoupled from the loading margin, which is what the code
+  comment warned would eventually be needed. A slow connection cannot change how dull a sound is.
+
+All three verified against the real files: 106 checks across five throwaway scripts, including 30 on
+the fetch distance whose first eight assert the invariant that the silence point did not move.
+**Nothing is checked in a browser**, and none of it is committed.
 
 ### Deploy status — verified by content, 2026-11-13
 

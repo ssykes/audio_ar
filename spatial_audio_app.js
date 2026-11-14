@@ -2,10 +2,20 @@
  * Spatial Audio App
  * High-level application orchestration for spatial audio GPS system
  *
- * @version 3.7 (No position is invented; the in-range check waits for a real one)
+ * @version 3.8 (Fetch distance derived from download time; dynamic-range fraction diallable)
  * @depends spatial_audio.js v6.4+
  *
  * Changelog:
+ * - v3.8: FEATURE 23 Phase 3 and FEATURE 25 decision 5. Fetching a file and that file going silent
+ *         used to happen at the same distance, so a download only began at the moment the sound
+ *         became audible. They are now separate: the silence point is its own acoustic constant and
+ *         did not move, while the fetch happens further out by however long the download needs --
+ *         load time times walking speed, plus a margin, capped. The lead is estimated from an
+ *         assumed file size and connection speed, because the soundscape definition carries no file
+ *         sizes. A soundscape already downloaded for offline play takes no lead at all. The timbre
+ *         band is now formally decoupled from the loading margin, so a slow connection cannot
+ *         change how dull a sound is. Also exposes the dynamic-range fraction so it can be dialled
+ *         by ear in the simulator before being fixed, exactly like the dullness floor.
  * - v3.7: FEATURE 25. A failed or untrustworthy position request no longer resolves to latitude and
  *         longitude zero. That invented coordinate put the walker in the Atlantic, so the one-shot
  *         in-range check found nothing, fetched nothing, and reported no error -- silence while
@@ -368,11 +378,14 @@ class Sound {
  * in spatial_audio.js and depends on distance alone, so a sound is quietly audible on both sides
  * of the radius instead of being full volume inside it and fading across it.
  *
- * FEATURE 23: the fade band and this margin are tied together. A source goes silent exactly where
- * it is fetched, so walking in swells it up across the same band that walking out faded it down
- * across. The band itself is 20m wide and sits inside this margin, so the margin must be at least
- * that wide. 40m keeps the audible reach the shape it was before, and gives ~30 seconds of walking
- * time to fetch and decode a sound before it can be heard.
+ * FEATURE 23: the fade band sits inside this margin, so the margin must be at least as wide as the
+ * band. 40m keeps the audible reach the shape it was before.
+ *
+ * FEATURE 23 Phase 3: this margin is no longer the fetch distance for file sources. It used to be
+ * -- a source went silent exactly where it was fetched, so walking in swelled it up across the same
+ * band that walking out faded it down across. That symmetry is preserved, but the fetch now happens
+ * further out again, by however long the file needs to download. See DOWNLOAD_LEAD. The acoustic
+ * reach is unchanged, so what the walker hears is unchanged.
  */
 
 /**
@@ -387,10 +400,41 @@ class Sound {
  * type therefore gets the same notional band, so two sources with the same radius sound the same
  * at the same distance whatever they are.
  *
- * If the fetch distance ever becomes level-derived (Feature 23 Phase 3), revisit this: the two
- * would stop agreeing for file sources.
+ * FEATURE 23 Phase 3: the fetch distance is now derived, so the moment this comment warned about
+ * has arrived. The two no longer agree for file sources and must not be conflated — this band is
+ * acoustic and stays fixed, while the fetch distance is the silence point plus a download lead.
  */
 const TIMBRE_BAND_METRES = 40;
+
+/**
+ * FEATURE 23 Phase 3: how far beyond its circle a file source fades to silence, in metres.
+ *
+ * This is the acoustic reach, and it is deliberately untouched by the fetch-distance work. Moving
+ * it would move what the walker hears; the whole point of deriving the fetch distance was to change
+ * only when a file starts downloading. The final fade still ends here, so a source is always silent
+ * before it is thrown away.
+ */
+const ACOUSTIC_BAND_METRES = 40;
+
+/**
+ * FEATURE 23 Phase 3: how much walking distance to allow for a file to download before it can be
+ * heard. The owner's formula, 2026-11-13: load time, times walking speed, plus a margin, capped.
+ *
+ * Estimated rather than measured, on the owner's instruction, because measuring needs a first visit
+ * to learn from and the soundscape definition carries no file sizes -- those live only in the sound
+ * library, which the player does not load. The assumed size is therefore a default. The connection
+ * speed is deliberately pessimistic: a quiet forest is not a place with good signal.
+ *
+ * The cap bounds the lead, not the total distance. Capping the total instead could push the fetch
+ * inside the acoustic reach, and then the walker would hear a source start before its file arrived.
+ */
+const DOWNLOAD_LEAD = {
+    assumedFileBytes: 5 * 1024 * 1024,   // No size in the soundscape definition; see above
+    assumedBytesPerSecond: 125000,       // ~1 Mbit/s, a rural connection
+    walkingSpeedMps: 1.4,                // Average walking pace
+    marginMetres: 20,                    // Covers a walker who stops, and GPS error
+    capMetres: 400                       // The owner's cap
+};
 
 /**
  * FEATURE 25: how inaccurate a position fix may be before it is discarded rather than used.
@@ -505,6 +549,11 @@ class SpatialAudioApp {
             existingContext: options.existingContext || null,  // Existing AudioContext
             ...options
         };
+
+        // FEATURE 23 Phase 3: a soundscape already downloaded for offline play has nothing to
+        // fetch, so file sources need no download lead and are picked up at the point they become
+        // audible rather than well before it.
+        this.soundsAreCached = !!options.soundsAreCached;
 
         // Runtime state (engine-owned)
         this.engine = null;
@@ -834,16 +883,14 @@ class SpatialAudioApp {
         const sound = this.sounds.find(s => s.id === soundId);
         if (!sound) return null;
 
-        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
         const radius = sound.activationRadius || 30;
-        const lead = sound.type === 'stream' ? (config.pauseMargin || 0) : (config.preloadMargin || 0);
 
         return {
             distance: this.getSoundDistance(soundId),
             radius: radius,
             kind: sound.falloff,
             type: sound.type,
-            fetchAt: radius + lead,                       // fetched when closer than this
+            fetchAt: this._getFetchDistance(sound),        // fetched when closer than this
             silentBeyond: this._getAcousticFadeEnd(sound), // faded to nothing by here
             disposeBeyond: this._getDisposeDistance(sound),// thrown away beyond here
             loaded: !!sound.isLoaded,
@@ -1325,8 +1372,14 @@ class SpatialAudioApp {
             return null;
         }
         const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
-        const activationRadius = sound.activationRadius || 30;
-        return activationRadius + config.preloadMargin + config.unloadMargin + config.hysteresis;
+        // Artificial sources keep their original short hysteresis. They are created instantly, so
+        // there is no download to stand off from, and the acoustic band is not a fetch margin.
+        if (sound.type !== 'buffer') {
+            return (sound.activationRadius || 30) + (config.preloadMargin || 0)
+                + config.unloadMargin + config.hysteresis;
+        }
+        // File sources are let go beyond the fetch distance, by which point they are already silent.
+        return this._getFetchDistance(sound) + config.unloadMargin + config.hysteresis;
     }
 
     /**
@@ -1348,9 +1401,56 @@ class SpatialAudioApp {
         if (sound.type === 'stream') {
             return null;
         }
-        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
         const activationRadius = sound.activationRadius || 30;
+        // FEATURE 23 Phase 3: file sources fade across the acoustic band, which is now a constant of
+        // its own rather than the loading margin, because the two stopped being the same distance.
+        if (sound.type === 'buffer') {
+            return activationRadius + ACOUSTIC_BAND_METRES;
+        }
+        // Artificial sources are created instantly inside their circle, so they need only a short
+        // band beyond it to keep them from clicking off.
+        const config = ZoneConfig[sound.type] || ZoneConfig.buffer;
         return activationRadius + Math.max(config.preloadMargin || 0, 5);
+    }
+
+    /**
+     * FEATURE 23 Phase 3: how far ahead of the acoustic reach a source is fetched, in metres.
+     *
+     * The owner's formula: how long the file takes to load, times how fast the walker closes that
+     * distance, plus a margin for stopping and for GPS error, capped. Only file sources wait on a
+     * network, and a soundscape already downloaded for offline play has nothing to fetch at all --
+     * giving it a lead would load sources early for no reason and hold the memory.
+     *
+     * @param {Sound} sound - Sound object
+     * @returns {number} Lead distance in metres, 0 when no download is involved
+     * @private
+     */
+    _getDownloadLeadMetres(sound) {
+        if (sound.type !== 'buffer') return 0;
+        if (this.soundsAreCached) return 0;
+
+        const seconds = DOWNLOAD_LEAD.assumedFileBytes / DOWNLOAD_LEAD.assumedBytesPerSecond;
+        const lead = (seconds * DOWNLOAD_LEAD.walkingSpeedMps) + DOWNLOAD_LEAD.marginMetres;
+        return Math.min(lead, DOWNLOAD_LEAD.capMetres);
+    }
+
+    /**
+     * FEATURE 23 Phase 3: the distance at which a source is fetched.
+     *
+     * For a file source this is the point where it goes silent, plus the download lead -- so it is
+     * further out than it used to be, and the gap is what buys the download time. The silence point
+     * itself does not move, which is what keeps this change inaudible.
+     *
+     * @param {Sound} sound - Sound object
+     * @returns {number} Distance in metres
+     * @private
+     */
+    _getFetchDistance(sound) {
+        if (sound.type === 'stream') {
+            const config = ZoneConfig.stream;
+            return (sound.activationRadius || 30) + (config.pauseMargin || 0);
+        }
+        return this._getAcousticFadeEnd(sound) + this._getDownloadLeadMetres(sound);
     }
 
     /**
@@ -1374,8 +1474,17 @@ class SpatialAudioApp {
 
         // Calculate zone boundaries using FIXED MARGINS (not multipliers)
         // This gives consistent loading time regardless of radius size
-        const preloadStart = activationRadius + config.preloadMargin;
-        const unloadDistance = activationRadius + config.preloadMargin + config.unloadMargin;
+        //
+        // FEATURE 23 Phase 3: file sources are fetched further out than they go silent, by however
+        // long their download needs. Artificial sources are created instantly and keep the original
+        // margins; streams are deliberately left exactly as they were.
+        const isFile = sound.type === 'buffer';
+        const preloadStart = isFile
+            ? this._getFetchDistance(sound)
+            : activationRadius + config.preloadMargin;
+        const unloadDistance = isFile
+            ? preloadStart + config.unloadMargin
+            : activationRadius + config.preloadMargin + config.unloadMargin;
 
         // Oscillators: Instant creation, no preload needed
         if (sound.type === 'oscillator') {
@@ -1465,9 +1574,9 @@ class SpatialAudioApp {
             const zone = this._getSoundZone(sound, distance);
             const activationRadius = sound.activationRadius || 30;
             // FEATURE 23: the loudness curve is continuous, so the distances that matter here are
-            // where loading starts and where the source is finally thrown away
-            const zoneConfig = ZoneConfig[sound.type] || ZoneConfig.buffer;
-            const preloadStart = activationRadius + (zoneConfig.preloadMargin || 0);
+            // where loading starts and where the source is finally thrown away. Phase 3 split those
+            // apart: the fetch distance now sits beyond the silence point by the download lead.
+            const preloadStart = this._getFetchDistance(sound);
             const disposeDistance = zone.disposeDistance;
             const fadeEnd = this._getAcousticFadeEnd(sound);
 
@@ -2295,6 +2404,39 @@ class SpatialAudioApp {
         const value = Number(hz);
         this.airAbsorptionFloorHz = isFinite(value) ? Math.max(500, Math.min(12000, value)) : 1400;
         return this.airAbsorptionFloorHz;
+    }
+
+    /**
+     * FEATURE 25 decision 5: Set the dynamic-range fraction — how much of the real loudness range
+     * between near and far is kept. Exposed so it can be dialled by ear in the simulator, exactly
+     * like the dullness floor, and then fixed.
+     *
+     * 1.0 is true physics: halve the distance and the level doubles. Lower flatters the curve,
+     * lifting the far end and pulling the near end down, so distance reads less strongly but a
+     * sound is heard from further out. It is the exponent distance is raised to, which is why a
+     * small change is audible across a whole walk.
+     *
+     * This writes to the physical model's own constant rather than to a field on this instance,
+     * because the fraction is a property of the model and not of one playback session. There is
+     * only ever one session per page, so nothing else can be reading a different value.
+     *
+     * @param {number} fraction - Fraction of the real range to keep, clamped to 0.1-1.0
+     * @returns {number} The fraction actually applied
+     */
+    setDynamicRangeFraction(fraction) {
+        const model = window.PHYSICAL_MODEL;
+        if (!model) return NaN;
+        const value = Number(fraction);
+        model.dynamicRangeK = isFinite(value) ? Math.max(0.1, Math.min(1.0, value)) : 0.65;
+        return model.dynamicRangeK;
+    }
+
+    /**
+     * FEATURE 25 decision 5: The dynamic-range fraction currently in force.
+     * @returns {number} The fraction, or NaN if the model is not loaded
+     */
+    getDynamicRangeFraction() {
+        return window.PHYSICAL_MODEL ? window.PHYSICAL_MODEL.dynamicRangeK : NaN;
     }
 
     /**

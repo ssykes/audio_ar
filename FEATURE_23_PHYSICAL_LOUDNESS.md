@@ -299,6 +299,20 @@ reason about. But read the ceiling meter first, and note the nuance either way: 
 depends on how spectrally distinct each source is from the bed, so a single global figure is a
 simplification whichever option is chosen.
 
+**Resolved 2026-11-13 — neither option, and Phase 3 is built.** Two further facts settled it: a
+soundscape may have no bed at all, and the owner dials the fraction on site with the editor on an
+iPad. With no bed the ambient number is a guess, so baking a margin into it would dress a guess as a
+fact; and dialling against the real ambient calibrates perceptually, which makes the numeric margin
+not load-bearing for how the piece sounds. **So today's acoustic behaviour stands unchanged** — the
+circle edge is at ambient, and distinct sources carry below it.
+
+**Phase 3 is implemented** as the fetch-distance half only, which is all Option A ever needed:
+the silence point stays at radius + 40 m, while the fetch moves out by the download lead (load time
+× walking speed + margin, capped at 400 m, estimated from an assumed 5 MB at ~1 Mbit/s). A
+downloaded soundscape takes no lead. Verified by 30 checks whose first eight assert the invariant
+that the silence point did not move, so **the change is inaudible by construction**. The radius no
+longer decides the download trigger on its own, which partially retires F7.
+
 ### 5.2 Artificial sources
 
 The artist wants oscillators and other unnatural sources with a hand-defined listening radius.

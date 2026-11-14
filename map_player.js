@@ -1107,6 +1107,10 @@ class MapPlayerApp extends MapAppShared {
                 gpsSmoothing: true,
                 autoLock: true,
                 reverbEnabled: true,
+                // FEATURE 23 Phase 3: a downloaded soundscape has nothing to fetch, so file sources
+                // need no download lead and are picked up where they become audible instead of well
+                // before it. Saves memory and decoding work on the offline path.
+                soundsAreCached: isOffline,
                 existingContext: audioCtx  // Pass the gesture-satisfied AudioContext
             });
 
