@@ -353,13 +353,16 @@ class ApiClient {
     /**
      * Update soundscape
      */
-    async updateSoundscape(id, name, description = '', isPublic = true, dynamicRange = undefined) {
-        const payload = this._toRow({ name, description, isPublic, dynamicRange });
+    async updateSoundscape(id, name, description = '', isPublic = true, dynamicRange = undefined, reverbWet = undefined) {
+        const payload = this._toRow({ name, description, isPublic, dynamicRange, reverbWet });
         // FEATURE 25: _toRow converts every key present, so an unset fraction would go up as
         // dynamic_range: undefined and wipe a value the artist had dialled. Drop it instead, and
-        // let the server keep what is already stored.
+        // let the server keep what is already stored. Same for the reverberation wash.
         if (dynamicRange === undefined || dynamicRange === null) {
             delete payload.dynamic_range;
+        }
+        if (reverbWet === undefined || reverbWet === null) {
+            delete payload.reverb_wet;
         }
         const data = await this.request(`/soundscapes/${id}`, {
             method: 'PUT',
@@ -470,6 +473,13 @@ class ApiClient {
                 // silently dropped however faithfully the server returned it. The fraction arrived
                 // as dynamic_range and was already converted to camelCase by the mapping above.
                 dynamicRange: data.soundscape.dynamicRange ?? null,
+                // FEATURE 25 §13: the site's reverberation, on the piece for the same reason as the
+                // fraction above. NUMERIC arrives as a string from PostgreSQL, so parse it — a
+                // string would drive a slider and a comparison incorrectly. Null means never
+                // dialled, and must stay null rather than become 0, or the wash would be muted.
+                reverbWet: data.soundscape.reverbWet !== undefined && data.soundscape.reverbWet !== null
+                    ? Number(data.soundscape.reverbWet)
+                    : null,
                 soundIds: data.waypoints.map(wp => wp.id),
                 waypointData: data.waypoints, // Already mapped by getSoundscape()
                 behaviors: data.behaviors || [], // Already mapped by getSoundscape()

@@ -41,14 +41,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create soundscape
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description, isPublic, dynamicRange } = req.body;
+    const { name, description, isPublic, dynamicRange, reverbWet } = req.body;
     // The client converts outgoing payloads to snake_case, so accept either spelling -- see the
     // update route. Reading only the camelCase name is why the public flag never arrived here.
     const publicFlag = isPublic !== undefined ? isPublic : req.body.is_public;
     const fraction = dynamicRange !== undefined ? dynamicRange : req.body.dynamic_range;
+    const wash = reverbWet !== undefined ? reverbWet : req.body.reverb_wet;
 
     const soundscape = await repo.createWithWaypoints(
-      { userId: req.user.id, name, description, isPublic: publicFlag, dynamicRange: fraction },
+      { userId: req.user.id, name, description, isPublic: publicFlag, dynamicRange: fraction, reverbWet: wash },
       [], // No waypoints initially
       []  // No behaviors initially
     );
@@ -67,20 +68,21 @@ router.post('/', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, isPublic, dynamicRange } = req.body;
+    const { name, description, isPublic, dynamicRange, reverbWet } = req.body;
 
     // FEATURE 25: the client converts outgoing payloads to snake_case, so the fraction arrives as
     // dynamic_range. Accept both spellings -- reading only the camelCase name would silently drop
     // every value the editor sends, which is exactly how the public flag on this route has been
     // failing (the client sends is_public, this destructured isPublic).
     const fraction = dynamicRange !== undefined ? dynamicRange : req.body.dynamic_range;
+    const wash = reverbWet !== undefined ? reverbWet : req.body.reverb_wet;
     const publicFlag = isPublic !== undefined ? isPublic : req.body.is_public;
 
     // Only send the fields the client actually supplied. The repository builds its SET clause from
     // every key present, so an absent field arriving as undefined would overwrite the stored value
     // with NULL -- which for the fraction would silently reset a piece the artist had dialled on
     // site.
-    const updates = { name, description, isPublic: publicFlag, dynamicRange: fraction };
+    const updates = { name, description, isPublic: publicFlag, dynamicRange: fraction, reverbWet: wash };
     for (const key of Object.keys(updates)) {
       if (updates[key] === undefined) delete updates[key];
     }

@@ -389,7 +389,7 @@ must be walked separately or neither can be attributed.
 |---|---|
 | 1 | **Objective restated: natural sounding spatial sound.** Where a tweak and the objective disagree, the objective wins. This document is the reference for that test. |
 | 2 | **Scale the muffling and the reverb to each waypoint** rather than to fixed 80 m and 60 m. Approved in principle; the open questions in §7 must be answered before it is built. |
-| 3 | **Map graphic:** the drawn circle reaches the **audible edge** — activation radius plus the acoustic band — so the picture on the map is the same extent the simulator plays. Ruled 2026-11-14 after a canvas gradient was built, looked at, and rejected: *"Don't do circles. revert your change. Make the waypoint circle as large as you made the gradient radius, to the edge of what is audiable in the simulator. I can listen to the simulator to get an idea of the size of the sound."* The gradient is **reverted and gone**; the circle is the whole graphic. The stored radius is untouched — it still drives loudness, loading and the fade — so this is a change to the drawing only, and the band width is read from the audio layer's own constant rather than copied, so the picture and the sound cannot drift apart. Supersedes the earlier wording of this decision (solid fill, gradient band, circle as scale marker) and closes §7 Q10–Q13 by making them moot: there is no separate band to draw, derive, or keep in step. **Consequence to hold in mind:** the circle no longer shows the radius the artist typed, only the reach it produces; the slideout still shows the number. |
+| 3 | **Map graphic and panel: one number, meaning what you hear.** Ruled 2026-11-14 (option D). The panel's slider, its value label, the waypoint list and the map circle all show the **audible distance** — the stored radius plus the fade band — while the stored value stays the radius that drives loudness, loading and the fade. The conversion happens only at the panel boundary, so **nothing is migrated and no existing piece changes**. The slider therefore runs 45–140 rather than 5–100, and its field is labelled "Audible distance" with a hint saying the circle is exactly that distance. The band is read from the audio layer's own constant, and is kind-aware: the shelved contained kind uses its own much smaller band, so the conversion asks which kind is in force. Consequences to hold in mind: the panel no longer shows the number that drives loudness, so comparing two pieces by their panel numbers compares reach, not level; and if the band constant ever changes, every displayed number moves without anyone editing anything — the price of one honest number, accepted. History: a canvas gradient was built first and rejected by the owner (*"Don't do circles… Make the waypoint circle as large as you made the gradient radius"*), then enlarged circles were tried, then this. Verified by `scratch/verify-radius-conversion.js` (18 checks on the real helper source, including the round trip and the clamps). |
 | 4 | **The player's volume buttons go entirely.** The listener uses the phone's own volume. Anything already stored as a device trim becomes dead and must read as no adjustment. ✅ **Implemented 2026-11-13.** Buttons and the Level field removed from the player, the trim removed from the engine so the shared mix bus stays at unity, and the stored value is cleared on load so nobody keeps an adjustment they can no longer see or undo. |
 | 5 | **The dynamic-range fraction becomes an artistic setting on the piece**, set in the editor, not on the device. This makes it the only dynamic control left, so its default value matters more than it did. |
 | 6 | **The contained waypoint kind is shelved.** No further work; not persisted; assumed out of scope for everything below. |
@@ -397,7 +397,7 @@ must be walked separately or neither can be attributed.
 | 8 | **The master compressor is replaced with a limiter.** Ruled 2026-11-12, resolving C3. Ceiling −3 dB, hard knee, 20:1, 1 ms attack, 100 ms release. Built; **not yet heard on a walk.** |
 | 9 | **The start-of-walk position correction stays as an immediate snap for now.** The owner noticed it and wants to listen for a while before deciding whether to spread it over a couple of seconds. **Do not change it without asking.** |
 | 10 | **The status bar's GPS field shows the position trail in metres** beside the padlock, amber above 10 m, replacing the words "Locked"/"Live". It is the instrument that makes any future position complaint diagnosable without a simulation. |
-| 11 | **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest — **and smaller than it was first written up, because there is no environment choice to relabel.** Verified 2026-11-13 by searching the whole project: the setter has zero call sites, so nothing can select an environment, every walk has always run the default (outdoor), and the other four presets are a table of numbers no code path reaches. What remains is to delete the dead table and setter, or leave them and stop describing them as a choice. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
+| 11 | ⚠️ **PARTLY SUPERSEDED 2026-11-14 — see §13.** The wash was never audible because the wet path had been disconnected since Feature 14, so "leave it alone" was a judgement about a defect, not about the sound. The environment half of this ruling stands; the wash half does not. **The reverb wash is left alone, and the five environments stop pretending to differ.** Ruled 2026-11-12 after the owner heard no reverb at all on a walk, approaching and departing. Open air genuinely has almost no reverberation, so an absent wash outdoors is correct rather than broken. Distance work rests on level and dullness, which are audible. The follow-up is cosmetic and honest — **and smaller than it was first written up, because there is no environment choice to relabel.** Verified 2026-11-13 by searching the whole project: the setter has zero call sites, so nothing can select an environment, every walk has always run the default (outdoor), and the other four presets are a table of numbers no code path reaches. What remains is to delete the dead table and setter, or leave them and stop describing them as a choice. Answers §7 Q6; supersedes F3 as a thing to fix and Q5 and Q9 as things to decide. |
 | 12 | **The muffling build is decision 2 *plus* softening the curve.** Ruled 2026-11-12. Scaling to each waypoint stands, and §7 Q3 is applied with it rather than instead of it: today's curve is absolute distance done far too aggressively and then clamped, so rescaling it unchanged would carry that into every waypoint. The framing of "extend the range" versus "rescale" as an open choice is withdrawn — it contradicted decision 2 and rested on a claim the owner never made (§7 Q4). |
 | 13 | **The dullness floor is 1400 Hz.** Set by the owner on 2026-11-13 after dialling it in the editor's simulator, reporting that it works outside the waypoint circle. It is the highest frequency still passing at the far end of a waypoint's reach, so it fixes how dull a sound gets at its most distant. The simulator slider still moves it; do not treat 1400 as provisional, but do ask before changing it. |
 | 14 | **The editor's simulator carries a peak-hold meter for the master ceiling.** Ruled and built 2026-11-13, after decision 4 was implemented so the reading needs no trim to interpret it. It exists because the question the limiter was built to answer — is the piece too loud now? — cannot be settled by ear: below roughly 3 dB of reduction, limiting is inaudible, and above it a listener cannot tell limiting from the piece simply being loud. The meter reports the worst pull-down seen since the simulation started, with a reset, and holds its value after stopping so it can be read at leisure. It is polled on a 50 ms timer rather than on position updates, because a parked avatar still plays transients and those are what a ceiling catches; the 100 ms release means a 50 ms poll cannot miss an event. **Editor only** — the player has no meter, deliberately, since the simulator now reads true for every phone. **Not yet read** — the owner walked on 2026-11-13 without consulting it, so decision 8's question is still open. |
@@ -754,4 +754,361 @@ output as evidence. The owner runs the database and the API restart, not the ass
 4. A throwaway script in `scratch/` proves the round trip against the real model files, in the style
    of `verify-dynamic-range-slider.js` — load the module, do not mirror it.
 5. Nothing is committed until the owner has done 1 and 2 themselves.
+
+---
+
+## 12. Source width — PROPOSED, NOT AUTHORISED
+
+**Status 2026-11-14: nothing is built. No schema change, no persistence, no editor control.** This
+section records an evaluation so the question can be answered later without re-doing the research.
+It is a measurement plan, not a work order — contrast §11, which *is* authorised and *is* a work
+order.
+
+### 12.1 The finding
+
+Mined from GeoBuzz (`scratch/GeoBuzz`, MIT, © 2025 Janne Särkelä — re-clone, `scratch/` is cleared
+periodically). Read 2026-11-14: the ambisonic manager, the audio-node factory, the per-frame update
+loop, the spatial constants, and the mode wiring.
+
+GeoBuzz renders a stereo source not as one point but as **two**: it splits the file into its left and
+right channels and places each as its own source in the scene, offset **perpendicular to the bearing**,
+separated by a fixed **5 m** in world units, with an artist multiplier 0–2. Order 1 ambisonics
+(4 channels), via Resonance Audio.
+
+The separation is a **constant in metres and is never a function of distance.** What changes with
+distance is the angle it subtends — half-separation 2.5 m, so **±51° at 2 m, ±27° at 5 m, ±7° at
+20 m, ±1.4° at 100 m**. The image narrows to a point as the walker recedes and wraps as they
+approach, with no distance-dependent parameter anywhere. **That is correct and it is free** — it is
+how a real extended source behaves. If width is ever built here, do not make it a function of
+distance.
+
+The technique does not need the library. Two binaural panners per source, fed one channel each and
+offset perpendicular to the bearing, reproduces it. Resonance Audio is incidental.
+
+### 12.2 Why it might help — and the evidence that it might not
+
+**Might help.** A point source has no size and the brain parks size-less things at the centre of the
+head. Two points 5 m apart arrive at the ears as genuinely different signals, and extent reads as
+"out there". It also attacks §3's median-plane finding directly: a source 5 m wide **cannot** lie on
+a plane of zero width, so the ambiguity that makes a bell sound overhead has less to grip.
+*⚠️ That second claim is an inference from the mechanism, not a measurement. GeoBuzz publishes no
+listening tests. Do not record it as a result.*
+
+**Might not matter much, and this is the stronger evidence.** The owner's Ashland piece — urban sound
+overlaid on a small town, reported 2026-11-14 to have *"transformed being there"* — was built mostly
+from **areas**, and per §2.7 areas have **no spatialiser at all**. The material that produced the
+effect ran as plain stereo into the headphones, entirely inside the head, and worked anyway.
+
+That is not evidence *against* width — the owner said nothing about width either way, and silence is
+never approval or disapproval (see the trap recorded in the 2026-11-12 handover). It **is** evidence
+that in-the-head rendering was not what stood between the owner and the effect they wanted. Priority
+follows from that: width is a real improvement to a real weakness, and the weakness is not the
+binding constraint on the stated goal.
+
+### 12.3 Where it would apply — and areas are the better target
+
+| | Today | Width would mean |
+|---|---|---|
+| **Waypoints** | One binaural panner, direction only, distance attenuation off (§2.4) | Offset perpendicular to the bearing, as GeoBuzz does |
+| **Areas** | **No spatialiser at all** (§2.7) — plain stereo, in the head | Width with **no bearing**, because a bed has no direction. Two points far apart (e.g. ±90°), or decorrelation |
+
+For a piece whose purpose is to alter or embellish a real site, the diffuse bed is the main
+instrument and the placed source is the accent. **The bed is also the part with no spatial
+processing whatsoever.** If width is ever built, build it for areas first; the waypoint case is the
+same mechanism with a bearing attached.
+
+**One constraint on the whole premise, established 2026-11-14.** The app can only **add** to the real
+site — it cannot attenuate it. With transparency mode on (decision 17), the actual ambient always
+reaches the ear by a path the app does not touch. An area's `opaque` overlap mode excludes *other
+areas*; it has no effect on the real world. So "alter the ambient" can only ever mean
+alter-by-addition and alter-by-contrast. Anything framed as ducking, masking or replacing the site is
+not available.
+
+### 12.4 The cost question, as a measurement
+
+The cost is **twice the spatialisers per stereo source**, on a phone, with no headroom measurement
+anywhere in the project. Do not guess at it. Three gates, in order; **each must pass before the next
+is spent.**
+
+**Gate M1 — does it sound better? (simulator, no persistence)**
+Hard-code a width temporarily, A/B against zero on the owner's own Ashland material. One question,
+narrowly: *does the bed sound like it is in the street, or in my head?* Blind if anyone else can flip
+the switch. Cost is hours, not days — **no column, no API change, no editor control at this gate.**
+This is the contained-waypoint lesson applied deliberately: do not persist anything before it has
+been heard.
+
+**Gate M2 — can the phone afford it? (real device, only if M1 passes)**
+The simulator runs on a desktop and cannot answer this.
+1. Establish the worst realistic case first: the largest number of simultaneously audible sources the
+   owner would actually place. Take the number **from the owner and from the Ashland piece**, not
+   from an assumption.
+2. Walk it on the phone at zero width — the baseline.
+3. Walk it at the M1 width. Record two things: **dropouts** (any audible glitch, by ear) and
+   **battery** (percent per hour).
+4. Acceptance: no dropouts, and a battery cost the owner will tolerate for a walk of the piece's real
+   length. If it fails, the fallback is width on areas only, which is where M1 says the value is and
+   where the source count is lowest.
+
+⚠️ **Invalid until the sound-resolution fix is deployed.** That bug left items silent when the
+rate limiter refused a lookup, and the failure was swallowed. **A measurement taken against a partly
+silent mix measures nothing** — and the silent item could be the bed being judged. Re-dial and
+re-measure only after the fix is live.
+
+**Gate M3 — did the median-plane symptom move? (walk, only if M2 passes)**
+Re-test the specific complaint §3 records: a bell sounding overhead. Report it as moved or not moved.
+Do not write a mechanism into the spec for either outcome — that is exactly the F5 failure.
+
+### 12.5 Do not adopt, even though it is in the same file
+
+- **Their distance model.** Linear rolloff, 1 m reference, 10 km maximum — effectively no distance
+  attenuation; their level is a hand-set scalar. Ours is the physical curve built under Feature 23 and
+  tuned by ear for a fortnight. Letting a spatialiser attenuate would fight it exactly as the retired
+  master compressor did (§2.5). **Keep attenuation off the panner**, as §2.4 already has it.
+- **Their heading smoothing.** They run the compass through a filter and reject poor-accuracy
+  readings; §2.4 assigns the compass straight through. F5 is retracted and the stabiliser stays off.
+  GeoBuzz doing it is not evidence about us.
+- **The library, for this alone.** Order-1 ambisonics earns its cost when you need a real 360°
+  recording or a speaker-ring decode. Neither is on any roadmap here. Two panners reproduce the width.
+
+### 12.6 If it is built — where the setting lives
+
+**Per piece, set by the artist, in metres. Not a listener toggle.** The reasoning is the same chain
+that settled decision 5: the artist dials on site, width is a property of the source (a solo violin is
+narrow, a choir is wide, a spaced-pair recording has a real width that should be stated rather than
+guessed), and decision 4 removed the last listener-side control precisely because a control in the
+listener's hands could break the model invisibly. Width does not touch level, so it is less dangerous
+than the trim was — but it is still the artist's, not the walker's.
+
+**A column on the item, not a row in `behaviors`.** The owner suggested `behaviors` on 2026-11-14;
+checked the same day, it holds a *coordination rule across a set of waypoints* — a type, an array of
+member waypoint ids, a settings bag. Width is a property of one item. Storing it there means a rule
+whose member list is one id and whose only job is to carry a number, and inherits three live
+problems: no editor UI creates rules at all, the rule path bypasses distance-based loading and holds
+its whole membership in memory, and a dormant defect in that path was only fixed 2026-11-14. The
+fraction's path (§11) is the proven one, and `DATABASE_COLUMN_ADDITION_GUIDE.md` exists for it.
+
+### 12.7 Decision gate
+
+Nothing here is scheduled. To authorise, the owner needs to say which of these it is:
+
+1. **Run M1** — hours, simulator only, no persistence, answers "do I want this at all".
+2. **Park it** — record the finding and spend on reliability and level calibration instead (§8).
+3. **Fold it into a wider decision** — see the tool-comparison note in the 2026-11-14 handover: the
+   same prior art also carries moving sources on paths, speed-gated triggering and reflections off
+   real geometry, and those may serve the stated goal better than width does.
+
+**Recommended: 1, then 2 unless M1 is a clear win.** M1 is cheap enough that guessing is the more
+expensive option, and it is the only gate that can be answered without a schema change.
+
+### 12.8 Gate M1 RESULT — run by the owner 2026-11-14
+
+**Material:** a stereo tom-tom drum beat, ~3 s decay, a hit about every 4 s. **Trim needed to match
+loudness: 0 dB.** Test run on the scratch listening page, six steps, answers recorded in the owner's
+own words below. Headphones, quiet room.
+
+**PLACED SOURCES: PASS, on the owner's explicit words** — *"This is very good for placed sounds.
+I want it."* And: *"the sound is much more focused"*, *"it sounds like it is coming from a definite
+source"*, *"Changing the Bearing was much more focused and effective with 'width: two points'."*
+
+**The win is directional focus, not distance.** Three of the owner's answers point the same way and
+the fourth is explicit about it. Bearing changes became sharper and more legible with two points.
+That is the benefit to build against — do not sell this feature as making sources seem further away.
+
+**Trim 0 dB is a result worth keeping on its own.** Splitting the file across two spatialisers did not
+change its loudness, so the technique does not perturb the calibrated level model — at least for this
+material. This removes the worry in §12.4's step 1 for the case tested.
+
+**Width's effect is concentrated close in.** Owner: *"Changing width had very little effect on the
+sound after 5 meters"*, and a difference was audible to about 30–40 m but hard to discern beyond.
+Consistent with the geometry in §12.1 — ±27° at 5 m versus ±7° at 20 m is a large perceptual change,
+±7° versus ±1.4° is not.
+
+**AMBIENT BEDS: no audible effect, and this is INCONCLUSIVE rather than a verdict.** Owner: *"I did not
+hear much if any difference changing bed width"*; it did not move from inside the head to around them;
+it did sound *"fuller although not quite as clear"*.
+⚠️ **The material was wrong for the question.** A tom-tom is a transient point event — the opposite of
+a diffuse bed. Judging bed width with it is like judging a reverb with a click track. **Do not record
+"beds don't benefit from width."** Retest with actual ambient material (traffic, wind, a crowd) before
+deciding anything about areas.
+
+**DISTANCE: NOT TESTED by this gate — and the reason must not be lost.** Owner: *"The sound always
+sounded about 2 meters or so away"*, and, correctly inferring what the test was for, *"From your
+questions I assume it was also suppose to make the sound seem far from me. It did not."* A 5 m distant
+source was placed by ear at about 2 m.
+
+**This is a property of the demo, not a finding about width.** The page held level constant at every
+distance and applied no air absorption, deliberately, so that width was the only variable. Per §3,
+**level and spectral balance are the two cues that carry distance — and the demo removed both.** With
+nothing to localise range, the ear defaults to "near". So the demo *could not* show a distance effect,
+and its failure to is **not** evidence that width fails to help distance in the real engine, which has
+the full level curve and the dullness sweep. Distance remains an open question, to be answered in the
+engine, not on this page.
+
+The owner's ahead/behind result — *"At width 0, can you tell ahead from behind? Yes"* and *"Does width
+make it easier? Yes"*, though *"very subtle"* — is consistent with §3's median-plane finding and with
+the inference in §12.2, but it is a single listener on a page with no head tracking. Treat it as
+encouraging, not as confirmation.
+
+**Near-field caveat, observed and expected.** Owner: at 1 m distance with 5 m width it *"did not sound
+the same as 'Today: one point'"*. Per §12.1's geometry the halves sit at ±68° there — beside and behind
+the head — so the source wraps around the listener. **A width larger than the distance to the source
+wraps it around your head.** Whether that is wrong depends entirely on the source: a real 5 m wide
+object genuinely does wrap at 1 m, but a tom-tom is not 5 m wide.
+**Design consequence: width must be per source and small sources need small widths. Do not ship one
+global default of 5 m.** The 5 m figure is the prior art's default for its own material, not a law.
+
+**Step 6 (blind) was not run** — the owner reported the difference was obvious enough that blinding
+was pointless: *"It is so obvious which is which."*
+
+### 12.9 Where this leaves §12.7
+
+The recommendation in §12.7 ("run M1, then park unless it is a clear win") is **partly overtaken**.
+For placed sources M1 is a clear win and the owner has said they want it. For beds it is unanswered.
+For distance it is untested by design.
+
+**Gate M2 is therefore next for placed sources only**, and two questions should be answered before any
+engine work: what a sensible per-source default width is, and whether anything should happen when a
+source is closer than it is wide. Areas should wait for a retest with diffuse material.
+
+### 12.10 Rulings taken 2026-11-14 (evening) — the shape of the control
+
+**One number, no checkbox.** The owner first asked for a checkbox to activate the feature, then
+withdrew it on their own reasoning: *"If 'at any width above zero it is swapped for the split' and at
+zero it is the single point path, there is no need for the checkbox."* Correct. **A width of zero
+already means today's single-point path**, so a boolean would be a second source of truth for one
+decision. Redundant state is how this project acquired the phantom area level field that overrode a
+real slider for months. One column: width in metres.
+
+**0 = exactly today's behaviour, and the column defaults to 0.** Existing waypoints are untouched.
+Nothing changes on any piece until the artist raises a width. This also makes the change safe to
+deploy before it has been walked.
+
+**Granularity: per waypoint.** §12.6's "per piece" is **corrected** — it meant *artist-controlled
+rather than listener-controlled*, and that part stands, but the number belongs on the waypoint, not on
+the soundscape, because width is a property of the source material. A drum is narrow, a choir is wide,
+a bus is wider. One global value per piece would force them all to be the same.
+
+**Default when the artist turns it on: 5 m** (the owner's choice, which is also the prior art's
+default). **No near-field clamp** — also the owner's ruling, on the grounds that the wrap is
+physically correct: a genuinely 5 m wide object does wrap around you at 1 m. The consequence, accepted
+ knowingly: **a 5 m width wraps inside 5 m**, so small sources must be turned down by hand. The
+simulator must make that audible rather than hiding it.
+
+**Areas are not in this build.** §12.8's retest with diffuse material comes first.
+
+**The reverberation send is untouched by width, deliberately.** The wet path bypasses the spatialiser
+entirely, so a wide source's reverberation is not wide. That is physically defensible — real
+reverberation arrives diffusely from everywhere, not from the shape of the thing that made it — and it
+is cheaper. **Recorded here so nobody later "fixes" it as an oversight.**
+
+---
+
+## 13. Reverberation — the disconnected wet path, and Chowning's law
+
+**Built 2026-11-14. Script-verified, NOT browser-verified, NOT dialled by ear. Uncommitted.**
+
+### 13.1 🔴 The wash was never quiet. It was disconnected.
+
+Decision 11 recorded that the owner *"heard no reverb at all"* on a walk and ruled the wash should
+stay as it is. §7 Q9 recorded *"I can't hear it and don't have a need for it yet."* **Both were
+judgements about a defect, not about the sound.**
+
+When the air-absorption filter is spliced into a loaded source, the splice disconnects the source's
+output and reconnects it **straight to the spatialiser**, bypassing the dry/wet split entirely. Both
+halves of the split were left connected to nothing, so no signal ever reached the convolution — while
+the distance code kept faithfully setting wet and dry levels on two dead nodes every frame, which is
+why nothing ever looked wrong. **Three load paths did this**, so every file source was affected from
+the day Feature 14 landed.
+
+**Decision 11 and §7 Q9 are superseded on this point.** Do not restore "the wash stays as it is" — it
+was never heard. The five deleted environments (decision 11's follow-up) stay deleted; that part is
+unaffected.
+
+Fixed by reconnecting the split downstream of the filter in all three places. Verified by
+`scratch/verify-reverb-path.js`, which loads the real engine against a fake audio context and walks the
+graph for reachability rather than trusting the wiring to look right.
+
+⚠️ **Every mix balanced before 2026-11-14 was balanced dry.** The same class of surprise as the area
+levels jumping about 60% when the phantom field was fixed.
+
+### 13.2 The four distance bands are replaced by Chowning's law
+
+Once audible, the owner reported two faults (2026-11-14): the wetness seemed **constant regardless of
+distance**, and it should have been *"completely dry at the center"* and *"duller in frequency"* when
+far. Both diagnoses were correct.
+
+- The wash was **four fixed bands** (0–10 / 10–30 / 30–60 / 60+ m). Inside a band the wet level did
+  not change at all — walking 12 m to 28 m produced literally nothing. And the nearest band was
+  already 30% of the ceiling, so standing on the source was never dry.
+- The bands were in **absolute metres** while loudness and dullness are per waypoint. The mismatch §3
+  already flagged, now audible.
+- The wash's **character was fixed**, because it comes from one impulse response baked at startup.
+
+Source: Jot, *Efficient models for reverberation and distance rendering in computer music and virtual
+audio reality* (IRCAM) — the paper behind Spat and FreeVerb3 — which attributes the distance model to
+**Chowning (1971)**: attenuate the direct sound by the square of distance and the reverberation by
+distance alone, so the reverberation falls more slowly and the **ratio** rises, about 6 dB per
+doubling. That ratio is the cue, and it reproduces the owner's own example exactly — a jackhammer far
+off down a street is mostly reverberation, a busker a few metres away is almost all direct sound. Same
+street, different distance.
+
+**Three changes, all engine-side, no schema:**
+
+1. **Bands replaced by a smooth ratio curve.** Exactly zero at the source, rising continuously, about
+   6 dB per doubling. Measured with a 60 m reach:
+   `1m:0.006  5m:0.029  12m:0.070  20m:0.116  28m:0.161  35m:0.200  45m:0.254  60m:0.330  80m:0.423  120m:0.573  200m:0.759`
+2. **Scaled to each waypoint's own reach**, driven from the *same* reach the dullness sweep uses, so
+   the two curves cannot drift apart. At 30 m out, a 20 m reach gives 0.465 wet against 0.172 for a
+   60 m reach.
+3. **The wash gets its own low-pass**, an octave below the direct path's cutoff by default and driven
+   from the same sweep, so the 1400 Hz floor the owner dialled still governs both.
+
+**Two things deliberately preserved:**
+
+- **The direct sound's level curve is untouched.** Chowning's exponents were a musical choice, not a
+  measurement; ours is physically derived and dialled by ear. Only the *ratio* is taken from him.
+- **The wet/dry split is equal-power**, so raising the wash does not also raise the total level.
+  Without that, "wetter" and "louder" turn together and dialling means nothing.
+
+### 13.3 The boundary the paper draws — do not cross it without a reason
+
+Jot's central argument is that convolution is accurate but *"relies on a cumbersome low-level
+representation, implying a complex updating scheme for any interactive manipulation."* That is a direct
+hit on this design: **the impulse response is baked once, so the wash's decay-versus-frequency cannot
+be varied per source or per distance.** The wet low-pass fakes the audible part of that — distant
+reverberation is duller — but it cannot make the tail decay faster or slower.
+
+Their alternative, a feedback delay network with absorptive filters, does exactly that for about 4–7
+MIPS. **Deliberately not built:** Web Audio has no such structure, so it needs a custom audio worklet —
+a substantial change with a real battery cost on a phone. Reopen only if per-waypoint room character
+becomes a want.
+
+Also recorded, **not built**: Jot separates *early reflections*, which should be directional and
+panned, from *late reverberation*, which should be diffuse. We treat the whole wash as diffuse. That
+is consistent with Chowning for the late part but not the early part, and it would interact with the
+width work in §12. Judge §13.2 by ear first.
+
+### 13.4 What is dialled and what is not
+
+| Value | Status |
+|---|---|
+| Impulse response: 1.2 s, five early taps, progressive damping | **Reasoned, not dialled.** Replaces a 0.25 s synthetic small room |
+| Wash ratio ceiling (0.35) | **Not dialled.** Simulator slider exists; its meaning changed from a flat wet gain to the ratio reached at the waypoint's reach |
+| Wash dullness (0.5 × the direct cutoff) | **Not dialled.** Simulator slider added 2026-11-14 |
+| Pre-delay ramp (0→50 ms over 60 m) | **Not dialled, no control.** Reasoned value |
+| Areas | **Untouched — still no reverberation at all**, per the standing ruling that areas are fine as they are. Whether beds should carry the site's wash is open, and given the Ashland work it is the one the owner is most likely to want |
+
+### 13.5 Verification
+
+`scratch/verify-reverb-path.js`, **25 checks, all green**, against the real engine file with a fake
+audio context that records every connection. It asserts graph reachability — does signal actually
+reach the convolution, both before and after the app layer's filter splice — and carries the specific
+regression test for the owner's complaint: the wet level must rise **strictly** at every step outward,
+with no plateau. The four-band design fails that check between 12 m and 28 m.
+
+It also caught a defect nobody would have heard easily: **the file's left channel was being rendered on
+the listener's right.** Fixed, and now asserted.
+
+Nothing here has been heard by anyone. The script proves the wiring and the arithmetic; only the owner
+can say whether it sounds right.
 

@@ -92,8 +92,8 @@ class SoundScapeRepository extends BaseRepository {
       // conversion, so `?? true` made every new soundscape public whatever the artist had chosen.
       // dynamic_range is nullable on purpose: NULL means "never dialled, use the engine default".
       const createResult = await client.query(
-        'INSERT INTO soundscapes (user_id, name, description, is_public, dynamic_range) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-        [row.user_id, row.name, row.description || '', row.is_public ?? true, row.dynamic_range ?? null]
+        'INSERT INTO soundscapes (user_id, name, description, is_public, dynamic_range, reverb_wet) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [row.user_id, row.name, row.description || '', row.is_public ?? true, row.dynamic_range ?? null, row.reverb_wet ?? null]
       );
 
       const soundscape = createResult.rows[0];
@@ -114,10 +114,13 @@ class SoundScapeRepository extends BaseRepository {
         }
 
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, width, reverb_send, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
           [soundscape.id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activation_radius || 20, wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
+           wp.loop ?? true, wp.activation_radius || 20,
+           // Nullish, never falsy: a width of 0 and a send of 0 are both deliberate settings.
+           wp.width ?? 0, wp.reverb_send ?? 1.0,
+           wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }
@@ -205,10 +208,13 @@ class SoundScapeRepository extends BaseRepository {
         }
 
         const wpResult = await client.query(
-          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, icon, color, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+          `INSERT INTO waypoints (soundscape_id, name, lat, lon, sound_id, type, volume, loop, activation_radius, width, reverb_send, icon, color, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
           [id, wp.name || 'Sound', wp.lat, wp.lon, soundIdValue, wp.type || 'file', wp.volume ?? 0.8,
-           wp.loop ?? true, wp.activation_radius || 20, wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
+           wp.loop ?? true, wp.activation_radius || 20,
+           // Nullish, never falsy: a width of 0 and a send of 0 are both deliberate settings.
+           wp.width ?? 0, wp.reverb_send ?? 1.0,
+           wp.icon || '•', wp.color || '#00d9ff', wp.sort_order || i]
         );
         createdWaypoints.push(this._toEntity(wpResult.rows[0]));
       }

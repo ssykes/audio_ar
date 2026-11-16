@@ -240,6 +240,23 @@ class Sound {
         // 'physical' radiates with distance; 'contained' holds the sound inside the radius
         this.falloff = config.falloff === 'contained' ? 'contained' : 'physical';
 
+        // === FEATURE 25 §12: Source Width ===
+        // Physical width of the source in metres. 0 means no width, which keeps the single
+        // spatialiser exactly as it was — so a waypoint that has never been given a width sounds
+        // identical to before this feature existed. ?? not || — 0 is a deliberate setting, and
+        // reading it as "missing" is the bug this project has shipped twice already.
+        const rawWidth = Number(config.width ?? 0);
+        this.width = Number.isFinite(rawWidth) ? Math.min(Math.max(rawWidth, 0), 100) : 0;
+
+        // === FEATURE 25 §12: Reverb Send ===
+        // How much of the site's reverberation this source accepts, as a multiplier on what the
+        // distance curve asks for. 1.0 changes nothing. Turned down for a recording that already
+        // carries its own space. Distance still drives the shape; this only scales it.
+        // Upper clamp 4.0 matches the engine and the editor's +12 dB limit -- the two clamps must
+        // agree, or the editor offers a range the audio layer silently ignores and the slider lies.
+        const rawSend = Number(config.reverbSend ?? 1);
+        this.reverbSend = Number.isFinite(rawSend) ? Math.min(Math.max(rawSend, 0), 4) : 1;
+
         // === FEATURE 13: Audio Type Discriminator ===
         // Callers do not agree on the names: the editor and the API say 'file' and 'streaming',
         // older code said 'sample', this layer says 'buffer' and 'stream'. Normalise once, here, so
@@ -1038,7 +1055,9 @@ class SpatialAudioApp {
                     loop: sound.loop,
                     gain: sound.volume,
                     activationRadius: sound.activationRadius,
-                    falloff: sound.falloff
+                    falloff: sound.falloff,
+                    width: sound.width,
+                    reverbSend: sound.reverbSend
                 });
 
                 console.log('[SpatialAudioApp] createSampleSource returned:', source ? 'SUCCESS' : 'NULL');
@@ -1251,6 +1270,18 @@ class SpatialAudioApp {
                 
                 const cutoff = this._calculateFilterCutoff(distance, sound);
                 sound.filterNode.frequency.value = cutoff;
+
+                // FEATURE 25 §12: the reverberation wash is driven from the same ruler and the
+                // same sweep as the dry path, so the two can never drift apart. The reach scales
+                // the wet/dry ratio curve to this waypoint; the cutoff is handed over so the wash
+                // can sit a fixed interval below it, duller because it has bounced more.
+                const src = sound.sourceNode;
+                if (src) {
+                    src.reverbReach = this._getTimbreReach(sound);
+                    if (typeof src.setWetCutoffFromDry === 'function') {
+                        src.setWetCutoffFromDry(cutoff);
+                    }
+                }
             }
         });
 
@@ -1782,7 +1813,10 @@ class SpatialAudioApp {
                     // Reconnect: gain → filter → panner
                     source.gain.disconnect();
                     source.gain.connect(sound.filterNode);
-                    sound.filterNode.connect(source.panner);
+                    // FEATURE 25 §12 / FEATURE 14: reconnect the dry/wet split downstream of the
+                    // filter rather than bypassing it — see the same fix on the sample paths.
+                    sound.filterNode.connect(source.dryGain);
+                    if (source.wetPreDelay) sound.filterNode.connect(source.wetGain);
 
                     sound.isPlaying = true;
                     sound.isLoaded = true;
@@ -1825,7 +1859,9 @@ class SpatialAudioApp {
                 gain: 0,  // Start muted; _applyDistanceGain sets the real level (no full-volume burst)
                 activationRadius: sound.activationRadius,
                 falloff: sound.falloff,
-                isStream: sound.type === 'stream'
+                isStream: sound.type === 'stream',
+                width: sound.width,
+                reverbSend: sound.reverbSend
             });
 
             // The download is awaited, so the world can change while it is in flight: the sound may
@@ -1862,7 +1898,13 @@ class SpatialAudioApp {
                 // Reconnect: gain → filter → panner
                 source.gain.disconnect();
                 source.gain.connect(sound.filterNode);
-                sound.filterNode.connect(source.panner);
+                // FEATURE 25 §12 / FEATURE 14: reconnect the dry/wet split downstream of the
+                // filter. This used to connect the filter straight to the panner, which orphaned
+                // dryGain and wetGain — every sound loaded this way had its reverberation send
+                // silently disconnected, while _updateReverbWetMix kept setting gains on two nodes
+                // carrying no signal. That is why the wash was never audible at any setting.
+                sound.filterNode.connect(source.dryGain);
+                if (source.wetPreDelay) sound.filterNode.connect(source.wetGain);
 
                 sound.isPlaying = true;
                 sound.isLoaded = true;
@@ -2047,7 +2089,9 @@ class SpatialAudioApp {
                 loop: sound.loop,
                 gain: 0,  // Start muted, will set correct gain below
                 activationRadius: sound.activationRadius,
-                falloff: sound.falloff
+                falloff: sound.falloff,
+                width: sound.width,
+                reverbSend: sound.reverbSend
             });
 
             if (source) {
@@ -2066,7 +2110,13 @@ class SpatialAudioApp {
                 // Reconnect: gain → filter → panner
                 source.gain.disconnect();
                 source.gain.connect(sound.filterNode);
-                sound.filterNode.connect(source.panner);
+                // FEATURE 25 §12 / FEATURE 14: reconnect the dry/wet split downstream of the
+                // filter. This used to connect the filter straight to the panner, which orphaned
+                // dryGain and wetGain — every sound loaded this way had its reverberation send
+                // silently disconnected, while _updateReverbWetMix kept setting gains on two nodes
+                // carrying no signal. That is why the wash was never audible at any setting.
+                sound.filterNode.connect(source.dryGain);
+                if (source.wetPreDelay) sound.filterNode.connect(source.wetGain);
 
                 sound.isLoaded = true;
 
@@ -2213,7 +2263,12 @@ class SpatialAudioApp {
                 oscillatorType: wp.waveform || 'sine',
                 frequency: wp.frequency || 440,
                 detune: wp.detune || 0,
-                gain: wp.gain !== undefined ? wp.gain : wp.volume
+                gain: wp.gain !== undefined ? wp.gain : wp.volume,
+                // FEATURE 25 §12: passed through untouched. A waypoint that has never been given
+                // these carries undefined, and Sound's constructor turns that into the defaults
+                // (width 0, send 1.0) — both of which reproduce today's behaviour exactly.
+                width: wp.width,
+                reverbSend: wp.reverbSend
             };
             console.log('[SpatialAudioApp] Waypoint sound config:', {
                 id: wp.id,
@@ -2455,6 +2510,61 @@ class SpatialAudioApp {
      */
     getDynamicRangeFraction() {
         return window.PHYSICAL_MODEL ? window.PHYSICAL_MODEL.dynamicRangeK : NaN;
+    }
+
+    /**
+     * FEATURE 25 §12: the ceiling on the reverberation wash.
+     *
+     * ⚠️ Meaning changed 2026-11-14. This is the **wet/dry ratio the wash reaches at the edge of a
+     * waypoint's own reach**, not a flat wet gain. The wash is exactly silent at the source and
+     * rises continuously from there, following Chowning's distance law. Forwarded to the engine,
+     * which owns the live value.
+     *
+     * ⚠️ Never calibrated by ear. The wet path was disconnected until 2026-11-14, so no setting of
+     * this has ever been heard by anyone.
+     *
+     * @param {number} value - Ratio ceiling, 0 (no wash) to 1
+     * @returns {number} The value actually applied, or NaN if the engine is not there
+     */
+    setReverbMaxWet(value) {
+        if (!this.engine || typeof this.engine.setReverbMaxWet !== 'function') return NaN;
+        this.engine.setReverbMaxWet(value);
+        return this.engine.getReverbMaxWet();
+    }
+
+    /**
+     * FEATURE 25 §12: the wash ratio ceiling currently in force.
+     * @returns {number} The value, or NaN if the engine is not there
+     */
+    getReverbMaxWet() {
+        return this.engine && typeof this.engine.getReverbMaxWet === 'function'
+            ? this.engine.getReverbMaxWet()
+            : NaN;
+    }
+
+    /**
+     * FEATURE 25 §12: how much duller the wash is than the direct sound.
+     *
+     * A multiplier on the air-absorption cutoff the dry path already uses, so the 1400 Hz floor the
+     * owner dialled by ear still governs both. 0.5 puts the wash an octave below the direct sound.
+     *
+     * @param {number} factor - 0.1 (much duller) to 1.0 (same as the direct sound)
+     * @returns {number} The value actually applied, or NaN if the engine is not there
+     */
+    setReverbWetDullness(factor) {
+        if (!this.engine || typeof this.engine.setReverbWetDullness !== 'function') return NaN;
+        this.engine.setReverbWetDullness(factor);
+        return this.engine.getReverbWetDullness();
+    }
+
+    /**
+     * FEATURE 25 §12: the wash dullness factor currently in force.
+     * @returns {number} The value, or NaN if the engine is not there
+     */
+    getReverbWetDullness() {
+        return this.engine && typeof this.engine.getReverbWetDullness === 'function'
+            ? this.engine.getReverbWetDullness()
+            : NaN;
     }
 
     /**

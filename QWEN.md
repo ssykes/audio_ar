@@ -108,6 +108,168 @@ They are two *independent* tasks — do them separately, they share no code.
 
 ---
 
+## 📌 Session handover — 2026-11-14 (afternoon)
+
+The morning of 2026-11-14 is recorded in the previous section. This entry is the afternoon: a
+strategic reframing by the owner, one new defect found in the deploy path, and two documents written.
+**Nothing in it is committed.**
+
+### The owner restated what this project is for
+
+*"I am beginning to see this project as a tool to create physical site located sound pieces that alter
+or embellish the actual ambient sounds."* The example given: a soundscape overlaying urban sound on
+Ashland, Oregon, which *"surprised at how well it transformed being there."* They want to hone the app
+to that task specifically, and asked whether they should simply use GeoBuzz instead.
+
+**This reorders priorities and should be read before any new work is scheduled.**
+
+### 🔴 Constraint established by checking: the app can only ADD to a site, never attenuate it
+
+With transparency mode on (decision 17), the real ambient reaches the ear by a path the app does not
+touch. An area's `opaque` overlap mode was checked on 2026-11-14 and it **excludes other areas** — the
+highest-order opaque area wins and the rest are silenced. It has no effect on the real world, and
+nothing else in the system does either.
+
+**So "alter the ambient" can only ever mean alter-by-addition and alter-by-contrast.** Anything framed
+as ducking, masking or replacing the site is not available and cannot be built. Recorded in Feature 25
+§12.3 because it constrains the whole width question.
+
+### Verdict on the owner's question: do not switch to GeoBuzz — keep mining it (it is MIT)
+
+**GeoBuzz is a composition sandbox; this project is a delivery platform.** For fixed site pieces an
+audience walks, delivery is the hard half and it is the half already built. What it has that we do
+not, ranked by value to *this* goal: moving sources on drawn paths (high — that is Feature 21,
+already specified there); **triggering gated on walking speed** (high, genuinely novel, nothing here
+does it); a working trigger/sequencer interface (medium — Feature 18 has no UI at all); echoes off
+real geometry (medium, expensive); ambisonic width (low-medium, see below); live streaming to external
+audio tools (low — the owner already doubts Feature 24); exported standalone runtime packages (low —
+we have hosting).
+
+What we have that it does not: **a physically-derived loudness model tuned by the owner's own ear** —
+theirs is effectively no distance attenuation with a hand-set level per shape, so this is the single
+largest thing a switch would throw away; per-waypoint air absorption with a floor the owner dialled
+personally; a hosted multi-user chain (database, sound library, picker, public/private, own domain,
+offline download, installable app) where their persistence is browser storage plus a server kit to
+stand up; a limiter and a ceiling meter. Switching also means re-doing every tuning decision inside an
+unfamiliar codebase of 125+ files.
+
+⚠️ **Honesty note on that comparison.** The spatial core, constants, mode wiring and runtime config
+were read; the hosting and persistence were not read in depth and GeoBuzz was never run. Every "it
+lacks X" above comes from searching, not from using.
+
+### Feature 25 §12 written: source width — PROPOSED, NOT AUTHORISED
+
+The transferable finding from GeoBuzz: it renders a stereo source as **two** points, one per channel,
+offset perpendicular to the bearing, **5 m apart**, artist multiplier 0–2. The separation is constant
+in metres and never a function of distance — what changes is the angle it subtends (**±51° at 2 m,
+±27° at 5 m, ±7° at 20 m, ±1.4° at 100 m**), so the image narrows to a point as the walker recedes
+and wraps as they approach, for free. **If width is ever built, do not make it a function of
+distance.** The library is incidental; two binaural panners reproduce it.
+
+§12 records three sequential gates — M1 does it sound better (simulator, no persistence), M2 can the
+phone afford it (real device, dropouts and battery), M3 did the median-plane symptom move (walk) — and
+a do-not-adopt list: their distance model would fight the loudness curve exactly as the retired master
+compressor did; their heading smoothing is not evidence for reviving ours, F5 stays retracted. If
+built, the setting is **per piece, set by the artist, in metres, as a column on the item** — not a
+listener toggle (decision 4 removed the last of those) and **not a row in `behaviors`**, which holds a
+coordination rule across a set of waypoints and would inherit three live problems.
+
+**The evidence that width is not the binding constraint, and how it is labelled.** The Ashland piece
+was built mostly from **areas**, and per §2.7 areas have **no spatialiser at all** — the material that
+produced the effect ran as plain stereo inside the head and worked anyway. That is **not** evidence
+against width (the owner said nothing about width either way, and silence is never a verdict — see the
+2026-11-12 trap). It **is** evidence that in-the-head rendering was not what stood between the owner
+and the effect they wanted. §12.3 also notes that if width is ever built, **areas are the better
+first target**, since a bed is the main instrument for this kind of piece and has no spatial treatment
+whatsoever — and a bed needs width as an *angle*, not in metres, because it has no position.
+
+### Gate M1 built as a listening test — NOT browser-verified
+
+`scratch/width-ab-demo.html`. Self-contained: the owner picks a stereo file from disk, so nothing
+needs serving and the engine is untouched. Two modes (placed source with a bearing and distance;
+ambient bed with width as an angle), three renderings (today's single point, with width, and a blind
+shuffle), a trim control, and **a written test protocol on the page** so it can be run correctly
+tomorrow without re-reading the transcript. Six steps, each with the one question it answers and a log
+table; step 1 is loudness matching, because splitting a file across two spatialisers can change its
+level and "wider" would otherwise be confounded with "louder".
+
+**I did not open it in a browser.** One bug was found by reading and fixed before it was reported: the
+switch between the two renderings was not in the signal path, so the A/B would have compared nothing.
+**If it is silent or a control does nothing, that is the first suspect.** No throwaway verification
+script was written for it — a listening test is not a claim that can be checked mechanically, and
+saying so is cheaper than a script that proves the wiring.
+
+The protocol explicitly records which step is weak: the ahead-versus-behind comparison cannot work
+properly on this page, because there is no head tracking and a bearing slider simulates a source that
+moved, not a head that turned. A negative result there proves little.
+
+### Feature 26 documented — NOT AUTHORISED, nothing built
+
+`FEATURE_26_CONDITIONAL_TRIGGERS.md`, written at the owner's request with their three examples
+verbatim: within 10 feet of a position, past waypoint x, exiting an area. Their words: *"I do not have
+a need for it yet so let's not spend time on it yet."*
+
+Two findings recorded for free. **All three reduce to the same four slots** — a region, an edge
+direction, an action, a target — so it is one mechanism, not three features. And **one of the three
+cannot be built yet**: "past waypoint x" has no meaning without a direction of travel, which needs
+routes (Feature 21, unbuilt); the other two do not. Open questions listed rather than answered:
+latching, boundary flap, units (the owner wrote feet, everything else is metres), ordering loops.
+
+### 🔴 New defect found in the deploy path: it never restarts the API
+
+The deploy uploads the API files and runs the dependency install, then prints *"PM2 will handle the
+restart"* and **verifies only that some process matching that name exists**, printing a green `[OK]`.
+**No restart is ever issued and no restart is ever verified.** That manager does not reload code on
+its own unless it was explicitly told to watch files, which is server configuration that cannot be
+seen from here.
+
+**Consequence, and it is live right now:** the dynamic-range fraction is code-complete and committed
+and its column is applied, but the running server still holds the old code — so a deploy can report
+success across the board while the fraction still fails to save. **The owner must restart the API
+process by hand before the round-trip test in §11 can mean anything.** Same shape as the migration
+runner that prints green over a failure. Belongs in Known Issues and the deploy cleanup backlog; not
+added there because the owner did not authorise the edit. Adding a real restart-and-verify step was
+offered and **not** done — it runs a command on the server.
+
+### Two stale statements found, deliberately not corrected
+
+The owner was told about both and did not ask for the edits, so they are recorded here instead:
+
+- **Known Issues still lists the wake-lock re-acquire as 🔴 open. It is fixed in the committed player
+  code.** Verified by reading, not assumed: returning to the foreground re-acquires the screen lock,
+  restarts audio if the browser suspended it, and reports whether positions are still arriving. Two
+  honest caveats — **iOS refuses to resume audio without a tap**, so one tap may still be needed after
+  a call (platform rule, not a defect), and whether the owner's phone has it depends on the last
+  deploy, which cannot be determined from here. Note also that the screen timeout, not an incoming
+  call, is the common way a walk dies.
+- **The comment sitting above that recovery code still describes the old broken behaviour** ("nothing
+  recovers on its own, so the walk ends in silence"). It will mislead the next reader.
+
+### Working tree
+
+Branch `feature/sound-area`. Modified: `FEATURE_25_NATURAL_SPATIAL_SOUND.md` (§12 added) and
+`QWEN.md` (this entry), plus the pre-existing deploy stamps in the HTML pages, `map_editor.js`,
+`sw.js` and `sw-register.js`. New and untracked: `FEATURE_26_CONDITIONAL_TRIGGERS.md`.
+`scratch/width-ab-demo.html` is gitignored.
+**Nothing committed, nothing deployed.** The only user-visible item is the listening test, which the
+owner runs themselves, so the standing rule holds without argument.
+
+### Next, in order
+
+1. **Owner: restart the API process, then do the §11 round-trip test.** Everything else about the
+   fraction is unverifiable until this happens.
+2. **Owner: run gate M1 tomorrow** using the protocol on the page. Report the trim value from step 1
+   even if the rest is unremarkable — a loudness change would land on the calibrated level model.
+3. Read the ceiling meter in the simulator (carried over, still open — the limiter question has no
+   evidence in either direction).
+4. Deploy the sound-resolution fix; until then any listening test or re-dial risks running against a
+   partly silent mix.
+5. Reliability: wake-lock status confirmed on a device, then PWA installability. Both matter only once
+   somebody other than the owner walks a piece — which is what the stated goal implies.
+6. Correct the two stale statements above, if authorised.
+
+---
+
 ## 📌 Session handover — 2026-11-13
 
 ### What changed
@@ -893,7 +1055,14 @@ Local `main` has also diverged from the remote (1 ahead, 9 behind).
 
 ---
 
-**Last Updated:** 2026-11-13 — **see "📌 Session handover — 2026-11-13" above first.** A busy day
+**Last Updated:** 2026-11-14 — **see "📌 Session handover — 2026-11-14 (afternoon)" above first.**
+The owner restated the project's purpose (site-located pieces that alter or embellish the real
+ambient), which reorders priorities; the app was established to be **additive only**; GeoBuzz was
+re-mined for source width and the verdict recorded as *do not switch, keep mining*; Feature 25 §12 and
+Feature 26 were both written as **proposed, not authorised**; and a new deploy defect was found —
+**the deploy never restarts the API**, so the fraction cannot be tested until that is done by hand.
+
+Previous entry: 2026-11-13 — a busy day
 in three parts. *Morning:* the owner dialled the dullness floor to **1400 Hz** in the editor's
 simulator and reported it works outside the waypoint circle (decision 13), and closed two
 long-standing symptoms — the aggressive fade just before silence, and the ten metres it took to

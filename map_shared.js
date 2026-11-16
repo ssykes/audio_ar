@@ -742,7 +742,11 @@ class MapAppShared {
             soundscape.isPublic,
             // FEATURE 25: the piece's dynamic-range fraction. Undefined means never dialled, which
             // the client drops from the payload so an existing value is left alone.
-            soundscape.dynamicRange
+            soundscape.dynamicRange,
+            // FEATURE 25 §13: the site's reverberation, on the piece for the same reason. Positional
+            // call -- anything past the last parameter is silently ignored, so it must be added here
+            // and not only in the client.
+            soundscape.reverbWet
         );
 
         // Save waypoints, behaviors, and areas in single call
@@ -890,6 +894,11 @@ class MapAppShared {
                 soundUrl: waypoint.soundUrl,
                 volume: waypoint.volume,
                 loop: waypoint.loop,
+                // FEATURE 25 §12/§13: another explicit whitelist, and another place a new field is
+                // silently dropped. Without these a freshly drawn waypoint reaches the soundscape
+                // without them and only picks them up after its panel is saved.
+                width: waypoint.width ?? 0,
+                reverbSend: waypoint.reverbSend ?? 1,
                 soundConfig: waypoint.soundConfig
             };
             soundscape.addSound(waypoint.id, cleanWaypoint);

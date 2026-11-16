@@ -102,6 +102,12 @@ class SoundScape {
         // real load goes through fromJSON.
         this.dynamicRange = null;
 
+        // FEATURE 25 §13: how much reverberation the site has, as the wet/dry ratio the wash reaches
+        // at the edge of a waypoint's reach. A property of the PLACE — two sounds in the same street
+        // share one reverberant field — so it belongs on the piece beside the fraction, not on the
+        // waypoint. Null means "never dialled" and the engine's own default applies.
+        this.reverbWet = null;
+
         // === Dirty Flag (Session 6: Auto-save with dirty tracking) ===
         this.isDirty = false;  // Tracks unsaved changes
     }
@@ -219,6 +225,7 @@ class SoundScape {
             description: this.description,
             isPublic: this.isPublic,
             dynamicRange: this.dynamicRange,
+            reverbWet: this.reverbWet,
             soundIds: this.soundIds,
             behaviors: this.behaviors.map(b => b.toJSON()),
             waypointData: this.waypointData,  // Include full waypoint data
@@ -257,11 +264,19 @@ class SoundScape {
             const parsed = Number(dynamicRange);
             result.dynamicRange = isFinite(parsed) ? parsed : null;
         }
+        // FEATURE 25 §13: same treatment as the fraction. Nullish, never falsy -- a dialled 0 is a
+        // deliberate "no reverberation at all" and must not be read as "never dialled".
+        const reverbWet = (data.reverbWet ?? data.reverb_wet);
+        if (reverbWet !== null && reverbWet !== undefined) {
+            const parsed = Number(reverbWet);
+            result.reverbWet = isFinite(parsed) ? parsed : null;
+        }
         console.log('[SoundScape.fromJSON] Created:', {
             id: result.id,
             name: result.name,
             isPublic: result.isPublic,
-            dynamicRange: result.dynamicRange
+            dynamicRange: result.dynamicRange,
+            reverbWet: result.reverbWet
         });
         return result;
     }

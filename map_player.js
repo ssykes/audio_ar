@@ -1209,6 +1209,16 @@ class MapPlayerApp extends MapAppShared {
                     + `${(6.02 * applied).toFixed(1)} dB per halving of distance`);
             }
 
+            // FEATURE 25 §13: the piece also carries its site's reverberation. Same rule as the
+            // fraction — a piece that was never dialled stores nothing and keeps the engine default,
+            // so old pieces are unaffected. Logged because a small difference is not reliably
+            // audible, and the console line is the real verification that it arrived.
+            if (soundscape && soundscape.reverbWet !== null && soundscape.reverbWet !== undefined
+                    && this.app.setReverbMaxWet) {
+                const wash = this.app.setReverbMaxWet(soundscape.reverbWet);
+                this.debugLog(`🌊 Reverb wash: ${Number(wash).toFixed(2)} wet/dry ratio at the reach`);
+            }
+
             // === SESSION 3: Load Areas from soundscape into AreaManager (AFTER start) ===
             // This ensures AreaManager exists and listener position is initialized
             if (soundscape && soundscape.areas && soundscape.areas.length > 0) {

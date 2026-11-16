@@ -700,7 +700,8 @@ class MapEditorApp extends MapAppShared {
         if (waypointsSection) waypointsSection.style.display = '';
 
         this.waypoints.forEach(wp => {
-            const meta = `${wp.activationRadius}m`;
+            // The list shows the same number as the map and the panel: how far it is heard.
+            const meta = `${_radiusToAudible(wp.activationRadius, wp.falloff === 'contained')}m`;
             const html = `
                 <div class="item-list-item" data-id="${wp.id}" data-type="waypoint" data-color="${wp.color}">
                     <span class="item-icon waypoint-item-icon" style="background-color: ${wp.color};"></span>
@@ -767,6 +768,11 @@ class MapEditorApp extends MapAppShared {
         // slider must show this piece's value rather than a default.
         if (typeof syncDynamicRangeFromSoundscape === 'function') {
             syncDynamicRangeFromSoundscape(soundscape);
+        }
+        // FEATURE 25 §13: the reverberation wash is a soundscape-level setting too -- it describes
+        // the place, not any one source -- so its slider is seeded the same way.
+        if (typeof syncReverbWetFromSoundscape === 'function') {
+            syncReverbWetFromSoundscape(soundscape);
         }
 
         // Populate lists
@@ -1403,6 +1409,12 @@ class MapEditorApp extends MapAppShared {
             soundId: wp.soundId,
             volume: wp.volume,
             loop: wp.loop,
+            // FEATURE 25 §12/§13: this list is an explicit whitelist, so anything not named here is
+            // dropped on the way to the server however faithfully it was stored on the waypoint.
+            // This is the hop that silently loses a new field -- the same trap as the response
+            // whitelist in the API client.
+            width: wp.width ?? 0,
+            reverbSend: wp.reverbSend ?? 1,
             soundConfig: wp.soundConfig
         }));
 
@@ -1418,6 +1430,10 @@ class MapEditorApp extends MapAppShared {
             name: soundscape.name,
             description: soundscape.description,
             isPublic: soundscape.isPublic,
+            // Explicit whitelist again -- without these an exported piece would silently lose its
+            // dialled settings and reimport as defaults.
+            dynamicRange: soundscape.dynamicRange ?? null,
+            reverbWet: soundscape.reverbWet ?? null,
             soundIds: this.waypoints.map(wp => wp.id),
             waypointData: cleanWaypointData,
             areas: cleanAreas,
@@ -2149,6 +2165,35 @@ const slideoutVolume = document.getElementById('slideoutVolume');
 const slideoutVolumeValue = document.getElementById('slideoutVolumeValue');
 const slideoutActivationRadius = document.getElementById('slideoutActivationRadius');
 const slideoutActivationRadiusValue = document.getElementById('slideoutActivationRadiusValue');
+
+// FEATURE 25 decision 3, as amended 2026-11-14: the panel edits the distance the sound is heard to
+// -- the same number the map circle draws -- while the stored value stays the radius that drives
+// loudness and loading. Nothing is migrated; the conversion happens only at this boundary.
+//
+// The two numbers differ by the fade band, and that band is not the same for both kinds of
+// waypoint, so every conversion has to ask which kind is in force.
+function _fadeBandMetres(isContained) {
+    if (isContained) {
+        const contained = window.CONTAINED_BAND_M;
+        return (typeof contained === 'number' && isFinite(contained)) ? contained : 3;
+    }
+    const band = window.ACOUSTIC_BAND_METRES;
+    return (typeof band === 'number' && isFinite(band)) ? band : 40;
+}
+
+function _radiusToAudible(radius, isContained) {
+    // The stored default lives here, not at the call sites, so every place that shows the number
+    // agrees about what an unset radius means.
+    const stored = Number(radius);
+    const effective = (isFinite(stored) && stored > 0) ? stored : 20;
+    return Math.round(effective + _fadeBandMetres(isContained));
+}
+
+function _audibleToRadius(audible, isContained) {
+    // Clamped to the stored radius's own bounds, so the panel can never write a value the audio
+    // layer would reject or reinterpret.
+    return Math.max(5, Math.min(100, Math.round((Number(audible) || 0) - _fadeBandMetres(isContained))));
+}
 const slideoutContained = document.getElementById('slideoutContained');
 const slideoutLoop = document.getElementById('slideoutLoop');
 const slideoutSortOrder = document.getElementById('slideoutSortOrder');
@@ -2290,7 +2335,11 @@ function getFormData() {
         name: document.getElementById('slideoutName').value,
         volume: parseFloat(document.getElementById('slideoutVolume').value),
         loop: document.getElementById('slideoutLoop').checked,
-        activationRadius: parseInt(document.getElementById('slideoutActivationRadius').value),
+        // The slider holds the audible distance; the stored field is the radius behind it.
+        activationRadius: _audibleToRadius(
+            parseInt(document.getElementById('slideoutActivationRadius').value, 10),
+            !!(slideoutContained && slideoutContained.checked)
+        ),
         sortOrder: parseInt(document.getElementById('slideoutSortOrder').value)
     };
 
@@ -2300,6 +2349,22 @@ function getFormData() {
         data.lon = slideoutLon.textContent;
         // FEATURE 23: held in memory only — the server has no column for it yet
         data.falloff = (slideoutContained && slideoutContained.checked) ? 'contained' : 'physical';
+
+        // FEATURE 25 §12/§13: both are waypoint properties. Width 0 is the single-point rendering,
+        // and a send of 1.0 is neutral, so untouched waypoints behave exactly as before. Read with
+        // parseFloat and guarded -- an empty or missing control must become the neutral value, not
+        // NaN, which would be stored and then silently poison the audio graph.
+        const widthEl = document.getElementById('slideoutWidth');
+        const widthValue = widthEl ? parseFloat(widthEl.value) : 0;
+        data.width = isFinite(widthValue) ? Math.max(0, widthValue) : 0;
+
+        const sendEl = document.getElementById('slideoutReverbSend');
+        const sendDb = sendEl ? parseFloat(sendEl.value) : 0;
+        // Stored as a multiplier, shown as decibels. Clamped to the slider's own range so a stale or
+        // hand-edited value cannot ask the engine for something it will silently clamp elsewhere.
+        data.reverbSend = isFinite(sendDb)
+            ? _dbToSend(Math.max(-12, Math.min(12, sendDb)))
+            : 1;
     }
 
     // Add type-specific fields
@@ -2397,6 +2462,71 @@ if (slideoutActivationRadius) {
     });
 }
 
+// FEATURE 25 §12/§13: live readouts for the two waypoint fields. Width 0 is worth labelling as a
+// point rather than as a zero distance, because zero is not "narrow" -- it is a different rendering.
+const slideoutWidth = document.getElementById('slideoutWidth');
+const slideoutWidthValue = document.getElementById('slideoutWidthValue');
+if (slideoutWidth && slideoutWidthValue) {
+    slideoutWidth.addEventListener('input', (e) => {
+        const m = Number(e.target.value);
+        slideoutWidthValue.textContent = m > 0 ? `${m}m` : '0m (point)';
+        _applyWaypointSpatialLive();
+    });
+}
+const slideoutReverbSend = document.getElementById('slideoutReverbSend');
+const slideoutReverbSendValue = document.getElementById('slideoutReverbSendValue');
+
+// FEATURE 25 §13: the stored value is a multiplier on the piece's wash, but the slider is in
+// decibels. Two reasons: equal slider movement then means equal perceived change (a linear
+// multiplier spends most of its travel where nothing audible happens), and the physical centre of
+// the slider is exactly the piece's own setting rather than a number to be interpreted.
+// ±12 dB is a quarter to four times the site's wash.
+function _sendDbLabel(db) {
+    return db === 0 ? 'Site' : `${db > 0 ? '+' : ''}${db} dB`;
+}
+function _sendToDb(multiplier) {
+    const m = Number(multiplier);
+    // Anything at or below zero -- including a missing value read as 0 -- sits at the dry end.
+    if (!isFinite(m) || m <= 0) return -12;
+    return Math.max(-12, Math.min(12, Math.round(20 * Math.log10(m))));
+}
+function _dbToSend(db) {
+    return Math.pow(10, Number(db) / 20);
+}
+
+if (slideoutReverbSend && slideoutReverbSendValue) {
+    slideoutReverbSend.addEventListener('input', (e) => {
+        slideoutReverbSendValue.textContent = _sendDbLabel(Number(e.target.value));
+        _applyWaypointSpatialLive();
+    });
+}
+
+/**
+ * FEATURE 25 §12/§13: push both waypoint controls into a running simulation straight away.
+ *
+ * Without this they only took effect after stopping and restarting the simulation, which is
+ * indistinguishable from "the slider does nothing" -- and that is exactly how the reverb control
+ * was reported on 2026-11-15. Audition first, then Save; moving a slider here does not by itself
+ * write to the piece, which matches every other field in this panel.
+ */
+function _applyWaypointSpatialLive() {
+    if (!selectedItemData || selectedItemType !== 'Waypoint') return;
+    const audioApp = app && app.app;
+    const engine = audioApp && audioApp.engine;
+    if (!engine) return;   // no simulation running; nothing to audition against
+
+    const widthEl = document.getElementById('slideoutWidth');
+    if (widthEl && typeof engine.setSourceWidth === 'function') {
+        const m = Number(widthEl.value);
+        engine.setSourceWidth(selectedItemData.id, isFinite(m) ? m : 0);
+    }
+    const sendEl = document.getElementById('slideoutReverbSend');
+    if (sendEl && typeof engine.setSourceReverbSend === 'function') {
+        const db = Number(sendEl.value);
+        engine.setSourceReverbSend(selectedItemData.id, _dbToSend(isFinite(db) ? db : 0));
+    }
+}
+
 /**
  * FEATURE 23: The radius matters for both kinds of waypoint, but it does not mean the same thing,
  * so the hint under the slider says which one is in force. Areas have no radius at all.
@@ -2406,6 +2536,11 @@ function updateRadiusField() {
     const isWaypoint = selectedItemType === 'Waypoint';
     slideoutActivationRadius.parentElement.parentElement.style.display = isWaypoint ? 'flex' : 'none';
 
+    // FEATURE 25 §12/§13: width and reverb send are waypoint properties too, so they hide with the
+    // distance row rather than offering controls that would mean nothing for an area.
+    const widthRow = document.getElementById('slideoutWidthRow');
+    if (widthRow) widthRow.style.display = isWaypoint ? 'flex' : 'none';
+
     const hint = document.getElementById('slideoutRadiusHint');
     if (!hint) return;
     if (!isWaypoint) {
@@ -2413,7 +2548,7 @@ function updateRadiusField() {
     } else if (slideoutContained && slideoutContained.checked) {
         hint.textContent = 'The circle that holds the sound';
     } else {
-        hint.textContent = 'How far the sound carries before it fades out';
+        hint.textContent = 'How far the sound is heard. The circle on the map is exactly this distance.';
     }
 }
 
@@ -2580,9 +2715,25 @@ function openSlideout(type, id, name, meta, color) {
         const wpVolume = waypoint.volume ?? 0.8;
         slideoutVolume.value = wpVolume;
         slideoutVolumeValue.textContent = `${Math.round(wpVolume * 100)}%`;
-        slideoutActivationRadius.value = waypoint.activationRadius || 20;
-        slideoutActivationRadiusValue.textContent = `${waypoint.activationRadius || 20}m`;
+        // Show the audible distance, which is what the map circle draws; store the radius.
+        const audibleEdge = _radiusToAudible(waypoint.activationRadius || 20,
+            waypoint.falloff === 'contained');
+        slideoutActivationRadius.value = audibleEdge;
+        slideoutActivationRadiusValue.textContent = `${audibleEdge}m`;
         if (slideoutContained) slideoutContained.checked = waypoint.falloff === 'contained';
+
+        // FEATURE 25 §12/§13: a waypoint that has never been given these carries nothing, so fall
+        // back to the neutral values -- width 0 (the single-point rendering) and full send. Nullish,
+        // never falsy: a deliberate width of 0 and a deliberate send of 0 must both survive.
+        const wpWidth = Number(waypoint.width ?? 0) || 0;
+        if (slideoutWidth) slideoutWidth.value = String(wpWidth);
+        if (slideoutWidthValue) {
+            slideoutWidthValue.textContent = wpWidth > 0 ? `${wpWidth}m` : '0m (point)';
+        }
+        const wpSendDb = _sendToDb(waypoint.reverbSend ?? 1);
+        if (slideoutReverbSend) slideoutReverbSend.value = String(wpSendDb);
+        if (slideoutReverbSendValue) slideoutReverbSendValue.textContent = _sendDbLabel(wpSendDb);
+
         slideoutLoop.checked = waypoint.loop !== false;
         slideoutSortOrder.value = waypoint.sortOrder || 0;
         slideoutLat.textContent = (typeof waypoint.lat === 'number' ? waypoint.lat.toFixed(6) : waypoint.lat) || '--';
@@ -3014,6 +3165,54 @@ document.getElementById('simAirFloorSlider').addEventListener('input', (e) => {
     applyAirAbsorptionFloor();
 });
 
+// FEATURE 25 §12: the reverberation wash ceiling, kept here so it survives stopping and
+// restarting a simulation, same as the dullness floor above.
+//
+// ⚠️ This value has never been judged by ear. The wet path was disconnected by the
+// air-absorption filter splice from the day that feature landed, so nobody has ever heard the
+// wash at any setting. 0.35 is a starting point for a listening test, not a calibration.
+let reverbMaxWet = 0.35;
+
+function applyReverbMaxWet() {
+    const audioApp = app && app.app;
+    if (audioApp && typeof audioApp.setReverbMaxWet === 'function') {
+        audioApp.setReverbMaxWet(reverbMaxWet);
+    }
+}
+
+document.getElementById('simReverbSlider').addEventListener('input', (e) => {
+    reverbMaxWet = Number(e.target.value);
+    document.getElementById('simReverbWet').textContent = reverbMaxWet.toFixed(2);
+    applyReverbMaxWet();
+
+    // The wash belongs to the piece, because it is a property of the place rather than of any one
+    // source. Dialling it IS an edit to the piece, so write it through and let the ordinary autosave
+    // carry it -- otherwise it lives only in this page and is gone on reload, which is exactly what
+    // shelved the contained waypoint kind.
+    const piece = app && app.getActiveSoundscape && app.getActiveSoundscape();
+    if (piece) {
+        piece.reverbWet = reverbMaxWet;
+        if (app._markSoundscapeDirty) app._markSoundscapeDirty();
+        if (app._scheduleAutoSave) app._scheduleAutoSave();
+    }
+});
+
+// Seed the wash slider from the loaded piece rather than from a hard-coded default, so what is on
+// screen is what the piece will actually play with. A piece that has never been dialled keeps the
+// engine default. Note a stored 0 is a deliberate "no reverberation" and must survive -- hence the
+// null/undefined test rather than a truthiness test.
+function syncReverbWetFromSoundscape(soundscape) {
+    const piece = soundscape || (app && app.getActiveSoundscape && app.getActiveSoundscape());
+    const stored = piece ? piece.reverbWet : null;
+    if (stored !== null && stored !== undefined && isFinite(Number(stored))) {
+        reverbMaxWet = Math.max(0, Math.min(1, Number(stored)));
+    }
+    const slider = document.getElementById('simReverbSlider');
+    if (slider) slider.value = String(reverbMaxWet);
+    const label = document.getElementById('simReverbWet');
+    if (label) label.textContent = reverbMaxWet.toFixed(2);
+}
+
 // FEATURE 25 decision 5: the dynamic-range fraction, held here so it survives stopping and
 // restarting a simulation, same as the dullness floor above. Dialled by ear, then fixed.
 let dynamicRangeFraction = 0.65;
@@ -3021,7 +3220,12 @@ let dynamicRangeFraction = 0.65;
 function applyDynamicRangeFraction() {
     const audioApp = app && app.app;
     if (audioApp && typeof audioApp.setDynamicRangeFraction === 'function') {
-        dynamicRangeFraction = audioApp.setDynamicRangeFraction(dynamicRangeFraction);
+        const applied = audioApp.setDynamicRangeFraction(dynamicRangeFraction);
+        // Only accept a real number back. That setter returns NaN when it cannot reach the loudness
+        // model, and assigning it poisoned the variable for good: the readout multiplies by it, so
+        // the label read "NaN" and every later slider move re-rendered "NaN" too. Keep the last
+        // good value instead, so a missing model degrades the label rather than destroying the dial.
+        if (isFinite(applied)) dynamicRangeFraction = applied;
     }
     renderDynamicRangeFraction();
 }
@@ -3190,6 +3394,7 @@ document.getElementById('btnSimulate').addEventListener('click', async (e) => {
             // has to be pushed into it here as well as on every slider move.
             applyAirAbsorptionFloor();
             applyDynamicRangeFraction();
+            applyReverbMaxWet();
             startCeilingMeter();
         } catch (error) {
             addDebugLog('❌ Simulation start error: ' + error.message);

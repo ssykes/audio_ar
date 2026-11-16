@@ -715,9 +715,147 @@ class SoundSource {
         this.wetGain = null;
         this.currentWetValue = 0;
 
+        // FEATURE 25 §12: delay between the dry sound and the wash, grown with distance so the
+        // gap itself becomes a distance cue. Created on the wet path; null until init runs.
+        this.wetPreDelay = null;
+
+        // FEATURE 25 §12: low-pass on the wash only. Reverberant energy has bounced many times and
+        // loses highs on every bounce, so it is duller than the direct sound at the same distance.
+        this.wetTone = null;
+
+        // FEATURE 25 §12: the ruler the wash curve is scaled to — this waypoint's own reach, in
+        // metres. Set by the app layer from the same reach the dullness sweep uses, so the two
+        // stay in step. Zero means "not declared", and the curve falls back to 60 m.
+        this.reverbReach = 0;
+
+        // FEATURE 25 §12: physical width of the source, in metres. Zero means no width, which
+        // keeps the single-spatialiser path exactly as it was — so an untouched waypoint sounds
+        // identical to before this feature existed. ?? not || — 0 is a deliberate setting.
+        const rawWidth = Number(options.width ?? 0);
+        this.width = Number.isFinite(rawWidth) ? Math.min(Math.max(rawWidth, 0), 100) : 0;
+
+        // The split rendering: one spatialiser per stereo channel, offset either side of the
+        // bearing. Only built when width is above zero, so an ordinary source pays nothing.
+        this.widthSplitter = null;
+        this.pannerL = null;
+        this.pannerR = null;
+
+        // FEATURE 25 §12: how much of the site's reverberation this source accepts. 1.0 is the
+        // wash the distance bands ask for, unchanged. Turn it down for a recording that already
+        // carries its own space, so a cathedral recording does not get a street laid over it.
+        // ?? not || — 0 is a deliberate mute of the wash.
+        // Upper clamp is 4.0, matching the editor's +12 dB limit. Clamping lower would make the top
+        // half of that slider silently do nothing, which is worse than allowing the range.
+        const rawSend = Number(options.reverbSend ?? 1);
+        this.reverbSend = Number.isFinite(rawSend) ? Math.min(Math.max(rawSend, 0), 4) : 1;
+
         // FEATURE 23: gain the model last asked for (the node itself ramps towards it)
         this.lastComputedGain = 0;
         this.gainApplied = false;   // first application snaps, later ones ramp
+    }
+
+    /**
+     * FEATURE 25 §12: wire the wet path through its pre-delay into the shared convolution.
+     *
+     * Every source class connects this itself after building its dry/wet split, so the pre-delay
+     * sits in the one place all of them share. Call instead of connecting wetGain to the reverb
+     * directly.
+     */
+    _connectWetPath() {
+        if (!this.wetGain || !this.engine.reverb) return;
+        if (!this.wetTone) {
+            this.wetTone = this.engine.ctx.createBiquadFilter();
+            this.wetTone.type = 'lowpass';
+            this.wetTone.frequency.value = 20000;   // full spectrum until the first distance update
+            this.wetTone.Q.value = 0.5;             // smooth rolloff, matching the dry path
+        }
+        if (!this.wetPreDelay) {
+            this.wetPreDelay = this.engine.ctx.createDelay(0.2);
+            this.wetPreDelay.delayTime.value = 0;
+        }
+        this.wetGain.disconnect();
+        this.wetGain.connect(this.wetTone);
+        this.wetTone.disconnect();
+        this.wetTone.connect(this.wetPreDelay);
+        this.wetPreDelay.disconnect();
+        this.wetPreDelay.connect(this.engine.reverb);
+    }
+
+    /**
+     * FEATURE 25 §12: set the wash's brightness from the direct path's own cutoff.
+     *
+     * Driven from the dry path rather than given its own curve, so the two stay in step and the
+     * dullness floor the owner dialled by ear still governs both. The wash lands an octave below
+     * by default, because reverberant energy has lost highs on every bounce it made.
+     *
+     * @param {number} dryCutoffHz - The cutoff the air-absorption filter is using right now
+     */
+    setWetCutoffFromDry(dryCutoffHz) {
+        if (!this.wetTone) return;
+        const hz = Number(dryCutoffHz);
+        if (!Number.isFinite(hz) || hz <= 0) return;
+        // Floor at 60 Hz so a mis-scaled cutoff cannot silence the wash rather than dull it.
+        this.wetTone.frequency.value = Math.max(60, hz * reverbWetDullnessLive);
+    }
+
+    /**
+     * FEATURE 25 §12: build, tear down or resize the split rendering.
+     *
+     * Above zero the dry path is handed to two spatialisers, one per stereo channel, placed either
+     * side of the bearing at right angles to it. At zero the original single spatialiser is
+     * reconnected. The two paths are mutually exclusive, so a source never pays for both — which
+     * is what makes a CPU measurement of this feature mean anything.
+     *
+     * @param {number} metres - Separation between the two halves, in metres
+     */
+    setWidth(metres) {
+        const next = Number(metres);
+        this.width = Number.isFinite(next) ? Math.min(Math.max(next, 0), 100) : 0;
+        this._applyWidthRouting();
+    }
+
+    /** @private */
+    _applyWidthRouting() {
+        if (!this.dryGain || !this.panner || !this.engine.masterGain) return;
+        const ctx = this.engine.ctx;
+
+        if (this.width > 0) {
+            if (!this.pannerL) {
+                // Both halves must match the main spatialiser: direction only, no distance
+                // attenuation, because the loudness model owns level and a rolloff here would
+                // square the falloff (the same reason the main panner has rolloffFactor 0).
+                this.widthSplitter = ctx.createChannelSplitter(2);
+                this.pannerL = this._makeWidthPanner();
+                this.pannerR = this._makeWidthPanner();
+                this.widthSplitter.connect(this.pannerL, 0);
+                this.widthSplitter.connect(this.pannerR, 1);
+                this.pannerL.connect(this.engine.masterGain);
+                this.pannerR.connect(this.engine.masterGain);
+            }
+            this.dryGain.disconnect();
+            this.dryGain.connect(this.widthSplitter);
+        } else if (this.pannerL) {
+            this.dryGain.disconnect();
+            this.dryGain.connect(this.panner);
+            [this.widthSplitter, this.pannerL, this.pannerR].forEach(node => {
+                if (node) { try { node.disconnect(); } catch (e) { /* already gone */ } }
+            });
+            this.widthSplitter = null;
+            this.pannerL = null;
+            this.pannerR = null;
+        }
+        this.setPosition(this.x, this.z);
+    }
+
+    /** @private */
+    _makeWidthPanner() {
+        const p = this.engine.ctx.createPanner();
+        p.panningModel = 'HRTF';
+        p.distanceModel = 'inverse';
+        p.refDistance = 1;
+        p.maxDistance = 100;
+        p.rolloffFactor = 0;
+        return p;
     }
 
     init() {
@@ -751,6 +889,45 @@ class SoundSource {
             this.panner.positionX.setValueAtTime(x, t);
             this.panner.positionZ.setValueAtTime(z, t);
         }
+        this._setWidthPositions(x, z);
+    }
+
+    /**
+     * FEATURE 25 §12: place the two halves either side of the bearing, at right angles to it.
+     *
+     * The separation is a constant in metres and is never scaled by distance — what changes as the
+     * walker moves is the angle it subtends, which is how a real extended source behaves. A 5 m wide
+     * source spans about ±27° at 5 m and about ±1.4° at 100 m, so it collapses to a point with
+     * distance for free. Do not "fix" this by making width a function of distance.
+     *
+     * Consequence, ruled correct by the owner 2026-11-14: when the walker is closer than the source
+     * is wide, the halves pass ±90° and the source wraps around the head. That is what a genuinely
+     * wide object does. There is deliberately no near-field clamp.
+     *
+     * @private
+     */
+    _setWidthPositions(x, z) {
+        if (!this.pannerL || !this.pannerR || !(this.width > 0)) return;
+
+        const d = Math.hypot(x, z);
+        const t = this.engine.ctx.currentTime;
+
+        // Degenerate case: the walker is standing on the source. Nothing sensible to be
+        // perpendicular to, so both halves collapse onto it rather than dividing by zero.
+        // Sign chosen so the file's LEFT channel lands on the listener's LEFT: with the source
+        // straight ahead (0, -d), this puts pannerL at -x, which is the listener's left in Web
+        // Audio's coordinate system. The first version had it the other way round and was caught
+        // by scratch/verify-reverb-path.js, not by ear.
+        const half = d > 1e-6 ? (this.width / 2) / d : 0;
+        const perpX = z * half;
+        const perpZ = -x * half;
+
+        for (const [panner, sign] of [[this.pannerL, 1], [this.pannerR, -1]]) {
+            panner.positionX.cancelScheduledValues(t);
+            panner.positionZ.cancelScheduledValues(t);
+            panner.positionX.setValueAtTime(x + sign * perpX, t);
+            panner.positionZ.setValueAtTime(z + sign * perpZ, t);
+        }
     }
 
     moveAlongPath(pathFn, duration) {
@@ -778,9 +955,27 @@ class SoundSource {
     dispose() {
         this.stop();
         if (this.gain) { this.gain.disconnect(); this.gain = null; }
+        this._disposeSharedNodes();
+    }
+
+    /**
+     * Tear down the nodes every source class shares: the wet/dry split, the spatialiser, and the
+     * Feature 25 additions — the wet pre-delay and the split-width rendering.
+     *
+     * Subclasses that override dispose MUST call this. Two of them do override it, and a node left
+     * connected here keeps the whole chain alive after the source is supposed to be gone.
+     *
+     * @protected
+     */
+    _disposeSharedNodes() {
         if (this.dryGain) { this.dryGain.disconnect(); this.dryGain = null; }
         if (this.wetGain) { this.wetGain.disconnect(); this.wetGain = null; }
         if (this.panner) { this.panner.disconnect(); this.panner = null; }
+        if (this.wetPreDelay) { this.wetPreDelay.disconnect(); this.wetPreDelay = null; }
+        if (this.wetTone) { this.wetTone.disconnect(); this.wetTone = null; }
+        if (this.widthSplitter) { this.widthSplitter.disconnect(); this.widthSplitter = null; }
+        if (this.pannerL) { this.pannerL.disconnect(); this.pannerL = null; }
+        if (this.pannerR) { this.pannerR.disconnect(); this.pannerR = null; }
     }
 }
 
@@ -814,7 +1009,7 @@ class OscillatorSource extends SoundSource {
 
         // Wet goes to reverb ONLY if reverb is enabled
         if (this.engine.reverbEnabled && this.engine.reverb) {
-            this.wetGain.connect(this.engine.reverb);
+            this._connectWetPath();
             // Reverb already connected to masterGain in engine.init()
         } else {
             // Reverb disabled - mute wet path to prevent signal loss
@@ -926,13 +1121,20 @@ class OscillatorSource extends SoundSource {
     _updateReverbWetMix(distance) {
         if (!this.dryGain || !this.wetGain) return;
 
-        // Get reverb settings for current distance and environment
-        const reverb = getReverbForDistance(distance);
+        // Chowning's law: the wet/dry ratio rises with distance, is exactly zero at the source,
+        // and is scaled to this waypoint's own reach. The per-source multiplier folds into the
+        // ratio, so turning it down dries the source out rather than merely quieting the wash.
+        const g = reverbWetGains(distance, this.reverbReach, this.reverbSend);
 
-        // Apply wet/dry mix (equal power compensation)
-        this.wetGain.gain.value = reverb.wet;
-        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
-        this.currentWetValue = reverb.wet;
+        this.wetGain.gain.value = g.wet;
+        this.dryGain.gain.value = g.dry;
+        this.currentWetValue = g.wet;
+
+        // Widen the gap between the dry sound and the wash as the source recedes — a distance cue
+        // the wet level alone cannot give. See getReverbPreDelay.
+        if (this.wetPreDelay) {
+            this.wetPreDelay.delayTime.value = getReverbPreDelay(distance);
+        }
     }
 }
 
@@ -1027,13 +1229,20 @@ class GpsSoundSource extends OscillatorSource {
     _updateReverbWetMix(distance) {
         if (!this.dryGain || !this.wetGain) return;
 
-        // Get reverb settings for current distance and environment
-        const reverb = getReverbForDistance(distance);
+        // Chowning's law: the wet/dry ratio rises with distance, is exactly zero at the source,
+        // and is scaled to this waypoint's own reach. The per-source multiplier folds into the
+        // ratio, so turning it down dries the source out rather than merely quieting the wash.
+        const g = reverbWetGains(distance, this.reverbReach, this.reverbSend);
 
-        // Apply wet/dry mix (equal power compensation)
-        this.wetGain.gain.value = reverb.wet;
-        this.dryGain.gain.value = Math.sqrt(1 - reverb.wet * reverb.wet);
-        this.currentWetValue = reverb.wet;
+        this.wetGain.gain.value = g.wet;
+        this.dryGain.gain.value = g.dry;
+        this.currentWetValue = g.wet;
+
+        // Widen the gap between the dry sound and the wash as the source recedes — a distance cue
+        // the wet level alone cannot give. See getReverbPreDelay.
+        if (this.wetPreDelay) {
+            this.wetPreDelay.delayTime.value = getReverbPreDelay(distance);
+        }
     }
 }
 
@@ -1070,7 +1279,7 @@ class MultiOscillatorSource extends GpsSoundSource {
         this.panner.connect(this.engine.masterGain);
         
         // Wet goes to reverb (already connected to master in engine.init)
-        this.wetGain.connect(this.engine.reverb);
+        this._connectWetPath();
     }
 
     start() {
@@ -1097,9 +1306,7 @@ class MultiOscillatorSource extends GpsSoundSource {
         });
         this.oscillators = [];
         if (this.gain) { this.gain.disconnect(); this.gain = null; }
-        if (this.dryGain) { this.dryGain.disconnect(); this.dryGain = null; }
-        if (this.wetGain) { this.wetGain.disconnect(); this.wetGain = null; }
-        if (this.panner) { this.panner.disconnect(); this.panner = null; }
+        this._disposeSharedNodes();
     }
 }
 
@@ -1201,10 +1408,14 @@ class SampleSource extends GpsSoundSource {
         // Connect wet path ONLY if reverb exists
         if (this.engine.reverb) {
             this.gain.connect(this.wetGain);
-            this.wetGain.connect(this.engine.reverb);
+            this._connectWetPath();
             // Reverb outputs to masterGain (connected in engine.init)
         }
-        
+
+        // FEATURE 25 §12: if this source was given a width, swap the dry path over to the split
+        // rendering now that the graph exists. Width 0 leaves everything exactly as it was.
+        if (this.width > 0) this._applyWidthRouting();
+
         console.log('[SampleSource] Audio chain connected (dry + wet paths ready)');
     }
 
@@ -1289,18 +1500,10 @@ class SampleSource extends GpsSoundSource {
             this.gain.disconnect();
             this.gain = null;
         }
-        if (this.dryGain) {
-            this.dryGain.disconnect();
-            this.dryGain = null;
-        }
-        if (this.wetGain) {
-            this.wetGain.disconnect();
-            this.wetGain = null;
-        }
-        if (this.panner) {
-            this.panner.disconnect();
-            this.panner = null;
-        }
+        // Also tears down the wet pre-delay and, when this source was given a width, the two
+        // split spatialisers. AreaSoundSource inherits this and has neither, which is fine —
+        // _disposeSharedNodes skips anything that was never created.
+        this._disposeSharedNodes();
         this.buffer = null;
     }
 
@@ -1903,48 +2106,110 @@ const SoundPresets = {
 /**
  * The loudest the wash ever gets, at the furthest distance band.
  *
- * Kept low on purpose: this is open air, which has almost no reverberation to reproduce.
+ * ⚠️ RAISED 2026-11-14 from 0.15, and NOT YET DIALLED BY EAR. The owner asked for the reverb to be
+ * made audible before deciding whether it is wanted per waypoint. At 0.15 the two nearest bands sat
+ * at 0.045 and 0.09 wet, which is why two of the four bands had never been heard in the project's
+ * history. This value is a starting point for a listening test, not a calibrated figure — dial it in
+ * the simulator the way the dullness floor was dialled, then record the result in the Feature 25 spec.
+ *
+ * Note decision 11 ("the wash stays as it is") is amended by this change: the owner could not hear
+ * the wash at all, so there was nothing to judge. That is what this fixes.
+ *
+ * Settable live via SpatialAudioEngine.setReverbMaxWet so a simulator slider can dial it without a
+ * code change.
  */
-const REVERB_MAX_WET = 0.15;
+const REVERB_MAX_WET = 0.35;
 
 /**
- * Distance zones within an environment
- * Fine-tunes reverb based on how far the sound is
+ * Hard ceiling on the wet/dry ratio.
+ *
+ * The ratio grows without bound as the walker moves off, because the direct sound falls far faster
+ * than the reverberation does. Left uncapped, standing well outside a small circle would ask for
+ * more than 100% wet. The cap is high enough never to bind inside a waypoint's own reach.
  */
-const REVERB_DISTANCE_ZONES = {
-    close:    { minDistance: 0, maxDistance: 10, wetMultiplier: 0.3 },    // 0-10m: Drier
-    medium:   { minDistance: 10, maxDistance: 30, wetMultiplier: 0.6 },   // 10-30m: Moderate
-    far:      { minDistance: 30, maxDistance: 60, wetMultiplier: 0.85 },  // 30-60m: Wetter
-    distant:  { minDistance: 60, maxDistance: Infinity, wetMultiplier: 1.0 }  // 60m+: Full wet
-};
+const REVERB_RATIO_CAP = 4.0;
 
 /**
- * Get the wash level for a distance.
+ * How much duller the wash is than the direct sound, as a multiplier on the direct path's cutoff.
  *
- * FEATURE 25 decision 11: this used to also return a decay figure and an environment name. The
- * decay was never consumed by anything -- the convolution tail is built once and never rebuilt --
- * and no environment could ever be selected, so both were dead weight that implied a choice the
- * system did not offer.
- *
- * @param {number} distance - Distance in meters
- * @returns {{wet: number, zone: string}}
+ * Reverberant energy has bounced many times and loses highs on every bounce, so it is duller than
+ * the direct sound at the same distance. 0.5 puts the wash's cutoff an octave below the direct
+ * path's. Derived from the air-absorption sweep rather than given a floor of its own, so the one
+ * number the owner dialled by ear (1400 Hz) still governs both.
  */
-function getReverbForDistance(distance) {
-    // Find distance zone
-    let zone = REVERB_DISTANCE_ZONES.distant;
-    for (const [zoneName, zoneData] of Object.entries(REVERB_DISTANCE_ZONES)) {
-        if (distance >= zoneData.minDistance && distance < zoneData.maxDistance) {
-            zone = zoneData;
-            break;
-        }
-    }
+const REVERB_WET_DULLNESS = 0.5;
 
-    return {
-        wet: REVERB_MAX_WET * zone.wetMultiplier,
-        zone: zone === REVERB_DISTANCE_ZONES.close ? 'close' :
-              zone === REVERB_DISTANCE_ZONES.medium ? 'medium' :
-              zone === REVERB_DISTANCE_ZONES.far ? 'far' : 'distant'
-    };
+/**
+ * The live ceiling, so setReverbMaxWet can move it without touching the constant.
+ * @type {number}
+ */
+let reverbMaxWetLive = REVERB_MAX_WET;
+
+/**
+ * The live dullness factor for the wash, so it can be dialled without touching the constant.
+ * @type {number}
+ */
+let reverbWetDullnessLive = REVERB_WET_DULLNESS;
+
+/**
+ * FEATURE 25 §12: the wet and dry gains for a distance, from Chowning's distance law.
+ *
+ * Chowning (1971) attenuated the direct sound by 1/r² and the reverberation by only 1/r, so the
+ * reverberation falls more slowly and the **ratio** between them rises with distance — about 6 dB
+ * per doubling. That ratio is the cue: a jackhammer heard from far off down a street is mostly
+ * reverberation, a busker a few metres away is almost all direct sound. Same street, different
+ * distance.
+ *
+ * This replaces four fixed distance bands, which had two faults the owner heard on 2026-11-14:
+ * inside a band the wet level did not change at all, and the nearest band was already 30% wet, so
+ * standing on the source was never dry. Both are gone — the ratio is zero at zero distance and
+ * rises continuously from there.
+ *
+ * Scaled to the waypoint's own reach rather than absolute metres, the same treatment the dullness
+ * sweep got, so a 5 m circle and a 100 m circle each get a meaningful gradient.
+ *
+ * The direct sound's own level curve is deliberately NOT touched: it is physically derived and
+ * dialled by ear, and Chowning's exponents were a musical choice rather than a measurement. Only
+ * the ratio is taken from him.
+ *
+ * @param {number} distance - Distance to the source in metres
+ * @param {number} reach - The waypoint's own reach in metres; the ratio hits the ceiling here
+ * @param {number} send - Per-source multiplier, 1.0 = unchanged
+ * @returns {{wet: number, dry: number, ratio: number}}
+ */
+function reverbWetGains(distance, reach, send) {
+    const ceiling = reverbMaxWetLive;
+    if (!(ceiling > 0)) return { wet: 0, dry: 1, ratio: 0 };
+
+    const r = Number.isFinite(distance) ? Math.max(0, distance) : 0;
+    // A source with no declared reach still needs a ruler. 60 m is the old outer band boundary.
+    const R = Number.isFinite(reach) && reach > 0 ? reach : 60;
+    const s = Number.isFinite(send) ? Math.max(0, send) : 1;
+
+    const ratio = Math.min(ceiling * (r / R) * s, REVERB_RATIO_CAP);
+
+    // Equal-power split, so raising the wash does not also raise the total level and fake an
+    // improvement. ratio 0 gives wet 0 / dry 1 exactly.
+    const norm = Math.sqrt(1 + ratio * ratio);
+    return { wet: ratio / norm, dry: 1 / norm, ratio };
+}
+
+/**
+ * Pre-delay before the wash starts, growing with distance.
+ *
+ * The gap between the direct sound and the first reflection is a distance cue that wet level alone
+ * cannot give: close sources have almost no gap, distant ones have a clear one. Capped, because past
+ * about 50 ms the gap stops reading as "far" and starts reading as "out of time".
+ *
+ * ⚠️ The 60 m ramp and the 50 ms cap are reasoned values, not measurements. Dial by ear with the
+ * wash ceiling.
+ *
+ * @param {number} distance - Distance in metres
+ * @returns {number} Pre-delay in seconds
+ */
+function getReverbPreDelay(distance) {
+    const d = Number.isFinite(distance) ? Math.max(0, distance) : 0;
+    return Math.min(d / 60, 1) * 0.05;
 }
 
 /**
@@ -1995,43 +2260,68 @@ class SpatialAudioEngine {
      * @param {number} decay - Decay factor (higher = faster decay, 8.0-15.0)
      * @returns {AudioBuffer} Impulse response buffer
      */
-    _createImpulseResponse(duration = 0.15, decay = 25.0) {
+    _createImpulseResponse(duration = 1.2, decay = 4.0, damping = { startHz: 8000, endHz: 1000 }) {
         const sampleRate = this.ctx.sampleRate;
         const length = Math.floor(sampleRate * duration);
         const impulse = this.ctx.createBuffer(2, length, sampleRate);
-        const left = impulse.getChannelData(0);
-        const right = impulse.getChannelData(1);
 
-        // Generate exponential decay noise with proper tail-off
-        // Scale down significantly to prevent accumulation/feedback
-        const noiseScale = 0.08;  // Keep IR much quieter to prevent buildup
-        const silenceThreshold = 0.001;  // Samples below this are silent
+        const noiseScale = 0.08;          // Keep the IR quiet; the wet send sets the level
+        const silenceThreshold = 0.001;   // Samples below this are truly silent
 
-        for (let i = 0; i < length; i++) {
-            // Exponential decay envelope (T60-style reverb)
-            const t = i / sampleRate;
-            const envelope = Math.exp(-decay * t);
+        // Discrete early reflections. A street canyon returns a handful of distinct bounces off
+        // the façades before the diffuse tail takes over, and those bounces are what carry
+        // distance. Pure decaying noise from t=0 has none of them, which is why the old 0.25 s IR
+        // read as "small dead room" rather than "outdoors".
+        const EARLY_TAPS = [
+            { at: 0.011, level: 0.55 },
+            { at: 0.019, level: 0.42 },
+            { at: 0.028, level: 0.33 },
+            { at: 0.041, level: 0.24 },
+            { at: 0.057, level: 0.17 }
+        ];
 
-            // Add randomness for natural reverb texture (scaled down)
-            const noise = (Math.random() * 2 - 1) * envelope * noiseScale;
-            
-            // Hard cutoff - samples below threshold are truly silent
-            left[i] = Math.abs(envelope) < silenceThreshold ? 0 : noise;
+        /**
+         * Build one channel of the tail.
+         *
+         * The low-pass tightens as the tail ages, so high frequencies die away first. Every real
+         * bounce off a wall and every metre of air removes highs, so a reverberant field is duller
+         * than the direct sound — and duller still the longer it has been travelling. Baking that
+         * into the impulse response costs nothing at runtime, unlike a filter per source per frame.
+         */
+        const buildTail = (out, levelScale, tapJitter) => {
+            let lp = 0;
+            for (let i = 0; i < length; i++) {
+                const t = i / sampleRate;
+                const envelope = Math.exp(-decay * t);
+                if (envelope < silenceThreshold) { out[i] = 0; continue; }
 
-            // Slight stereo variation with delay (scaled down)
-            const stereoDelay = Math.floor(sampleRate * 0.001); // 1ms delay
-            if (i > stereoDelay) {
-                const rightEnvelope = Math.exp(-decay * (i - stereoDelay) / sampleRate);
-                const rightNoise = (Math.random() * 2 - 1) * rightEnvelope * noiseScale * 0.7;
-                right[i] = Math.abs(rightEnvelope) < silenceThreshold ? 0 : rightNoise;
-            } else {
-                right[i] = 0;
+                // Cutoff falls exponentially from startHz to endHz across the tail
+                const progress = duration > 0 ? t / duration : 1;
+                const cutoff = damping.startHz *
+                    Math.pow(damping.endHz / damping.startHz, Math.min(progress, 1));
+                const alpha = 1 - Math.exp(-2 * Math.PI * cutoff / sampleRate);
+
+                lp += alpha * ((Math.random() * 2 - 1) - lp);
+                out[i] = lp * envelope * noiseScale * levelScale;
             }
-        }
 
-        // Verify decay reaches near-zero at end
+            // Lay the early reflections on top of the tail
+            for (const tap of EARLY_TAPS) {
+                const idx = Math.floor((tap.at + tapJitter) * sampleRate);
+                if (idx >= 0 && idx < length) {
+                    out[idx] += tap.level * noiseScale * levelScale *
+                        Math.exp(-decay * tap.at);
+                }
+            }
+        };
+
+        buildTail(impulse.getChannelData(0), 1.0, 0);
+        buildTail(impulse.getChannelData(1), 0.85, 0.0013);
+
         const finalEnvelope = Math.exp(-decay * duration);
-        console.log(`[Reverb] IR: ${duration}s, decay=${decay}, final amplitude=${(finalEnvelope * 100).toFixed(4)}%`);
+        console.log(`[Reverb] IR: ${duration}s, decay=${decay}, ` +
+            `damping ${damping.startHz}→${damping.endHz}Hz, ` +
+            `final amplitude=${(finalEnvelope * 100).toFixed(4)}%`);
 
         return impulse;
     }
@@ -2074,9 +2364,11 @@ class SpatialAudioEngine {
         this.limiter.connect(this.ctx.destination);
 
         // ALWAYS create reverb (wet path will be muted if not used)
-        // Moderate IR (0.25s) with natural decay (10.0) = pleasant reverb tail
+        // Street-like IR: 1.2 s tail with discrete early reflections and progressive damping.
+        // The old 0.25 s / decay-10 IR was a small dead room, which is the wrong character for
+        // open air and for a street canyon alike. See _createImpulseResponse.
         this.reverb = this.ctx.createConvolver();
-        this.reverbBuffer = this._createImpulseResponse(0.25, 10.0);
+        this.reverbBuffer = this._createImpulseResponse();
         this.reverb.buffer = this.reverbBuffer;
 
         // Reverb output gain (limits max level to prevent accumulation)
@@ -2092,6 +2384,88 @@ class SpatialAudioEngine {
         this._updateListenerOrientation();
         this.isInitialized = true;
         console.log('[SpatialAudioEngine] Initialized with limiter (ceiling: -3dB, 20:1, hard knee)');
+    }
+
+    /**
+     * FEATURE 25 §12: move the ceiling on the reverberation wash, live.
+     *
+     * ⚠️ Meaning changed 2026-11-14. This is now the **wet/dry ratio the wash reaches at the edge
+     * of a waypoint's own reach**, not a flat wet gain. 0.35 means the wash is about a third as
+     * loud as the direct sound at that distance, and exactly silent at the source. The distance
+     * curve still shapes it; this scales the whole curve.
+     *
+     * Exists so the simulator can dial it by ear the way the dullness floor was dialled. Sources
+     * already playing pick it up on their next distance update.
+     *
+     * @param {number} value - Ratio ceiling, 0 (no wash at all) to 1 (equal wet and dry at reach)
+     */
+    setReverbMaxWet(value) {
+        const v = Number(value);
+        if (!Number.isFinite(v)) return;
+        reverbMaxWetLive = Math.min(Math.max(v, 0), 1);
+        console.log(`[SpatialAudioEngine] Reverb wet/dry ratio ceiling set to ${reverbMaxWetLive.toFixed(3)}`);
+    }
+
+    /** @returns {number} The ratio ceiling currently in force */
+    getReverbMaxWet() {
+        return reverbMaxWetLive;
+    }
+
+    /**
+     * FEATURE 25 §12: how much duller the wash is than the direct sound, live.
+     *
+     * A multiplier on the air-absorption cutoff the dry path is already using, so the two stay in
+     * step and the dialled 1400 Hz floor still governs both. 0.5 puts the wash an octave below.
+     *
+     * @param {number} factor - 0.1 (much duller) to 1.0 (same as the direct sound)
+     */
+    setReverbWetDullness(factor) {
+        const f = Number(factor);
+        if (!Number.isFinite(f)) return;
+        reverbWetDullnessLive = Math.min(Math.max(f, 0.1), 1);
+        console.log(`[SpatialAudioEngine] Reverb wet dullness set to ${reverbWetDullnessLive.toFixed(2)}x the dry cutoff`);
+    }
+
+    /** @returns {number} The wash dullness factor currently in force */
+    getReverbWetDullness() {
+        return reverbWetDullnessLive;
+    }
+
+    /**
+     * FEATURE 25 §12: set a source's physical width, live.
+     *
+     * Above zero the source's dry path swaps from one spatialiser to two, one per stereo channel,
+     * placed either side of the bearing. Back to zero and it swaps back. Nothing is rebuilt and no
+     * playback is interrupted, so this is safe to call while walking.
+     *
+     * @param {string} id - Source id
+     * @param {number} metres - Separation between the two halves
+     * @returns {boolean} Whether a source with that id existed
+     */
+    setSourceWidth(id, metres) {
+        const source = this.sources.get(id);
+        if (!source || typeof source.setWidth !== 'function') return false;
+        source.setWidth(metres);
+        return true;
+    }
+
+    /**
+     * FEATURE 25 §13: set a source's reverberation send, live.
+     *
+     * A multiplier on what the distance curve asks for, so 1.0 is exactly the site's own wash. Read
+     * afresh on every distance update, which means the change takes effect on the next frame without
+     * rebuilding anything or interrupting playback.
+     *
+     * @param {string} id - Source id
+     * @param {number} multiplier - 0 (dry) to 4 (+12 dB)
+     * @returns {boolean} Whether a source with that id existed
+     */
+    setSourceReverbSend(id, multiplier) {
+        const source = this.sources.get(id);
+        if (!source) return false;
+        const m = Number(multiplier);
+        source.reverbSend = Number.isFinite(m) ? Math.min(Math.max(m, 0), 4) : 1;
+        return true;
     }
 
     enableKeepAlive(intervalMs = 3000) {
@@ -2857,7 +3231,14 @@ if (typeof module !== 'undefined' && module.exports) {
     window.DeviceOrientationHelper = DeviceOrientationHelper;
     window.HeadingManager = HeadingManager;
     window.GPSTracker = GPSTracker;
-    window.getReverbForDistance = getReverbForDistance;
+    // ⚠️ This line used to export getReverbForDistance, which was DELETED when the four distance
+    // bands were replaced by Chowning's ratio curve. Assigning an identifier that no longer exists
+    // is a ReferenceError at load time, and because it sits in this block it aborted every export
+    // below it -- including PHYSICAL_MODEL, which made the dynamic-range setter return NaN and its
+    // label read "NaN" forever. A syntax check cannot catch this and the CommonJS branch above never
+    // runs it, so only a browser would have shown it. Export the replacement instead.
+    window.reverbWetGains = reverbWetGains;
+    window.getReverbPreDelay = getReverbPreDelay;
     window.REVERB_MAX_WET = REVERB_MAX_WET;
     window.PHYSICAL_MODEL = PHYSICAL_MODEL;
     window.CONTAINED_BAND_M = CONTAINED_BAND_M;
