@@ -1442,10 +1442,28 @@ class SampleSource extends GpsSoundSource {
         this.sourceNode.loop = this.loop;
         console.log('[SampleSource] BufferSource created, loop=', this.loop);
 
+        // === FEATURE 28: join the piece at the point the clock says ===
+        // A looping source is continuous texture, so it enters at whatever position the piece has
+        // reached — which also means a source disposed and reloaded partway through a walk comes
+        // back in step instead of restarting. A non-looping source is an event and always plays
+        // from its own beginning; starting it partway through would truncate it.
+        const clock = this.engine ? this.engine.clock : null;
+        const timeLocked = this.loop && !!clock && clock.running;
+        const startOffset = timeLocked ? clock.offsetIn(this.buffer.duration) : 0;
+
         // === RANDOM MICRO-VARIATIONS (Organic Playback) ===
-        const randomDetune = 0.9998 + Math.random() * 0.0004;
-        this.sourceNode.playbackRate.value = randomDetune;
-        console.log('[SampleSource] Playback rate set to:', randomDetune);
+        // ±0.02% is what stops two loops of the same file from sounding mechanical. It is also what
+        // makes two parts of one piece drift apart, by up to about half a second over four minutes,
+        // so a time-locked source gives it up. Alignment without this would decay immediately.
+        if (timeLocked) {
+            this.sourceNode.playbackRate.value = 1.0;
+            console.log('[SampleSource] Time-locked to the piece clock; offset',
+                startOffset.toFixed(3), 's, no detune');
+        } else {
+            const randomDetune = 0.9998 + Math.random() * 0.0004;
+            this.sourceNode.playbackRate.value = randomDetune;
+            console.log('[SampleSource] Playback rate set to:', randomDetune);
+        }
 
         // CRITICAL: Set initial gain to 0 to prevent burst
         if (this.gain) {
@@ -1460,7 +1478,7 @@ class SampleSource extends GpsSoundSource {
         
         console.log('[SampleSource] Calling sourceNode.start()...');
         try {
-            this.sourceNode.start();
+            this.sourceNode.start(0, startOffset);
             console.log('[SampleSource] ✅ sourceNode.start() succeeded');
         } catch (err) {
             console.error('[SampleSource] ❌ sourceNode.start() FAILED:', err);
@@ -1909,15 +1927,27 @@ class AreaSoundSource extends SampleSource {
             this.sourceNode.buffer = this.buffer;
             this.sourceNode.loop = this.loop;
 
-            const randomDetune = 0.9998 + Math.random() * 0.0004;
-            this.sourceNode.playbackRate.value = randomDetune;
+            // FEATURE 28: same rule as a waypoint — a looping bed joins the piece at the point the
+            // clock says, and gives up the ±0.02% detune that would otherwise let it drift.
+            // ⚠️ Worth listening for: two areas carrying the SAME file now start in step, where
+            // before the detune kept them apart. If they overlap that can read as hollow.
+            const clock = this.engine ? this.engine.clock : null;
+            const timeLocked = this.loop && !!clock && clock.running;
+            const startOffset = timeLocked ? clock.offsetIn(this.buffer.duration) : 0;
+
+            if (timeLocked) {
+                this.sourceNode.playbackRate.value = 1.0;
+            } else {
+                const randomDetune = 0.9998 + Math.random() * 0.0004;
+                this.sourceNode.playbackRate.value = randomDetune;
+            }
 
             if (this.gain) {
                 this.gain.gain.value = 0;
             }
 
             this.sourceNode.connect(this.gain);
-            this.sourceNode.start();
+            this.sourceNode.start(0, startOffset);
 
             this.sourceNode.onended = () => {
                 if (this.loop && this.isPlaying) {
@@ -2213,12 +2243,66 @@ function getReverbPreDelay(distance) {
 }
 
 /**
+ * FEATURE 28 §4: one time base for the whole piece.
+ *
+ * Driven by the audio context's own clock rather than the wall clock, for two reasons. It is the
+ * only time base that can schedule audio sample-accurately, which a future segment scheduler would
+ * need. And it stops advancing while the context is suspended, so an incoming call or a backgrounded
+ * phone pauses the piece instead of letting it run on unheard.
+ *
+ * Deliberately standalone: it knows nothing about sources, and nothing here assumes a source has a
+ * duration or can be seeked. A stream has neither, so it cannot be aligned by offset — anything
+ * that needs "what time is it in this piece" asks the clock and decides for itself what to do.
+ *
+ * A new engine is built per session, so the clock's life matches one playback and needs no reset.
+ */
+class PieceClock {
+    constructor(ctx) {
+        this.ctx = ctx;
+        this._startCtxTime = null;
+    }
+
+    /** Begin counting from wherever the audio clock currently is. */
+    start() {
+        this._startCtxTime = this.ctx ? this.ctx.currentTime : 0;
+    }
+
+    get running() {
+        return this._startCtxTime !== null;
+    }
+
+    /** Seconds since the piece started. 0 before it starts; frozen while audio is suspended. */
+    get elapsed() {
+        if (this._startCtxTime === null || !this.ctx) return 0;
+        const t = this.ctx.currentTime - this._startCtxTime;
+        return t > 0 ? t : 0;
+    }
+
+    /**
+     * Where a looping source of this length should be right now, in seconds.
+     *
+     * Returns 0 for a length that is missing, zero, or not a number — which is what a stream
+     * reports, and the safe answer there is "start from the beginning" rather than NaN.
+     *
+     * @param {number} duration - Length of the source in seconds
+     * @returns {number} Offset into the source, always within [0, duration)
+     */
+    offsetIn(duration) {
+        const d = Number(duration);
+        if (!Number.isFinite(d) || d <= 0) return 0;
+        const offset = this.elapsed % d;
+        return offset >= 0 ? offset : 0;
+    }
+}
+
+/**
  * SpatialAudioEngine - Main audio engine
  */
 class SpatialAudioEngine {
     constructor(options = {}) {
         this.ctx = null;
         this.masterGain = null;
+        this.clock = null;  // FEATURE 28: the piece's one time base, built in init() once ctx exists
         this.listener = new EngineListener();
         this.sources = new Map();
         this.isInitialized = false;
@@ -2337,7 +2421,14 @@ class SpatialAudioEngine {
             this.ctx = new (window.AudioContext || window.webkitAudioContext)();
             console.log('[SpatialAudioEngine] Created new AudioContext');
         }
-        
+
+        // FEATURE 28: the piece's clock starts here and runs off the audio context's own time.
+        // Started before the context is resumed on purpose — a suspended context does not advance
+        // currentTime, so elapsed stays at 0 until audio is actually running, and a later
+        // suspension freezes the piece rather than letting it run on unheard.
+        this.clock = new PieceClock(this.ctx);
+        this.clock.start();
+
         // Master gain: the shared mix bus feeding the limiter. FEATURE 25 decision 4 removed the
         // device-local output trim that used to ride on it, so it stays at unity and the listener's
         // phone volume is the only level control left. That is deliberate. The phone's volume sits
@@ -3215,10 +3306,11 @@ if (typeof module !== 'undefined' && module.exports) {
         GpsSoundSource, MultiOscillatorSource, SampleSource, CachedSampleSource, AreaSoundSource, SoundPresets,
         GPSUtils, DeviceOrientationHelper, HeadingManager, GPSTracker,
         PHYSICAL_MODEL, sourceLevelFromRadius, levelAtDistance, physicalGain, fadeOutMultiplier,
-        CONTAINED_BAND_M, containedEnvelope
+        CONTAINED_BAND_M, containedEnvelope, PieceClock
     };
 } else {
     window.SpatialAudioEngine = SpatialAudioEngine;
+    window.PieceClock = PieceClock;
     window.SoundSource = SoundSource;
     window.OscillatorSource = OscillatorSource;
     window.GpsSoundSource = GpsSoundSource;
